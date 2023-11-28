@@ -13,16 +13,16 @@ export async function createSocketComponent({ config, logs }: Pick<AppComponents
   const onConnection = (socket: Socket) => {
     const id = socket.id
 
-    logger.info(`Client with id ${id} connected`)
+    logger.info(`[${id}] Connected`)
 
     clients[id] = socket
 
     socket.on('message', () => {
-      logger.info(`Received a message from client with id ${id}`)
+      logger.info(`[${id}] Message received`)
     })
 
     socket.on('disconnect', () => {
-      logger.info(`Client with id ${id} disconnected`)
+      logger.info(`[${id}] Disconnected`)
 
       delete clients[id]
     })
