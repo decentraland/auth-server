@@ -5,6 +5,7 @@ import { createDotEnvConfigComponent } from '@well-known-components/env-config-p
 import { ILoggerComponent } from '@well-known-components/interfaces'
 import { createLogComponent } from '@well-known-components/logger'
 import { createRunner } from '@well-known-components/test-helpers'
+import { createSocketComponent } from '../src/ports/socket/component'
 import { main } from '../src/service'
 import { TestComponents } from '../src/types'
 
@@ -30,11 +31,15 @@ async function initComponents(): Promise<TestComponents> {
     { path: [path.resolve(__dirname, '../.env.default'), path.resolve(__dirname, '../.env.spec')] },
     defaultConfig
   )
+
   const logs = await createLogComponent({})
+
+  const socket = await createSocketComponent({ config, logs })
 
   return {
     config,
-    logs
+    logs,
+    socket
   }
 }
 

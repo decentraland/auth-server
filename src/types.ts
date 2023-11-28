@@ -1,3 +1,4 @@
+import { ISocketComponent } from './ports/socket/types'
 import type { IConfigComponent, ILoggerComponent } from '@well-known-components/interfaces'
 
 export type GlobalContext = {
@@ -8,6 +9,7 @@ export type GlobalContext = {
 export type BaseComponents = {
   config: IConfigComponent
   logs: ILoggerComponent
+  socket: ISocketComponent
 }
 
 // components used in runtime
