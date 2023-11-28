@@ -6,7 +6,6 @@ import { ISocketComponent } from './types'
 export async function createSocketComponent({ config, logs }: Pick<AppComponents, 'config' | 'logs'>): Promise<ISocketComponent> {
   const logger = logs.getLogger('socket')
   const socketPort = await config.requireNumber('SOCKET_PORT')
-  const clients: Record<string, Socket> = {}
 
   let server: Server | null = null
 
@@ -15,16 +14,12 @@ export async function createSocketComponent({ config, logs }: Pick<AppComponents
 
     logger.info(`[${id}] Connected`)
 
-    clients[id] = socket
-
     socket.on('message', () => {
       logger.info(`[${id}] Message received`)
     })
 
     socket.on('disconnect', () => {
       logger.info(`[${id}] Disconnected`)
-
-      delete clients[id]
     })
   }
 
