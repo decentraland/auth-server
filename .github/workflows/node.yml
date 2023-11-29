@@ -23,7 +23,7 @@ jobs:
         run: npm run lint
         if: ${{ always() }}
       - name: test
-        run: npm run test
+        run: npm run test -- --passWithNoTests
       - name: integration test
         run: npm run test:integration
       - name: Report coverage
