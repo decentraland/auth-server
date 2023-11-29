@@ -1,25 +1,53 @@
 import { IBaseComponent } from '@well-known-components/interfaces'
 import { Server, Socket } from 'socket.io'
+import { v4 as uuid } from 'uuid'
 import { AppComponents } from '../../types'
-import { ISocketComponent } from './types'
+import { ISocketComponent, InitServerMessage, Message, MessageType, SignInClientMessage } from './types'
 
 export async function createSocketComponent({ config, logs }: Pick<AppComponents, 'config' | 'logs'>): Promise<ISocketComponent> {
   const logger = logs.getLogger('socket')
   const socketPort = await config.requireNumber('SOCKET_PORT')
+  const socketByRequestId = new Map<string, Socket>()
 
   let server: Server | null = null
 
   const onConnection = (socket: Socket) => {
-    const id = socket.id
+    const connectedSocketId = socket.id
 
-    logger.info(`[${id}] Connected`)
+    logger.info(`[${connectedSocketId}] Connected`)
 
-    socket.on('message', () => {
-      logger.info(`[${id}] Message received`)
+    socket.on('message', (message: Message) => {
+      logger.info(`[${connectedSocketId}] Message received`)
+
+      switch (message.type) {
+        case MessageType.INIT: {
+          const requestId = uuid()
+          socketByRequestId.set(requestId, socket)
+          const serverMessage: InitServerMessage = { type: MessageType.INIT, payload: { requestId } }
+
+          socket.emit('message', serverMessage)
+          break
+        }
+
+        case MessageType.SIGN_IN: {
+          const { payload } = message as SignInClientMessage
+          const { requestId } = payload
+          const targetSocket = socketByRequestId.get(requestId)
+
+          if (!targetSocket) {
+            logger.error(`[${connectedSocketId}] Socket for request id ${requestId} not found`)
+            return
+          }
+
+          targetSocket.emit('message', message)
+          socketByRequestId.delete(requestId)
+          break
+        }
+      }
     })
 
     socket.on('disconnect', () => {
-      logger.info(`[${id}] Disconnected`)
+      logger.info(`[${connectedSocketId}] Disconnected`)
     })
   }
 
@@ -30,7 +58,11 @@ export async function createSocketComponent({ config, logs }: Pick<AppComponents
 
     logger.info('Starting socket server...')
 
-    server = new Server({})
+    server = new Server({
+      cors: {
+        origin: '*'
+      }
+    })
 
     server.on('connection', onConnection)
 
