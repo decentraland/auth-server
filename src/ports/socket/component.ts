@@ -4,9 +4,12 @@ import { v4 as uuid } from 'uuid'
 import { AppComponents } from '../../types'
 import { ISocketComponent, InitServerMessage, Message, MessageType, SignInClientMessage } from './types'
 
-export async function createSocketComponent({ config, logs }: Pick<AppComponents, 'config' | 'logs'>): Promise<ISocketComponent> {
-  const logger = logs.getLogger('socket')
-  const socketPort = await config.requireNumber('SOCKET_PORT')
+export async function createSocketComponent(
+  { config, logs }: Pick<AppComponents, 'config' | 'logs'>,
+  { cors }: { cors?: { origin: string; methods: string } }
+): Promise<ISocketComponent> {
+  const logger = logs.getLogger('websocket-server')
+  const socketPort = await config.requireNumber('WEBSOCKET_SERVER_PORT')
   const socketByRequestId = new Map<string, Socket>()
 
   let server: Server | null = null
@@ -14,10 +17,10 @@ export async function createSocketComponent({ config, logs }: Pick<AppComponents
   const onConnection = (socket: Socket) => {
     const connectedSocketId = socket.id
 
-    logger.info(`[${connectedSocketId}] Connected`)
+    logger.log(`[${connectedSocketId}] Connected`)
 
     socket.on('message', (message: Message) => {
-      logger.info(`[${connectedSocketId}] Message received`)
+      logger.log(`[${connectedSocketId}] Message received`)
 
       switch (message.type) {
         case MessageType.INIT: {
@@ -47,7 +50,7 @@ export async function createSocketComponent({ config, logs }: Pick<AppComponents
     })
 
     socket.on('disconnect', () => {
-      logger.info(`[${connectedSocketId}] Disconnected`)
+      logger.log(`[${connectedSocketId}] Disconnected`)
     })
   }
 
@@ -56,19 +59,15 @@ export async function createSocketComponent({ config, logs }: Pick<AppComponents
       return
     }
 
-    logger.info('Starting socket server...')
+    logger.log('Starting socket server...')
 
-    server = new Server({
-      cors: {
-        origin: '*'
-      }
-    })
+    server = new Server({ cors })
 
     server.on('connection', onConnection)
 
     server.listen(socketPort)
 
-    logger.info(`Listening on port ${socketPort}`)
+    logger.log(`Listening on port ${socketPort}`)
   }
 
   const stop: IBaseComponent['stop'] = async () => {
@@ -76,7 +75,7 @@ export async function createSocketComponent({ config, logs }: Pick<AppComponents
       return
     }
 
-    logger.info('Stopping socket server...')
+    logger.log('Stopping socket server...')
 
     server.off('connection', onConnection)
 
