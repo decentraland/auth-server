@@ -1,8 +1,8 @@
+import { createServer } from 'http'
 import { IBaseComponent } from '@well-known-components/interfaces'
+import express from 'express'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
-import express from 'express'
-import { createServer } from 'http'
 import { AppComponents } from '../../types'
 import { ISocketComponent, InitServerMessage, Message, MessageType, SignInClientMessage } from './types'
 
