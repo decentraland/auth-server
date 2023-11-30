@@ -11,7 +11,7 @@ export async function createSocketComponent(
   { cors }: { cors?: { origin: string; methods: string } }
 ): Promise<ISocketComponent> {
   const logger = logs.getLogger('websocket-server')
-  const socketPort = (await config.getNumber('WEBSOCKET_SERVER_PORT')) ?? 8085
+  const socketPort = await config.requireNumber('HTTP_SERVER_PORT')
   const socketByRequestId = new Map<string, Socket>()
 
   let server: Server | null = null
@@ -66,7 +66,15 @@ export async function createSocketComponent(
     const app = express()
     const httpServer = createServer(app)
 
-    app.get('/health/ping', (_req, res) => {
+    app.get('/health/ready', (_req, res) => {
+      res.sendStatus(200)
+    })
+
+    app.get('/health/startup', (_req, res) => {
+      res.sendStatus(200)
+    })
+
+    app.get('/health/live', (_req, res) => {
       res.sendStatus(200)
     })
 
