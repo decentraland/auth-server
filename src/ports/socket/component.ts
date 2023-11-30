@@ -1,6 +1,8 @@
 import { IBaseComponent } from '@well-known-components/interfaces'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
+import express from 'express'
+import { createServer } from 'http'
 import { AppComponents } from '../../types'
 import { ISocketComponent, InitServerMessage, Message, MessageType, SignInClientMessage } from './types'
 
@@ -61,11 +63,18 @@ export async function createSocketComponent(
 
     logger.log('Starting socket server...')
 
-    server = new Server({ cors })
+    const app = express()
+    const httpServer = createServer(app)
+
+    app.get('/health/ping', (_req, res) => {
+      res.sendStatus(200)
+    })
+
+    server = new Server(httpServer, { cors })
 
     server.on('connection', onConnection)
 
-    server.listen(socketPort)
+    httpServer.listen(socketPort)
 
     logger.log(`Listening on port ${socketPort}`)
   }
