@@ -1,6 +1,6 @@
 import { IBaseComponent } from '@well-known-components/interfaces'
 
-export type ISocketComponent = IBaseComponent
+export type IWebSocketComponent = IBaseComponent
 
 export enum MessageType {
   INIT = 'init',

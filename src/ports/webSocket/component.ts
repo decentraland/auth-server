@@ -4,14 +4,13 @@ import express from 'express'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
 import { AppComponents } from '../../types'
-import { ISocketComponent, InitServerMessage, Message, MessageType, SignInClientMessage } from './types'
+import { IWebSocketComponent, InitServerMessage, Message, MessageType, SignInClientMessage } from './types'
 
-export async function createSocketComponent(
-  { config, logs }: Pick<AppComponents, 'config' | 'logs'>,
-  { cors }: { cors?: { origin: string; methods: string } }
-): Promise<ISocketComponent> {
+export async function createWebSocketComponent({ config, logs }: Pick<AppComponents, 'config' | 'logs'>): Promise<IWebSocketComponent> {
   const logger = logs.getLogger('websocket-server')
-  const socketPort = await config.requireNumber('HTTP_SERVER_PORT')
+  const webSocketPort = await config.requireNumber('HTTP_SERVER_PORT')
+  const corsOrigin = await config.requireString('CORS_ORIGIN')
+  const corsMethods = await config.requireString('CORS_METHODS')
   const socketByRequestId = new Map<string, Socket>()
 
   let server: Server | null = null
@@ -78,13 +77,13 @@ export async function createSocketComponent(
       res.sendStatus(200)
     })
 
-    server = new Server(httpServer, { cors })
+    server = new Server(httpServer, { cors: { origin: corsOrigin, methods: corsMethods } })
 
     server.on('connection', onConnection)
 
-    httpServer.listen(socketPort)
+    httpServer.listen(webSocketPort)
 
-    logger.log(`Listening on port ${socketPort}`)
+    logger.log(`Listening on port ${webSocketPort}`)
   }
 
   const stop: IBaseComponent['stop'] = async () => {
