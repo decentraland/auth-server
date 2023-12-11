@@ -4,11 +4,11 @@ import express from 'express'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
 import { AppComponents } from '../../types'
-import { IWebSocketComponent, InitServerMessage, Message, MessageType, SignInClientMessage } from './types'
+import { IServerComponent, InitServerMessage, Message, MessageType, SignInClientMessage } from './types'
 
-export async function createWebSocketComponent({ config, logs }: Pick<AppComponents, 'config' | 'logs'>): Promise<IWebSocketComponent> {
+export async function createServerComponent({ config, logs }: Pick<AppComponents, 'config' | 'logs'>): Promise<IServerComponent> {
   const logger = logs.getLogger('websocket-server')
-  const webSocketPort = await config.requireNumber('HTTP_SERVER_PORT')
+  const port = await config.requireNumber('HTTP_SERVER_PORT')
   const corsOrigin = await config.requireString('CORS_ORIGIN')
   const corsMethods = await config.requireString('CORS_METHODS')
   const socketByRequestId = new Map<string, Socket>()
@@ -81,9 +81,9 @@ export async function createWebSocketComponent({ config, logs }: Pick<AppCompone
 
     server.on('connection', onConnection)
 
-    httpServer.listen(webSocketPort)
+    httpServer.listen(port)
 
-    logger.log(`Listening on port ${webSocketPort}`)
+    logger.log(`Listening on port ${port}`)
   }
 
   const stop: IBaseComponent['stop'] = async () => {

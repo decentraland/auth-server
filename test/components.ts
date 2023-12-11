@@ -4,7 +4,7 @@ import path from 'node:path'
 import { createDotEnvConfigComponent } from '@well-known-components/env-config-provider'
 import { createLogComponent } from '@well-known-components/logger'
 import { createRunner } from '@well-known-components/test-helpers'
-import { createWebSocketComponent } from '../src/ports/webSocket/component'
+import { createServerComponent } from '../src/ports/server/component'
 import { main } from '../src/service'
 import { TestComponents } from '../src/types'
 
@@ -42,11 +42,11 @@ async function initComponents(): Promise<TestComponents> {
 
   const logs = await createLogComponent({})
 
-  const webSocketServer = await createWebSocketComponent({ config, logs })
+  const server = await createServerComponent({ config, logs })
 
   return {
     config,
     logs,
-    webSocket: webSocketServer
+    server
   }
 }
