@@ -4,26 +4,33 @@ export type IServerComponent = IBaseComponent
 
 export enum MessageType {
   INIT = 'init',
-  SIGN_IN = 'sign-in'
+  SIGNATURE = 'signature'
 }
 
 export type Message = {
   type: MessageType
 }
 
-export type InitServerMessage = Message & {
-  type: MessageType.INIT
-  payload: {
-    requestId: string
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export namespace ClientMessage {
+  export type Signature = Message & {
+    type: MessageType.SIGNATURE
+    payload: {
+      requestId: string
+      signer: string
+      signature: string
+    }
   }
 }
 
-export type SignInClientMessage = Message & {
-  type: MessageType.SIGN_IN
-  payload: {
-    requestId: string
-    address: string
-    signature: string
-    expiration: Date
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export namespace ServerMessage {
+  export type Init = Message & {
+    type: MessageType.INIT
+    payload: {
+      requestId: string
+    }
   }
+
+  export type Signature = ClientMessage.Signature
 }

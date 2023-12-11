@@ -4,7 +4,7 @@ import express from 'express'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
 import { AppComponents } from '../../types'
-import { IServerComponent, InitServerMessage, Message, MessageType, SignInClientMessage } from './types'
+import { ClientMessage, IServerComponent, Message, MessageType, ServerMessage } from './types'
 
 export async function createServerComponent({ config, logs }: Pick<AppComponents, 'config' | 'logs'>): Promise<IServerComponent> {
   const logger = logs.getLogger('websocket-server')
@@ -27,14 +27,13 @@ export async function createServerComponent({ config, logs }: Pick<AppComponents
         case MessageType.INIT: {
           const requestId = uuid()
           socketByRequestId.set(requestId, socket)
-          const serverMessage: InitServerMessage = { type: MessageType.INIT, payload: { requestId } }
-
+          const serverMessage: ServerMessage.Init = { type: MessageType.INIT, payload: { requestId } }
           socket.emit('message', serverMessage)
           break
         }
 
-        case MessageType.SIGN_IN: {
-          const { payload } = message as SignInClientMessage
+        case MessageType.SIGNATURE: {
+          const { payload } = message as ClientMessage.Signature
           const { requestId } = payload
           const targetSocket = socketByRequestId.get(requestId)
 
@@ -43,8 +42,9 @@ export async function createServerComponent({ config, logs }: Pick<AppComponents
             return
           }
 
-          targetSocket.emit('message', message)
           socketByRequestId.delete(requestId)
+          const serverMessage: ServerMessage.Signature = message as ServerMessage.Signature
+          targetSocket.emit('message', serverMessage)
           break
         }
       }
