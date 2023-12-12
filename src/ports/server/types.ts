@@ -15,6 +15,7 @@ export enum MessageType {
 
 export type RequestMessage = {
   type: MessageType.REQUEST
+  // @eslint-ignore-next-line
   payload: any
 }
 
