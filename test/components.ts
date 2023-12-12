@@ -5,6 +5,7 @@ import { createDotEnvConfigComponent } from '@well-known-components/env-config-p
 import { createLogComponent } from '@well-known-components/logger'
 import { createRunner } from '@well-known-components/test-helpers'
 import { createServerComponent } from '../src/ports/server/component'
+import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
 import { TestComponents } from '../src/types'
 
@@ -42,11 +43,14 @@ async function initComponents(): Promise<TestComponents> {
 
   const logs = await createLogComponent({})
 
-  const server = await createServerComponent({ config, logs })
+  const storage = createStorageComponent()
+
+  const server = await createServerComponent({ config, logs, storage })
 
   return {
     config,
     logs,
-    server
+    server,
+    storage
   }
 }

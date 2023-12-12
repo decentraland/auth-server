@@ -1,4 +1,5 @@
 import { IServerComponent } from './ports/server/types'
+import { IStorageComponent } from './ports/storage/types'
 import type { IConfigComponent, ILoggerComponent } from '@well-known-components/interfaces'
 
 export type GlobalContext = {
@@ -10,6 +11,7 @@ export type BaseComponents = {
   config: IConfigComponent
   logs: ILoggerComponent
   server: IServerComponent
+  storage: IStorageComponent
 }
 
 // components used in runtime
