@@ -1,8 +1,8 @@
-import { Message } from '../server/types'
+import { RequestMessage } from '../server/types'
 import { IStorageComponent } from './types'
 
 export function createStorageComponent(): IStorageComponent {
-  const messages: Record<string, Message> = {}
+  const messages: Record<string, RequestMessage['payload']> = {}
   const socketIds: Record<string, string> = {}
 
   // Messages
@@ -11,7 +11,7 @@ export function createStorageComponent(): IStorageComponent {
     return messages[requestId] ?? null
   }
 
-  const setMessage = (requestId: string, message: Message) => {
+  const setMessage = (requestId: string, message: RequestMessage['payload']) => {
     messages[requestId] = message
   }
 

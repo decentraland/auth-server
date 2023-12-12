@@ -46,7 +46,7 @@ export async function createServerComponent({
           const requestId = uuid()
 
           storage.setSocketId(requestId, socket.id)
-          storage.setMessage(requestId, message)
+          storage.setMessage(requestId, message.payload)
 
           socket.emit('message', {
             type: MessageType.REQUEST_RESPONSE,

@@ -11,12 +11,19 @@ export enum MessageType {
   SUBMIT_SIGNATURE_RESPONSE = 'submit-signature-response'
 }
 
+export enum RequestType {
+  SIGNATURE = 'signature'
+}
+
 // Request Messages
 
 export type RequestMessage = {
   type: MessageType.REQUEST
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  payload: any
+  payload: {
+    type: RequestType.SIGNATURE
+    data: string
+  }
 }
 
 export type RequestResponseMessage = {
@@ -48,7 +55,7 @@ export type RecoverResponseMessage = {
   } & (
     | {
         ok: true
-        message: Message
+        message: RequestMessage['payload']
       }
     | {
         ok: false

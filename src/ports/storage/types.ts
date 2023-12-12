@@ -1,8 +1,8 @@
-import { Message } from '../server/types'
+import { RequestMessage } from '../server/types'
 
 export type IStorageComponent = {
-  getMessage(requestId: string): Message | null
-  setMessage(requestId: string, message: Message): void
+  getMessage(requestId: string): RequestMessage['payload'] | null
+  setMessage(requestId: string, message: RequestMessage['payload']): void
   getSocketId(requestId: string): string | null
   setSocketId(requestId: string, socketId: string): void
 }
