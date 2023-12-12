@@ -142,10 +142,10 @@ socket.emit('message', {
     publicKey: ephemeralAccount.publicKey, // Generated on step 1.
   },
   authChain: [
-    { 
-      type: AuthLinkType.SIGNER, 
+    {
+      type: AuthLinkType.SIGNER,
       payload: signer, // Obtained from the server.
-      signature: "" 
+      signature: ""
     },
     {
       type: signature.length === 132 ? AuthLinkType.ECDSA_PERSONAL_EPHEMERAL : AuthLinkType.ECDSA_EIP_1654_EPHEMERAL, // Obtained from the server.
