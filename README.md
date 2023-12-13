@@ -155,3 +155,5 @@ socket.emit('message', {
 ```
 
 6. With the Auth Identity ready and stored on the client, the user can be considered as logged in, so there is no need to execute the flow again unless disconnecting first.
+
+.
