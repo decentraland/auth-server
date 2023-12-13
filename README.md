@@ -60,11 +60,9 @@ socket.emit('message', {
 {
   type: 'recover-response',
   payload: {
-    requestId: 'some request id (a random uuid)'
-    message: {
-      type: 'signature'
-      data: 'data to be signed on the browser'
-    }
+    requestId: 'some request id (a random uuid)',
+    type: 'signature',
+    data: 'data to be signed on the browser'
   }
 }
 ```

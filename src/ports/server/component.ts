@@ -82,7 +82,7 @@ export async function createServerComponent({
             payload: {
               ok: true,
               requestId,
-              message: storageMessage
+              ...storageMessage
             }
           } as RecoverResponseMessage)
 

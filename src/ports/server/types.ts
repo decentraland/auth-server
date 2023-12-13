@@ -53,10 +53,9 @@ export type RecoverResponseMessage = {
   payload: {
     requestId: string
   } & (
-    | {
+    | ({
         ok: true
-        message: RequestMessage['payload']
-      }
+      } & RequestMessage['payload'])
     | {
         ok: false
         error: string
