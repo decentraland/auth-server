@@ -34,22 +34,22 @@ async function connectClient(args: TestArguments<BaseComponents>) {
   })
 }
 
-async function fetch(sentMessage: Message) {
+async function fetch(sentMessage: Message, sender: Socket = socketA, receiver: Socket = socketA) {
   return new Promise<Message>(resolve => {
-    socketA.on('message', (receivedMessage: Message) => {
+    receiver.on('message', (receivedMessage: Message) => {
       resolve(receivedMessage)
     })
 
-    socketA.emit('message', sentMessage)
+    sender.emit('message', sentMessage)
   })
 }
 
-test('when sending a request type message with an invalid schema', args => {
+test('when sending a request message with an invalid schema', args => {
   beforeEach(async () => {
     await connectClient(args)
   })
 
-  it('should respond with an error response', async () => {
+  it('should respond with a request response containing an error', async () => {
     const message = await fetch({
       type: MessageType.REQUEST,
       payload: {
@@ -68,12 +68,12 @@ test('when sending a request type message with an invalid schema', args => {
   })
 })
 
-test('when sending a request type message with a valid schema', args => {
+test('when sending a request message with a valid schema', args => {
   beforeEach(async () => {
     await connectClient(args)
   })
 
-  it('should respond with a message containing a request id', async () => {
+  it('should respond with a request response message containing a request id', async () => {
     const message = await fetch({
       type: MessageType.REQUEST,
       payload: {
@@ -92,12 +92,12 @@ test('when sending a request type message with a valid schema', args => {
   })
 })
 
-test('when sending a recover type message with an invalid schema', args => {
+test('when sending a recover message with an invalid schema', args => {
   beforeEach(async () => {
     await connectClient(args)
   })
 
-  it('should respond with an error response', async () => {
+  it('should respond with a recover response message containing an error', async () => {
     const message = await fetch({
       type: MessageType.RECOVER,
       payload: {
@@ -116,12 +116,12 @@ test('when sending a recover type message with an invalid schema', args => {
   })
 })
 
-test('when sending a recover type message with an invalid schema but containing a request id', args => {
+test('when sending a recover message with an invalid schema but containing a request id', args => {
   beforeEach(async () => {
     await connectClient(args)
   })
 
-  it('should respond with an error response with the request id', async () => {
+  it('should respond with a recover response message containing an error and the request id', async () => {
     const message = await fetch({
       type: MessageType.RECOVER,
       payload: {
@@ -142,12 +142,12 @@ test('when sending a recover type message with an invalid schema but containing 
   })
 })
 
-test('when sending a recover type message with a valid schema but the request id does not exist', args => {
+test('when sending a recover message with a valid schema but the request id does not exist', args => {
   beforeEach(async () => {
     await connectClient(args)
   })
 
-  it('should respond with an error response', async () => {
+  it('should respond with a recover response message containing an error', async () => {
     const message = await fetch({
       type: MessageType.RECOVER,
       payload: {
@@ -166,7 +166,7 @@ test('when sending a recover type message with a valid schema but the request id
   })
 })
 
-test('when sending a recover type message with an existing request id for a signature request', args => {
+test('when sending a recover message with a valid schema and a request id that exists', args => {
   let requestId: string
 
   beforeEach(async () => {
@@ -186,7 +186,7 @@ test('when sending a recover type message with an existing request id for a sign
     requestId = message.payload.requestId
   })
 
-  it('should respond with a recover response with the request payload data', async () => {
+  it('should respond with a recover response message containing the stored request payload', async () => {
     const message = await fetch({
       type: MessageType.RECOVER,
       payload: {
@@ -206,12 +206,12 @@ test('when sending a recover type message with an existing request id for a sign
   })
 })
 
-test('when sending a submit signature type message with an invalid schema', args => {
+test('when sending a submit signature message with an invalid schema', args => {
   beforeEach(async () => {
     await connectClient(args)
   })
 
-  it('should respond with an error response', async () => {
+  it('should respond with a submit signature response message containing an error', async () => {
     const message = await fetch({
       type: MessageType.SUBMIT_SIGNATURE,
       payload: {
@@ -230,12 +230,12 @@ test('when sending a submit signature type message with an invalid schema', args
   })
 })
 
-test('when sending a submit signature type message with an invalid schema but containing a request id', args => {
+test('when sending a submit signature message with an invalid schema but containing a request id', args => {
   beforeEach(async () => {
     await connectClient(args)
   })
 
-  it('should respond with an error response with the request id', async () => {
+  it('should respond with a submit signature response message containing an error and the request id', async () => {
     const message = await fetch({
       type: MessageType.SUBMIT_SIGNATURE,
       payload: {
@@ -256,12 +256,12 @@ test('when sending a submit signature type message with an invalid schema but co
   })
 })
 
-test('when sending a submit signature type message with a valid schema but the request id does not exist', args => {
+test('when sending a submit signature message with a valid schema but the request id does not exist', args => {
   beforeEach(async () => {
     await connectClient(args)
   })
 
-  it('should respond with an error response', async () => {
+  it('should respond with a submit signature response message containing an error', async () => {
     const message = await fetch({
       type: MessageType.SUBMIT_SIGNATURE,
       payload: {
@@ -282,7 +282,7 @@ test('when sending a submit signature type message with a valid schema but the r
   })
 })
 
-test('when sending a submit signature type message with an existing request id', args => {
+test('when sending a submit signature message with a valid schema and a request id that exists', args => {
   let requestId: string
 
   beforeEach(async () => {
@@ -302,7 +302,7 @@ test('when sending a submit signature type message with an existing request id',
     requestId = message.payload.requestId
   })
 
-  it('should respond with a submit signature response with the submit signature message data', async () => {
+  it('should respond with a submit signature response message with the submit signature payload', async () => {
     const message = await fetch({
       type: MessageType.SUBMIT_SIGNATURE,
       payload: {
@@ -311,6 +311,56 @@ test('when sending a submit signature type message with an existing request id',
         signature: 'signature'
       }
     })
+
+    expect(message).toEqual({
+      type: MessageType.SUBMIT_SIGNATURE_RESPONSE,
+      payload: {
+        ok: true,
+        requestId,
+        signer: 'signer',
+        signature: 'signature'
+      }
+    })
+  })
+})
+
+test('when socket B sends the request message and then socket A sends the submit signature message', args => {
+  let requestId: string
+
+  beforeEach(async () => {
+    await connectClient(args)
+
+    const message = await fetch(
+      {
+        type: MessageType.REQUEST,
+        payload: {
+          type: RequestType.SIGNATURE,
+          data: 'data to sign'
+        }
+      },
+      socketB,
+      socketB
+    )
+
+    assert(message.type === MessageType.REQUEST_RESPONSE)
+    assert(message.payload.ok)
+
+    requestId = message.payload.requestId
+  })
+
+  it('should be socket B that receives the submit signature response message', async () => {
+    const message = await fetch(
+      {
+        type: MessageType.SUBMIT_SIGNATURE,
+        payload: {
+          requestId,
+          signer: 'signer',
+          signature: 'signature'
+        }
+      },
+      socketA,
+      socketB
+    )
 
     expect(message).toEqual({
       type: MessageType.SUBMIT_SIGNATURE_RESPONSE,
