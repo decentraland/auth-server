@@ -1,5 +1,6 @@
 // This file is the "test-environment" analogous for src/components.ts
 // Here we define the test components to be used in the testing environment
+import net from 'net'
 import path from 'node:path'
 import { createDotEnvConfigComponent } from '@well-known-components/env-config-provider'
 import { createLogComponent } from '@well-known-components/logger'
@@ -8,7 +9,6 @@ import { createServerComponent } from '../src/ports/server/component'
 import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
 import { TestComponents } from '../src/types'
-import net from 'net'
 
 /**
  * Finds an open port using the node net library.
