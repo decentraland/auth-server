@@ -49,17 +49,16 @@ export type RecoverMessage = {
 
 export type RecoverResponseMessage = {
   type: MessageType.RECOVER_RESPONSE
-  payload: {
-    requestId: string
-  } & (
+  payload:
     | ({
         ok: true
+        requestId: string
       } & RequestMessage['payload'])
     | {
         ok: false
+        requestId?: string
         error: string
       }
-  )
 }
 
 // Signature Submission Messages
@@ -75,19 +74,18 @@ export type SubmitSignatureMessage = {
 
 export type SubmitSignatureResponseMessage = {
   type: MessageType.SUBMIT_SIGNATURE_RESPONSE
-  payload: {
-    requestId: string
-  } & (
+  payload:
     | {
         ok: true
+        requestId: string
         signer: string
         signature: string
       }
     | {
         ok: false
+        requestId?: string
         error: string
       }
-  )
 }
 
 export type Message =
