@@ -58,7 +58,8 @@ test('when sending an object as a message with an invalid schema', args => {
       type: MessageType.INVALID_RESPONSE,
       payload: {
         ok: false,
-        error: `[{\"instancePath\":\"\",\"schemaPath\":\"#/required\",\"keyword\":\"required\",\"params\":{\"missingProperty\":\"type\"},\"message\":\"must have required property 'type'\"}]`
+        error:
+          '[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"type"},"message":"must have required property \'type\'"}]'
       }
     })
   })
@@ -82,7 +83,8 @@ test('when sending an object as a message that has an invalid schema but contain
       payload: {
         ok: false,
         requestId: 'foo',
-        error: `[{\"instancePath\":\"\",\"schemaPath\":\"#/required\",\"keyword\":\"required\",\"params\":{\"missingProperty\":\"type\"},\"message\":\"must have required property 'type'\"}]`
+        error:
+          '[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"type"},"message":"must have required property \'type\'"}]'
       }
     })
   })
@@ -102,7 +104,8 @@ test('when sending an object as a message that has a response type', args => {
       type: MessageType.INVALID_RESPONSE,
       payload: {
         ok: false,
-        error: `[{\"instancePath\":\"/type\",\"schemaPath\":\"#/properties/type/enum\",\"keyword\":\"enum\",\"params\":{\"allowedValues\":[\"request\",\"recover\",\"submit-signature\"]},\"message\":\"must be equal to one of the allowed values\"}]`
+        error:
+          '[{"instancePath":"/type","schemaPath":"#/properties/type/enum","keyword":"enum","params":{"allowedValues":["request","recover","submit-signature"]},"message":"must be equal to one of the allowed values"}]'
       }
     })
   })
@@ -120,7 +123,7 @@ test('when sending null as a message', args => {
       type: MessageType.INVALID_RESPONSE,
       payload: {
         ok: false,
-        error: `[{\"instancePath\":\"\",\"schemaPath\":\"#/type\",\"keyword\":\"type\",\"params\":{\"type\":\"object\"},\"message\":\"must be object\"}]`
+        error: '[{"instancePath":"","schemaPath":"#/type","keyword":"type","params":{"type":"object"},"message":"must be object"}]'
       }
     })
   })
@@ -138,7 +141,7 @@ test('when sending a string as a message', args => {
       type: MessageType.INVALID_RESPONSE,
       payload: {
         ok: false,
-        error: `[{\"instancePath\":\"\",\"schemaPath\":\"#/type\",\"keyword\":\"type\",\"params\":{\"type\":\"object\"},\"message\":\"must be object\"}]`
+        error: '[{"instancePath":"","schemaPath":"#/type","keyword":"type","params":{"type":"object"},"message":"must be object"}]'
       }
     })
   })
