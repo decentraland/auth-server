@@ -8,12 +8,25 @@ import { createServerComponent } from '../src/ports/server/component'
 import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
 import { TestComponents } from '../src/types'
+import net from 'net'
 
-// start TCP port for listeners
-const lastUsedPort = 19000 + parseInt(process.env.JEST_WORKER_ID || '1') * 1000
-
-function getFreePort() {
-  return lastUsedPort + 1
+/**
+ * Finds an open port using the node net library.
+ * It works by starting a server on a random port, saving the port, and stopping the server.
+ * The saved port, which is now available, is returned.
+ */
+function findOpenPort() {
+  return new Promise<number>((resolve, reject) => {
+    const server = net.createServer()
+    server.unref()
+    server.on('error', reject)
+    server.listen(() => {
+      const info = server.address() as { port: number }
+      server.close(() => {
+        resolve(info.port)
+      })
+    })
+  })
 }
 
 /**
@@ -29,22 +42,15 @@ export const test = createRunner<TestComponents>({
 })
 
 async function initComponents(): Promise<TestComponents> {
-  const currentPort = getFreePort()
-
-  // default config from process.env + .env file
-  const defaultConfig = {
-    HTTP_SERVER_PORT: (currentPort + 1).toString()
-  }
+  const httpServerPort = await findOpenPort()
 
   const config = await createDotEnvConfigComponent(
-    { path: [path.resolve(__dirname, '../.env.default'), path.resolve(__dirname, '../.env.spec')] },
-    defaultConfig
+    { path: [path.resolve(__dirname, '../.env.spec')] },
+    { HTTP_SERVER_PORT: httpServerPort.toString() }
   )
 
   const logs = await createLogComponent({})
-
   const storage = createStorageComponent()
-
   const server = await createServerComponent({ config, logs, storage })
 
   return {
