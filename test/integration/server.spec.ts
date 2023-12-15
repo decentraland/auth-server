@@ -12,7 +12,7 @@ afterEach(() => {
   socketA.close()
 })
 
-async function connectClient(args: TestArguments<BaseComponents>) {
+async function connectClients(args: TestArguments<BaseComponents>) {
   const port = await args.components.config.getString('HTTP_SERVER_PORT')
 
   socketA = io(`http://localhost:${port}`)
@@ -44,9 +44,109 @@ async function fetch(sentMessage: Message, sender: Socket = socketA, receiver: S
   })
 }
 
+test('when sending an object as a message with an invalid schema', args => {
+  beforeEach(async () => {
+    await connectClients(args)
+  })
+
+  it('should respond with an invalid response message containing an error', async () => {
+    const message = await fetch({
+      foo: 'bar'
+    } as unknown as Message)
+
+    expect(message).toEqual({
+      type: MessageType.INVALID_RESPONSE,
+      payload: {
+        ok: false,
+        error: `[{\"instancePath\":\"\",\"schemaPath\":\"#/required\",\"keyword\":\"required\",\"params\":{\"missingProperty\":\"type\"},\"message\":\"must have required property 'type'\"}]`
+      }
+    })
+  })
+})
+
+test('when sending an object as a message that has an invalid schema but contains a request id', args => {
+  beforeEach(async () => {
+    await connectClients(args)
+  })
+
+  it('should respond with an invalid response message containing an error and the request id', async () => {
+    const message = await fetch({
+      foo: 'bar',
+      payload: {
+        requestId: 'foo'
+      }
+    } as unknown as Message)
+
+    expect(message).toEqual({
+      type: MessageType.INVALID_RESPONSE,
+      payload: {
+        ok: false,
+        requestId: 'foo',
+        error: `[{\"instancePath\":\"\",\"schemaPath\":\"#/required\",\"keyword\":\"required\",\"params\":{\"missingProperty\":\"type\"},\"message\":\"must have required property 'type'\"}]`
+      }
+    })
+  })
+})
+
+test('when sending an object as a message that has a response type', args => {
+  beforeEach(async () => {
+    await connectClients(args)
+  })
+
+  it('should respond with an invalid response message containing an error', async () => {
+    const message = await fetch({
+      type: MessageType.REQUEST_RESPONSE
+    } as unknown as Message)
+
+    expect(message).toEqual({
+      type: MessageType.INVALID_RESPONSE,
+      payload: {
+        ok: false,
+        error: `[{\"instancePath\":\"/type\",\"schemaPath\":\"#/properties/type/enum\",\"keyword\":\"enum\",\"params\":{\"allowedValues\":[\"request\",\"recover\",\"submit-signature\"]},\"message\":\"must be equal to one of the allowed values\"}]`
+      }
+    })
+  })
+})
+
+test('when sending null as a message', args => {
+  beforeEach(async () => {
+    await connectClients(args)
+  })
+
+  it('should respond with an invalid response message containing an error', async () => {
+    const message = await fetch(null as unknown as Message)
+
+    expect(message).toEqual({
+      type: MessageType.INVALID_RESPONSE,
+      payload: {
+        ok: false,
+        error: `[{\"instancePath\":\"\",\"schemaPath\":\"#/type\",\"keyword\":\"type\",\"params\":{\"type\":\"object\"},\"message\":\"must be object\"}]`
+      }
+    })
+  })
+})
+
+test('when sending a string as a message', args => {
+  beforeEach(async () => {
+    await connectClients(args)
+  })
+
+  it('should respond with an invalid response message containing an error', async () => {
+    const message = await fetch('foo' as unknown as Message)
+
+    expect(message).toEqual({
+      type: MessageType.INVALID_RESPONSE,
+      payload: {
+        ok: false,
+        error: `[{\"instancePath\":\"\",\"schemaPath\":\"#/type\",\"keyword\":\"type\",\"params\":{\"type\":\"object\"},\"message\":\"must be object\"}]`
+      }
+    })
+  })
+})
+
 test('when sending a request message with an invalid schema', args => {
   beforeEach(async () => {
-    await connectClient(args)
+    await connectClients(args)
   })
 
   it('should respond with a request response containing an error', async () => {
@@ -70,7 +170,7 @@ test('when sending a request message with an invalid schema', args => {
 
 test('when sending a request message with a valid schema', args => {
   beforeEach(async () => {
-    await connectClient(args)
+    await connectClients(args)
   })
 
   it('should respond with a request response message containing a request id', async () => {
@@ -94,7 +194,7 @@ test('when sending a request message with a valid schema', args => {
 
 test('when sending a recover message with an invalid schema', args => {
   beforeEach(async () => {
-    await connectClient(args)
+    await connectClients(args)
   })
 
   it('should respond with a recover response message containing an error', async () => {
@@ -118,7 +218,7 @@ test('when sending a recover message with an invalid schema', args => {
 
 test('when sending a recover message with an invalid schema but containing a request id', args => {
   beforeEach(async () => {
-    await connectClient(args)
+    await connectClients(args)
   })
 
   it('should respond with a recover response message containing an error and the request id', async () => {
@@ -144,7 +244,7 @@ test('when sending a recover message with an invalid schema but containing a req
 
 test('when sending a recover message with a valid schema but the request id does not exist', args => {
   beforeEach(async () => {
-    await connectClient(args)
+    await connectClients(args)
   })
 
   it('should respond with a recover response message containing an error', async () => {
@@ -170,7 +270,7 @@ test('when sending a recover message with a valid schema and a request id that e
   let requestId: string
 
   beforeEach(async () => {
-    await connectClient(args)
+    await connectClients(args)
 
     const message = await fetch({
       type: MessageType.REQUEST,
@@ -208,7 +308,7 @@ test('when sending a recover message with a valid schema and a request id that e
 
 test('when sending a submit signature message with an invalid schema', args => {
   beforeEach(async () => {
-    await connectClient(args)
+    await connectClients(args)
   })
 
   it('should respond with a submit signature response message containing an error', async () => {
@@ -232,7 +332,7 @@ test('when sending a submit signature message with an invalid schema', args => {
 
 test('when sending a submit signature message with an invalid schema but containing a request id', args => {
   beforeEach(async () => {
-    await connectClient(args)
+    await connectClients(args)
   })
 
   it('should respond with a submit signature response message containing an error and the request id', async () => {
@@ -258,7 +358,7 @@ test('when sending a submit signature message with an invalid schema but contain
 
 test('when sending a submit signature message with a valid schema but the request id does not exist', args => {
   beforeEach(async () => {
-    await connectClient(args)
+    await connectClients(args)
   })
 
   it('should respond with a submit signature response message containing an error', async () => {
@@ -286,7 +386,7 @@ test('when sending a submit signature message with a valid schema and a request 
   let requestId: string
 
   beforeEach(async () => {
-    await connectClient(args)
+    await connectClients(args)
 
     const message = await fetch({
       type: MessageType.REQUEST,
@@ -328,7 +428,7 @@ test('when socket B sends the request message and then socket A sends the submit
   let requestId: string
 
   beforeEach(async () => {
-    await connectClient(args)
+    await connectClients(args)
 
     const message = await fetch(
       {
