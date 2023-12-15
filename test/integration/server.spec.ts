@@ -1,9 +1,9 @@
-import { Socket, io } from 'socket.io-client'
-import { test } from '../components'
-import { Message, MessageType, RequestType } from '../../src/ports/server/types'
-import { TestArguments } from '@well-known-components/test-helpers'
-import { BaseComponents } from '../../src/types'
 import assert from 'assert'
+import { TestArguments } from '@well-known-components/test-helpers'
+import { Socket, io } from 'socket.io-client'
+import { Message, MessageType, RequestType } from '../../src/ports/server/types'
+import { BaseComponents } from '../../src/types'
+import { test } from '../components'
 
 let socketA: Socket
 let socketB: Socket
@@ -61,7 +61,8 @@ test('when sending a request type message with an invalid schema', args => {
       type: MessageType.REQUEST_RESPONSE,
       payload: {
         ok: false,
-        error: `[{\"instancePath\":\"/payload\",\"schemaPath\":\"#/properties/payload/required\",\"keyword\":\"required\",\"params\":{\"missingProperty\":\"type\"},\"message\":\"must have required property 'type'\"}]`
+        error:
+          '[{"instancePath":"/payload","schemaPath":"#/properties/payload/required","keyword":"required","params":{"missingProperty":"type"},"message":"must have required property \'type\'"}]'
       }
     })
   })
@@ -108,7 +109,8 @@ test('when sending a recover type message with an invalid schema', args => {
       type: MessageType.RECOVER_RESPONSE,
       payload: {
         ok: false,
-        error: `[{\"instancePath\":\"/payload\",\"schemaPath\":\"#/properties/payload/required\",\"keyword\":\"required\",\"params\":{\"missingProperty\":\"requestId\"},\"message\":\"must have required property 'requestId'\"}]`
+        error:
+          '[{"instancePath":"/payload","schemaPath":"#/properties/payload/required","keyword":"required","params":{"missingProperty":"requestId"},"message":"must have required property \'requestId\'"}]'
       }
     })
   })
@@ -133,7 +135,8 @@ test('when sending a recover type message with an invalid schema but containing 
       payload: {
         ok: false,
         requestId: 'foo',
-        error: `[{\"instancePath\":\"/payload\",\"schemaPath\":\"#/properties/payload/additionalProperties\",\"keyword\":\"additionalProperties\",\"params\":{\"additionalProperty\":\"foo\"},\"message\":\"must NOT have additional properties\"}]`
+        error:
+          '[{"instancePath":"/payload","schemaPath":"#/properties/payload/additionalProperties","keyword":"additionalProperties","params":{"additionalProperty":"foo"},"message":"must NOT have additional properties"}]'
       }
     })
   })
@@ -220,7 +223,8 @@ test('when sending a submit signature type message with an invalid schema', args
       type: MessageType.SUBMIT_SIGNATURE_RESPONSE,
       payload: {
         ok: false,
-        error: `[{\"instancePath\":\"/payload\",\"schemaPath\":\"#/properties/payload/required\",\"keyword\":\"required\",\"params\":{\"missingProperty\":\"requestId\"},\"message\":\"must have required property 'requestId'\"}]`
+        error:
+          '[{"instancePath":"/payload","schemaPath":"#/properties/payload/required","keyword":"required","params":{"missingProperty":"requestId"},"message":"must have required property \'requestId\'"}]'
       }
     })
   })
@@ -245,7 +249,8 @@ test('when sending a submit signature type message with an invalid schema but co
       payload: {
         ok: false,
         requestId: 'foo',
-        error: `[{\"instancePath\":\"/payload\",\"schemaPath\":\"#/properties/payload/required\",\"keyword\":\"required\",\"params\":{\"missingProperty\":\"signer\"},\"message\":\"must have required property 'signer'\"}]`
+        error:
+          '[{"instancePath":"/payload","schemaPath":"#/properties/payload/required","keyword":"required","params":{"missingProperty":"signer"},"message":"must have required property \'signer\'"}]'
       }
     })
   })
