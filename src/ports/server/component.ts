@@ -12,6 +12,7 @@ import {
   RequestResponseMessage,
   SubmitSignatureResponseMessage
 } from './types'
+import { validateMessage, validateRecoverMessage, validateRequestMessage, validateSubmitSignatureMessage } from './validations'
 
 export async function createServerComponent({
   config,
@@ -41,8 +42,31 @@ export async function createServerComponent({
     socket.on('message', (message: Message) => {
       logger.log(`[${socket.id}] Message received`)
 
+      // If the message does not have the expected base schema, we ignore it.
+      try {
+        validateMessage(message)
+      } catch (error) {
+        logger.log(`[${socket.id}] Message does not have the expected base format: ${(error as Error).message}`)
+
+        return
+      }
+
       switch (message.type) {
         case MessageType.REQUEST: {
+          try {
+            validateRequestMessage(message)
+          } catch (error) {
+            socket.emit('message', {
+              type: MessageType.REQUEST_RESPONSE,
+              payload: {
+                ok: false,
+                error: (error as Error).message
+              }
+            } as RequestResponseMessage)
+
+            break
+          }
+
           const requestId = uuid()
 
           storage.setSocketId(requestId, socket.id)
@@ -60,6 +84,21 @@ export async function createServerComponent({
         }
 
         case MessageType.RECOVER: {
+          try {
+            validateRecoverMessage(message)
+          } catch (error) {
+            socket.emit('message', {
+              type: MessageType.RECOVER_RESPONSE,
+              payload: {
+                ok: false,
+                requestId: message.payload?.requestId,
+                error: (error as Error).message
+              }
+            } as RecoverResponseMessage)
+
+            break
+          }
+
           const { requestId } = message.payload
 
           const storageMessage = storage.getMessage(requestId)
@@ -90,6 +129,21 @@ export async function createServerComponent({
         }
 
         case MessageType.SUBMIT_SIGNATURE: {
+          try {
+            validateSubmitSignatureMessage(message)
+          } catch (error) {
+            socket.emit('message', {
+              type: MessageType.SUBMIT_SIGNATURE_RESPONSE,
+              payload: {
+                ok: false,
+                requestId: message.payload?.requestId,
+                error: (error as Error).message
+              }
+            } as SubmitSignatureResponseMessage)
+
+            break
+          }
+
           const { requestId, signature, signer } = message.payload
 
           const storageSocketId = storage.getSocketId(requestId)

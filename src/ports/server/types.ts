@@ -19,7 +19,6 @@ export enum RequestType {
 
 export type RequestMessage = {
   type: MessageType.REQUEST
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   payload: {
     type: RequestType.SIGNATURE
     data: string
