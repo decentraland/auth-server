@@ -9,6 +9,7 @@ import { createServerComponent } from '../src/ports/server/component'
 import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
 import { TestComponents } from '../src/types'
+import net from 'net'
 
 /**
  * Finds an open port using the node net library.
