@@ -9,7 +9,7 @@ const messageSchema: JSONSchemaType<Pick<Message, 'type'>> = {
   properties: {
     type: {
       type: 'string',
-      enum: Object.values(MessageType)
+      enum: Object.values(MessageType).filter(value => !value.endsWith('-response'))
     }
   },
   required: ['type']

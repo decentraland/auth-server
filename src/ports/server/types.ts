@@ -3,6 +3,7 @@ import { IBaseComponent } from '@well-known-components/interfaces'
 export type IServerComponent = IBaseComponent
 
 export enum MessageType {
+  INVALID_RESPONSE = 'invalid-response',
   REQUEST = 'request',
   REQUEST_RESPONSE = 'request-response',
   RECOVER = 'recover',
@@ -13,6 +14,16 @@ export enum MessageType {
 
 export enum RequestType {
   SIGNATURE = 'signature'
+}
+
+// Invalid Messages
+
+export type InvalidResponseMessage = {
+  type: MessageType.INVALID_RESPONSE
+  payload: {
+    requestId?: string
+    error: string
+  }
 }
 
 // Request Messages
@@ -89,6 +100,7 @@ export type SubmitSignatureResponseMessage = {
 }
 
 export type Message =
+  | InvalidResponseMessage
   | RequestMessage
   | RequestResponseMessage
   | RecoverMessage

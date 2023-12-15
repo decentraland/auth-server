@@ -6,6 +6,7 @@ import { v4 as uuid } from 'uuid'
 import { AppComponents } from '../../types'
 import {
   IServerComponent,
+  InvalidResponseMessage,
   Message,
   MessageType,
   RecoverResponseMessage,
@@ -39,22 +40,32 @@ export async function createServerComponent({
       delete sockets[socket.id]
     })
 
-    socket.on('message', (message: Message) => {
+    socket.on('message', (socketMsg: any) => {
       logger.log(`[${socket.id}] Message received`)
 
-      // If the message does not have the expected base schema, we ignore it.
       try {
-        validateMessage(message)
+        validateMessage(socketMsg)
       } catch (error) {
         logger.log(`[${socket.id}] Message does not have the expected base format: ${(error as Error).message}`)
+
+        socket.emit('message', {
+          type: MessageType.INVALID_RESPONSE,
+          payload: {
+            ok: false,
+            requestId: socketMsg?.payload?.requestId,
+            error: (error as Error).message
+          }
+        } as InvalidResponseMessage)
 
         return
       }
 
-      switch (message.type) {
+      const msg = socketMsg as Message
+
+      switch (msg.type) {
         case MessageType.REQUEST: {
           try {
-            validateRequestMessage(message)
+            validateRequestMessage(msg)
           } catch (error) {
             socket.emit('message', {
               type: MessageType.REQUEST_RESPONSE,
@@ -70,7 +81,7 @@ export async function createServerComponent({
           const requestId = uuid()
 
           storage.setSocketId(requestId, socket.id)
-          storage.setMessage(requestId, message.payload)
+          storage.setMessage(requestId, msg.payload)
 
           socket.emit('message', {
             type: MessageType.REQUEST_RESPONSE,
@@ -85,13 +96,13 @@ export async function createServerComponent({
 
         case MessageType.RECOVER: {
           try {
-            validateRecoverMessage(message)
+            validateRecoverMessage(msg)
           } catch (error) {
             socket.emit('message', {
               type: MessageType.RECOVER_RESPONSE,
               payload: {
                 ok: false,
-                requestId: message.payload?.requestId,
+                requestId: msg.payload?.requestId,
                 error: (error as Error).message
               }
             } as RecoverResponseMessage)
@@ -99,7 +110,7 @@ export async function createServerComponent({
             break
           }
 
-          const { requestId } = message.payload
+          const { requestId } = msg.payload
 
           const storageMessage = storage.getMessage(requestId)
 
@@ -130,13 +141,13 @@ export async function createServerComponent({
 
         case MessageType.SUBMIT_SIGNATURE: {
           try {
-            validateSubmitSignatureMessage(message)
+            validateSubmitSignatureMessage(msg)
           } catch (error) {
             socket.emit('message', {
               type: MessageType.SUBMIT_SIGNATURE_RESPONSE,
               payload: {
                 ok: false,
-                requestId: message.payload?.requestId,
+                requestId: msg.payload?.requestId,
                 error: (error as Error).message
               }
             } as SubmitSignatureResponseMessage)
@@ -144,7 +155,7 @@ export async function createServerComponent({
             break
           }
 
-          const { requestId, signature, signer } = message.payload
+          const { requestId, signature, signer } = msg.payload
 
           const storageSocketId = storage.getSocketId(requestId)
 
@@ -190,7 +201,7 @@ export async function createServerComponent({
         }
 
         default: {
-          logger.log(`[${socket.id}] Unknown message type: ${message.type}`)
+          logger.log(`[${socket.id}] Unknown message type: ${msg.type}`)
         }
       }
     })
