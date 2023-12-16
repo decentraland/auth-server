@@ -40,6 +40,7 @@ export async function createServerComponent({
       delete sockets[socket.id]
     })
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     socket.on('message', (socketMsg: any) => {
       logger.log(`[${socket.id}] Message received`)
 
