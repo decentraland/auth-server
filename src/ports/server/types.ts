@@ -3,107 +3,49 @@ import { IBaseComponent } from '@well-known-components/interfaces'
 export type IServerComponent = IBaseComponent
 
 export enum MessageType {
-  INVALID_RESPONSE = 'invalid-response',
   REQUEST = 'request',
-  REQUEST_RESPONSE = 'request-response',
   RECOVER = 'recover',
-  RECOVER_RESPONSE = 'recover-response',
-  SUBMIT_SIGNATURE = 'submit-signature',
-  SUBMIT_SIGNATURE_RESPONSE = 'submit-signature-response'
+  OUTCOME = 'outcome',
+  INVALID = 'invalid'
 }
-
-export enum RequestType {
-  SIGNATURE = 'signature'
-}
-
-// Invalid Messages
-
-export type InvalidResponseMessage = {
-  type: MessageType.INVALID_RESPONSE
-  payload: {
-    requestId?: string
-    error: string
-  }
-}
-
-// Request Messages
 
 export type RequestMessage = {
   type: MessageType.REQUEST
-  payload: {
-    type: RequestType.SIGNATURE
-    data: string
-  }
+  method: string
+  params: string[]
 }
 
 export type RequestResponseMessage = {
-  type: MessageType.REQUEST_RESPONSE
-  payload:
-    | {
-        ok: true
-        requestId: string
-      }
-    | {
-        ok: false
-        error: string
-      }
+  type: MessageType.REQUEST
+  requestId: string
 }
-
-// Recover Messages
 
 export type RecoverMessage = {
   type: MessageType.RECOVER
-  payload: {
-    requestId: string
-  }
+  requestId: string
 }
 
 export type RecoverResponseMessage = {
-  type: MessageType.RECOVER_RESPONSE
-  payload:
-    | ({
-        ok: true
-        requestId: string
-      } & RequestMessage['payload'])
-    | {
-        ok: false
-        requestId?: string
-        error: string
-      }
+  type: MessageType.RECOVER
+  requestId: string
+  method: string
+  params: string[]
 }
 
-// Signature Submission Messages
-
-export type SubmitSignatureMessage = {
-  type: MessageType.SUBMIT_SIGNATURE
-  payload: {
-    requestId: string
-    signer: string
-    signature: string
-  }
+export type OutcomeMessage = {
+  type: MessageType.OUTCOME
+  requestId: string
+  result: string
 }
 
-export type SubmitSignatureResponseMessage = {
-  type: MessageType.SUBMIT_SIGNATURE_RESPONSE
-  payload:
-    | {
-        ok: true
-        requestId: string
-        signer: string
-        signature: string
-      }
-    | {
-        ok: false
-        requestId?: string
-        error: string
-      }
+export type OutcomeResponseMessage = OutcomeMessage
+
+export type InvalidResponseMessage = {
+  type: MessageType.INVALID
+  requestId: string
+  error: string
 }
 
-export type Message =
-  | InvalidResponseMessage
-  | RequestMessage
-  | RequestResponseMessage
-  | RecoverMessage
-  | RecoverResponseMessage
-  | SubmitSignatureMessage
-  | SubmitSignatureResponseMessage
+export type InputMessage = RequestMessage | RecoverMessage | OutcomeMessage
+
+export type ResponseMessage = RequestResponseMessage | RecoverResponseMessage | OutcomeResponseMessage | InvalidResponseMessage

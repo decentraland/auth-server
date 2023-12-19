@@ -6,14 +6,14 @@ import { v4 as uuid } from 'uuid'
 import { AppComponents } from '../../types'
 import {
   IServerComponent,
-  InvalidResponseMessage,
-  Message,
+  InputMessage,
   MessageType,
   RecoverResponseMessage,
   RequestResponseMessage,
-  SubmitSignatureResponseMessage
+  InvalidResponseMessage,
+  OutcomeResponseMessage
 } from './types'
-import { validateMessage, validateRecoverMessage, validateRequestMessage, validateSubmitSignatureMessage } from './validations'
+import { validateMessage } from './validations'
 
 export async function createServerComponent({
   config,
@@ -47,162 +47,92 @@ export async function createServerComponent({
       try {
         validateMessage(socketMsg)
       } catch (error) {
-        logger.log(`[${socket.id}] Message does not have the expected base format: ${(error as Error).message}`)
+        logger.log(`[${socket.id}] Invalid Message`)
 
         socket.emit('message', {
-          type: MessageType.INVALID_RESPONSE,
-          payload: {
-            ok: false,
-            requestId: socketMsg?.payload?.requestId,
-            error: (error as Error).message
-          }
+          type: MessageType.INVALID,
+          requestId: socketMsg?.requestId ?? '',
+          error: (error as Error).message
         } as InvalidResponseMessage)
 
         return
       }
 
-      const msg = socketMsg as Message
+      const msg = socketMsg as InputMessage
 
       switch (msg.type) {
         case MessageType.REQUEST: {
-          try {
-            validateRequestMessage(msg)
-          } catch (error) {
-            socket.emit('message', {
-              type: MessageType.REQUEST_RESPONSE,
-              payload: {
-                ok: false,
-                error: (error as Error).message
-              }
-            } as RequestResponseMessage)
-
-            break
-          }
-
           const requestId = uuid()
 
-          storage.setSocketId(requestId, socket.id)
-          storage.setMessage(requestId, msg.payload)
+          storage.setRequest(requestId, {
+            requestId: requestId,
+            socketId: socket.id,
+            ...msg
+          })
 
           socket.emit('message', {
-            type: MessageType.REQUEST_RESPONSE,
-            payload: {
-              ok: true,
-              requestId
-            }
+            type: MessageType.REQUEST,
+            requestId
           } as RequestResponseMessage)
 
           break
         }
 
         case MessageType.RECOVER: {
-          try {
-            validateRecoverMessage(msg)
-          } catch (error) {
+          const request = storage.getRequest(msg.requestId)
+
+          if (!request) {
             socket.emit('message', {
-              type: MessageType.RECOVER_RESPONSE,
-              payload: {
-                ok: false,
-                requestId: msg.payload?.requestId,
-                error: (error as Error).message
-              }
-            } as RecoverResponseMessage)
-
-            break
-          }
-
-          const { requestId } = msg.payload
-
-          const storageMessage = storage.getMessage(requestId)
-
-          if (!storageMessage) {
-            socket.emit('message', {
-              type: MessageType.RECOVER_RESPONSE,
-              payload: {
-                ok: false,
-                requestId,
-                error: `Message for request with id "${requestId}" not found`
-              }
-            } as RecoverResponseMessage)
+              type: MessageType.INVALID,
+              requestId: msg.requestId,
+              error: `Request with id "${msg.requestId}" not found`
+            } as InvalidResponseMessage)
 
             break
           }
 
           socket.emit('message', {
-            type: MessageType.RECOVER_RESPONSE,
-            payload: {
-              ok: true,
-              requestId,
-              ...storageMessage
-            }
+            type: MessageType.RECOVER,
+            requestId: msg.requestId,
+            method: request.method,
+            params: request.params
           } as RecoverResponseMessage)
 
           break
         }
 
-        case MessageType.SUBMIT_SIGNATURE: {
-          try {
-            validateSubmitSignatureMessage(msg)
-          } catch (error) {
+        case MessageType.OUTCOME: {
+          const request = storage.getRequest(msg.requestId)
+
+          if (!request) {
             socket.emit('message', {
-              type: MessageType.SUBMIT_SIGNATURE_RESPONSE,
-              payload: {
-                ok: false,
-                requestId: msg.payload?.requestId,
-                error: (error as Error).message
-              }
-            } as SubmitSignatureResponseMessage)
+              type: MessageType.INVALID,
+              requestId: msg.requestId,
+              error: `Request with id "${msg.requestId}" not found`
+            } as InvalidResponseMessage)
 
             break
           }
 
-          const { requestId, signature, signer } = msg.payload
+          const storedSocket = sockets[request.socketId]
 
-          const storageSocketId = storage.getSocketId(requestId)
-
-          if (!storageSocketId) {
+          if (!storedSocket) {
             socket.emit('message', {
-              type: MessageType.SUBMIT_SIGNATURE_RESPONSE,
-              payload: {
-                ok: false,
-                requestId,
-                error: `Socket Id for request with id "${requestId}" not found`
-              }
-            } as SubmitSignatureResponseMessage)
+              type: MessageType.INVALID,
+              requestId: msg.requestId,
+              error: `Socket with id "${request.socketId}" not found`
+            } as InvalidResponseMessage)
 
             break
           }
 
-          const storageSocket = sockets[storageSocketId]
-
-          if (!storageSocket) {
-            socket.emit('message', {
-              type: MessageType.SUBMIT_SIGNATURE_RESPONSE,
-              payload: {
-                ok: false,
-                requestId,
-                error: `Socket for socket with id "${storageSocketId}" not found`
-              }
-            } as SubmitSignatureResponseMessage)
-
-            break
-          }
-
-          storageSocket.emit('message', {
-            type: MessageType.SUBMIT_SIGNATURE_RESPONSE,
-            payload: {
-              ok: true,
-              requestId,
-              signature,
-              signer
-            }
-          } as SubmitSignatureResponseMessage)
+          storedSocket.emit('message', {
+            type: MessageType.OUTCOME,
+            requestId: msg.requestId,
+            result: msg.result
+          } as OutcomeResponseMessage)
 
           break
-        }
-
-        default: {
-          logger.log(`[${socket.id}] Unknown message type: ${msg.type}`)
         }
       }
     })
