@@ -3,6 +3,7 @@ import { IBaseComponent } from '@well-known-components/interfaces'
 export type IServerComponent = IBaseComponent
 
 export enum MessageType {
+  INVALID_RESPONSE = 'invalid-response',
   REQUEST = 'request',
   REQUEST_RESPONSE = 'request-response',
   RECOVER = 'recover',
@@ -15,11 +16,20 @@ export enum RequestType {
   SIGNATURE = 'signature'
 }
 
+// Invalid Messages
+
+export type InvalidResponseMessage = {
+  type: MessageType.INVALID_RESPONSE
+  payload: {
+    requestId?: string
+    error: string
+  }
+}
+
 // Request Messages
 
 export type RequestMessage = {
   type: MessageType.REQUEST
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   payload: {
     type: RequestType.SIGNATURE
     data: string
@@ -50,17 +60,16 @@ export type RecoverMessage = {
 
 export type RecoverResponseMessage = {
   type: MessageType.RECOVER_RESPONSE
-  payload: {
-    requestId: string
-  } & (
+  payload:
     | ({
         ok: true
+        requestId: string
       } & RequestMessage['payload'])
     | {
         ok: false
+        requestId?: string
         error: string
       }
-  )
 }
 
 // Signature Submission Messages
@@ -76,22 +85,22 @@ export type SubmitSignatureMessage = {
 
 export type SubmitSignatureResponseMessage = {
   type: MessageType.SUBMIT_SIGNATURE_RESPONSE
-  payload: {
-    requestId: string
-  } & (
+  payload:
     | {
         ok: true
+        requestId: string
         signer: string
         signature: string
       }
     | {
         ok: false
+        requestId?: string
         error: string
       }
-  )
 }
 
 export type Message =
+  | InvalidResponseMessage
   | RequestMessage
   | RequestResponseMessage
   | RecoverMessage

@@ -24,7 +24,7 @@ The client can use this service to generate signatures from a wallet in the brow
 socket.emit('message', {
   type: 'request',
   payload: {
-    type: 'signature'
+    type: 'signature',
     data: 'data to be signed on the browser'
   }
 })
@@ -73,7 +73,7 @@ socket.emit('message', {
 socket.emit('message', {
   type: 'submit-signature',
   payload: {
-    requestId: 'some request id (a random uuid)'
+    requestId: 'some request id (a random uuid)',
     signer: '0x... the address of the wallet that signed the message',
     signature: '0x.. the newly generated signature'
   }
@@ -86,7 +86,7 @@ socket.emit('message', {
 {
   type: 'submit-signature-response',
   payload: {
-    requestId: 'some request id (a random uuid)'
+    requestId: 'some request id (a random uuid)',
     signer: '0x... the address of the wallet that signed the message',
     signature: '0x.. the newly generated signature'
   }
@@ -123,7 +123,7 @@ const ephemeralMessage = Authenticator.getEphemeralMessage(ephemeralAccount.addr
 socket.emit('message', {
   type: 'request',
   payload: {
-    type: 'signature'
+    type: 'signature',
     data: ephemeralMessage
   }
 })
@@ -137,7 +137,7 @@ socket.emit('message', {
   ephemeralIdentity: {
     address: ephemeralAccount.address, // Generated on step 1.
     privateKey: ephemeralAccount.privateKey, // Generated on step 1.
-    publicKey: ephemeralAccount.publicKey, // Generated on step 1.
+    publicKey: ephemeralAccount.publicKey // Generated on step 1.
   },
   authChain: [
     {
@@ -148,7 +148,7 @@ socket.emit('message', {
     {
       type: signature.length === 132 ? AuthLinkType.ECDSA_PERSONAL_EPHEMERAL : AuthLinkType.ECDSA_EIP_1654_EPHEMERAL, // Obtained from the server.
       payload: ephemeralMessage, // Generated on step 3.
-      signature: signature, // Obtained from the server.
+      signature: signature // Obtained from the server.
     },
   ],
 }
