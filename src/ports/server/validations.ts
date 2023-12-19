@@ -48,11 +48,14 @@ const outcomeMessageSchema: JSONSchemaType<OutcomeMessage> = {
     requestId: {
       type: 'string'
     },
+    sender: {
+      type: 'string'
+    },
     result: {
       type: 'string'
     }
   },
-  required: ['type', 'requestId', 'result'],
+  required: ['type', 'requestId', 'sender', 'result'],
   additionalProperties: false
 }
 

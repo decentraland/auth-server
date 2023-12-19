@@ -9,10 +9,13 @@ export enum MessageType {
   INVALID = 'invalid'
 }
 
-export type RequestMessage = {
-  type: MessageType.REQUEST
+export type Request = {
   method: string
   params: string[]
+}
+
+export type RequestMessage = Request & {
+  type: MessageType.REQUEST
 }
 
 export type RequestResponseMessage = {
@@ -25,16 +28,15 @@ export type RecoverMessage = {
   requestId: string
 }
 
-export type RecoverResponseMessage = {
+export type RecoverResponseMessage = Request & {
   type: MessageType.RECOVER
   requestId: string
-  method: string
-  params: string[]
 }
 
 export type OutcomeMessage = {
   type: MessageType.OUTCOME
   requestId: string
+  sender: string
   result: string
 }
 

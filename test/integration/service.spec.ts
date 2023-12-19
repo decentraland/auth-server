@@ -160,6 +160,7 @@ test('when socket B creates a request and socket A sends an outcome message', ar
   it('should respond to socket B with an outcome response message, containing the same data as the outcome message', async () => {
     const method = 'method'
     const params: string[] = []
+    const sender = 'sender'
     const result = 'result'
 
     const { requestId } = await fetch(
@@ -176,6 +177,7 @@ test('when socket B creates a request and socket A sends an outcome message', ar
       {
         type: MessageType.OUTCOME,
         requestId,
+        sender,
         result
       },
       socketA,
@@ -185,6 +187,7 @@ test('when socket B creates a request and socket A sends an outcome message', ar
     expect(message).toEqual({
       type: MessageType.OUTCOME,
       requestId,
+      sender,
       result
     })
   })
@@ -201,6 +204,7 @@ test('when socket A sends an outcome message but the request does not exist', ar
     const message = await fetch({
       type: MessageType.OUTCOME,
       requestId,
+      sender: 'sender',
       result: 'result'
     })
 
@@ -235,6 +239,7 @@ test('when socket A sends the output message but socket B disconnected before it
     const message = await fetch({
       type: MessageType.OUTCOME,
       requestId,
+      sender: 'sender',
       result: 'result'
     })
 

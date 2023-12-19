@@ -11,7 +11,8 @@ import {
   RecoverResponseMessage,
   RequestResponseMessage,
   InvalidResponseMessage,
-  OutcomeResponseMessage
+  OutcomeResponseMessage,
+  ResponseMessage
 } from './types'
 import { validateMessage } from './validations'
 
@@ -44,16 +45,22 @@ export async function createServerComponent({
     socket.on('message', (socketMsg: any) => {
       logger.log(`[${socket.id}] Message received`)
 
+      const emit = <T extends ResponseMessage>(msg: T, _socket: Socket = socket) => {
+        logger.log(`[${_socket.id}] Sending Message`)
+
+        _socket.emit('message', msg)
+      }
+
       try {
         validateMessage(socketMsg)
       } catch (error) {
         logger.log(`[${socket.id}] Invalid Message`)
 
-        socket.emit('message', {
+        emit<InvalidResponseMessage>({
           type: MessageType.INVALID,
           requestId: socketMsg?.requestId ?? '',
           error: (error as Error).message
-        } as InvalidResponseMessage)
+        })
 
         return
       }
@@ -70,10 +77,10 @@ export async function createServerComponent({
             ...msg
           })
 
-          socket.emit('message', {
+          emit<RequestResponseMessage>({
             type: MessageType.REQUEST,
             requestId
-          } as RequestResponseMessage)
+          })
 
           break
         }
@@ -82,21 +89,21 @@ export async function createServerComponent({
           const request = storage.getRequest(msg.requestId)
 
           if (!request) {
-            socket.emit('message', {
+            emit<InvalidResponseMessage>({
               type: MessageType.INVALID,
               requestId: msg.requestId,
               error: `Request with id "${msg.requestId}" not found`
-            } as InvalidResponseMessage)
+            })
 
             break
           }
 
-          socket.emit('message', {
+          emit<RecoverResponseMessage>({
             type: MessageType.RECOVER,
             requestId: msg.requestId,
             method: request.method,
             params: request.params
-          } as RecoverResponseMessage)
+          })
 
           break
         }
@@ -105,11 +112,11 @@ export async function createServerComponent({
           const request = storage.getRequest(msg.requestId)
 
           if (!request) {
-            socket.emit('message', {
+            emit<InvalidResponseMessage>({
               type: MessageType.INVALID,
               requestId: msg.requestId,
               error: `Request with id "${msg.requestId}" not found`
-            } as InvalidResponseMessage)
+            })
 
             break
           }
@@ -117,20 +124,24 @@ export async function createServerComponent({
           const storedSocket = sockets[request.socketId]
 
           if (!storedSocket) {
-            socket.emit('message', {
+            emit<InvalidResponseMessage>({
               type: MessageType.INVALID,
               requestId: msg.requestId,
               error: `Socket with id "${request.socketId}" not found`
-            } as InvalidResponseMessage)
+            })
 
             break
           }
 
-          storedSocket.emit('message', {
-            type: MessageType.OUTCOME,
-            requestId: msg.requestId,
-            result: msg.result
-          } as OutcomeResponseMessage)
+          emit<OutcomeResponseMessage>(
+            {
+              type: MessageType.OUTCOME,
+              requestId: msg.requestId,
+              sender: msg.sender,
+              result: msg.result
+            },
+            storedSocket
+          )
 
           break
         }
