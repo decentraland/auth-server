@@ -37,7 +37,7 @@ export type OutcomeMessage = {
   type: MessageType.OUTCOME
   requestId: string
   sender: string
-  result: string
+  result: string | number | boolean | (string | number | boolean)[]
 }
 
 export type OutcomeResponseMessage = OutcomeMessage

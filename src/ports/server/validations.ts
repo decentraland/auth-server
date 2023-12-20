@@ -52,7 +52,17 @@ const outcomeMessageSchema: JSONSchemaType<OutcomeMessage> = {
       type: 'string'
     },
     result: {
-      type: 'string'
+      oneOf: [
+        {
+          type: ['number', 'string', 'boolean']
+        },
+        {
+          type: 'array',
+          items: {
+            type: ['number', 'string', 'boolean']
+          }
+        }
+      ]
     }
   },
   required: ['type', 'requestId', 'sender', 'result'],
