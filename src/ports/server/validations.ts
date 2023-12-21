@@ -1,8 +1,8 @@
-import Ajv, { JSONSchemaType } from 'ajv'
-import { MessageType, OutcomeMessage, RecoverMessage, RequestMessage } from './types'
+import Ajv from 'ajv'
+import { MessageType } from './types'
 const ajv = new Ajv({ allowUnionTypes: true })
 
-const requestMessageSchema: JSONSchemaType<RequestMessage> = {
+const requestMessageSchema = {
   type: 'object',
   properties: {
     type: {
@@ -13,25 +13,20 @@ const requestMessageSchema: JSONSchemaType<RequestMessage> = {
       type: 'string'
     },
     params: {
-      type: 'array',
-      items: {
-        type: 'string'
-      }
+      type: 'array'
     },
     sender: {
-      type: 'string',
-      nullable: true
+      type: 'string'
     },
     chainId: {
-      type: 'number',
-      nullable: true
+      type: 'number'
     }
   },
   required: ['type', 'method', 'params'],
   additionalProperties: false
 }
 
-const recoverMessageSchema: JSONSchemaType<RecoverMessage> = {
+const recoverMessageSchema = {
   type: 'object',
   properties: {
     type: {
@@ -46,7 +41,7 @@ const recoverMessageSchema: JSONSchemaType<RecoverMessage> = {
   additionalProperties: false
 }
 
-const outcomeMessageSchema: JSONSchemaType<OutcomeMessage> = {
+const outcomeMessageSchema = {
   type: 'object',
   properties: {
     type: {
@@ -59,19 +54,7 @@ const outcomeMessageSchema: JSONSchemaType<OutcomeMessage> = {
     sender: {
       type: 'string'
     },
-    result: {
-      oneOf: [
-        {
-          type: ['number', 'string', 'boolean']
-        },
-        {
-          type: 'array',
-          items: {
-            type: ['number', 'string', 'boolean']
-          }
-        }
-      ]
-    }
+    result: {}
   },
   required: ['type', 'requestId', 'sender', 'result'],
   additionalProperties: false

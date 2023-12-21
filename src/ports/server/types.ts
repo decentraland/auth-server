@@ -11,9 +11,9 @@ export enum MessageType {
 
 export type Request = {
   method: string
-  params: string[]
-  sender?: string | null
-  chainId?: number | null
+  params: any[]
+  sender?: string
+  chainId?: number
 }
 
 export type RequestMessage = Request & {
@@ -40,7 +40,7 @@ export type OutcomeMessage = {
   type: MessageType.OUTCOME
   requestId: string
   sender: string
-  result: string | number | boolean | (string | number | boolean)[]
+  result: any
 }
 
 export type OutcomeResponseMessage = OutcomeMessage

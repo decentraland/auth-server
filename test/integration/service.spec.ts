@@ -102,27 +102,6 @@ test('when sending a request message', args => {
   })
 })
 
-test('when sending a request message, with sender and chainId as null', args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
-
-  it('should respond with a request response message, containing a request id', async () => {
-    const message = await fetch({
-      type: MessageType.REQUEST,
-      method: 'method',
-      params: [],
-      sender: null,
-      chainId: null
-    } as unknown as InputMessage)
-
-    expect(message).toEqual({
-      type: MessageType.REQUEST,
-      requestId: expect.any(String)
-    })
-  })
-})
-
 test('when sending a recover message', args => {
   beforeEach(async () => {
     await connectClients(args)
