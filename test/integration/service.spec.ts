@@ -102,6 +102,27 @@ test('when sending a request message', args => {
   })
 })
 
+test('when sending a request message, with sender and chainId as null', args => {
+  beforeEach(async () => {
+    await connectClients(args)
+  })
+
+  it('should respond with a request response message, containing a request id', async () => {
+    const message = await fetch({
+      type: MessageType.REQUEST,
+      method: 'method',
+      params: [],
+      sender: null,
+      chainId: null
+    } as unknown as InputMessage)
+
+    expect(message).toEqual({
+      type: MessageType.REQUEST,
+      requestId: expect.any(String)
+    })
+  })
+})
+
 test('when sending a recover message', args => {
   beforeEach(async () => {
     await connectClients(args)
@@ -128,6 +149,42 @@ test('when sending a recover message', args => {
       expiration: expect.any(String),
       method,
       params
+    })
+  })
+})
+
+test('when sending a recover message, after a request that contained sender and chain id', args => {
+  beforeEach(async () => {
+    await connectClients(args)
+  })
+
+  it('should respond with a recover response message, containing the request data, including the sender and chain id', async () => {
+    const method = 'method'
+    const params: string[] = []
+    const sender = 'sender'
+    const chainId = 1
+
+    const { requestId } = await fetch({
+      type: MessageType.REQUEST,
+      method,
+      params,
+      sender,
+      chainId
+    })
+
+    const message = await fetch({
+      type: MessageType.RECOVER,
+      requestId
+    })
+
+    expect(message).toEqual({
+      type: MessageType.RECOVER,
+      requestId,
+      expiration: expect.any(String),
+      method,
+      params,
+      sender,
+      chainId
     })
   })
 })

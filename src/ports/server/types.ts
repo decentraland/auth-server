@@ -12,6 +12,8 @@ export enum MessageType {
 export type Request = {
   method: string
   params: string[]
+  sender?: string | null
+  chainId?: number | null
 }
 
 export type RequestMessage = Request & {

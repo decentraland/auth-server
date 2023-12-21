@@ -115,7 +115,9 @@ export async function createServerComponent({
             requestId: msg.requestId,
             expiration: request.expiration,
             method: request.method,
-            params: request.params
+            params: request.params,
+            sender: request.sender,
+            chainId: request.chainId
           })
 
           break

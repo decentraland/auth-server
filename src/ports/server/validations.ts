@@ -17,6 +17,14 @@ const requestMessageSchema: JSONSchemaType<RequestMessage> = {
       items: {
         type: 'string'
       }
+    },
+    sender: {
+      type: 'string',
+      nullable: true
+    },
+    chainId: {
+      type: 'number',
+      nullable: true
     }
   },
   required: ['type', 'method', 'params'],
