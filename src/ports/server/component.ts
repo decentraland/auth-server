@@ -39,6 +39,12 @@ export async function createServerComponent({
     socket.on('disconnect', () => {
       logger.log(`[${socket.id}] Disconnected`)
 
+      const requestId = storage.getRequestIdForSocketId(socket.id)
+
+      if (requestId) {
+        storage.setRequest(requestId, null)
+      }
+
       delete sockets[socket.id]
     })
 
@@ -101,6 +107,8 @@ export async function createServerComponent({
           }
 
           if (request.expiration < new Date()) {
+            storage.setRequest(msg.requestId, null)
+            
             emit<InvalidResponseMessage>({
               type: MessageType.INVALID,
               requestId: msg.requestId,
@@ -137,6 +145,8 @@ export async function createServerComponent({
           }
 
           if (request.expiration < new Date()) {
+            storage.setRequest(msg.requestId, null)
+
             emit<InvalidResponseMessage>({
               type: MessageType.INVALID,
               requestId: msg.requestId,
@@ -157,6 +167,8 @@ export async function createServerComponent({
 
             break
           }
+
+          storage.setRequest(msg.requestId, null)
 
           emit<OutcomeResponseMessage>(
             {

@@ -8,20 +8,34 @@ export function createStorageComponent(): IStorageComponent {
     return requests[requestId] ?? null
   }
 
-  const setRequest = (requestId: string, request: Request) => {
-    const previousSocketRequestId = requestIdsBySocketId[request.socketId]
+  const setRequest = (requestId: string, request: Request | null) => {
+    if (request) {
+      const previousSocketRequestId = requestIdsBySocketId[request.socketId]
 
-    if (previousSocketRequestId) {
-      delete requests[previousSocketRequestId]
-      delete requestIdsBySocketId[request.socketId]
+      if (previousSocketRequestId) {
+        delete requests[previousSocketRequestId]
+        delete requestIdsBySocketId[request.socketId]
+      }
+
+      requests[requestId] = request
+      requestIdsBySocketId[request.socketId] = requestId
+    } else {
+      const previousRequest = requests[requestId]
+
+      if (previousRequest) {
+        delete requests[requestId]
+        delete requestIdsBySocketId[previousRequest.socketId]
+      }
     }
+  }
 
-    requests[requestId] = request
-    requestIdsBySocketId[request.socketId] = requestId
+  const getRequestIdForSocketId = (socketId: string) => {
+    return requestIdsBySocketId[socketId] ?? null
   }
 
   return {
     getRequest,
-    setRequest
+    setRequest,
+    getRequestIdForSocketId
   }
 }
