@@ -12,7 +12,8 @@ import {
   RequestResponseMessage,
   InvalidResponseMessage,
   OutcomeResponseMessage,
-  ResponseMessage
+  ResponseMessage,
+  OutcomeResponseMessageForInput
 } from './types'
 import { validateMessage } from './validations'
 
@@ -170,15 +171,12 @@ export async function createServerComponent({
 
           storage.setRequest(msg.requestId, null)
 
-          emit<OutcomeResponseMessage>(
-            {
-              type: MessageType.OUTCOME,
-              requestId: msg.requestId,
-              sender: msg.sender,
-              result: msg.result
-            },
-            storedSocket
-          )
+          emit<OutcomeResponseMessageForInput>({
+            type: MessageType.OUTCOME,
+            requestId: msg.requestId
+          })
+
+          emit<OutcomeResponseMessage>(msg, storedSocket)
 
           break
         }

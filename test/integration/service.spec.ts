@@ -326,42 +326,54 @@ test('when sending 2 request messages with different sockets, and sending a reco
 })
 
 test('when socket B creates a request and socket A sends an outcome message', args => {
+  let sender: string
+  let result: string
+  let requestId: string
+  let messagefoo: InputMessage
+
   beforeEach(async () => {
     await connectClients(args)
-  })
 
-  it('should respond to socket B with an outcome response message, containing the same data as the outcome message', async () => {
-    const method = 'method'
-    const params: string[] = []
-    const sender = 'sender'
-    const result = 'result'
+    sender = 'sender'
+    result = 'result'
 
-    const { requestId } = await fetch(
+    const request = await fetch(
       {
         type: MessageType.REQUEST,
-        method,
-        params
+        method: 'method',
+        params: []
       },
       socketB,
       socketB
     )
 
-    const message = await fetch(
-      {
-        type: MessageType.OUTCOME,
-        requestId,
-        sender,
-        result
-      },
-      socketA,
-      socketB
-    )
+    requestId = request.requestId
+
+    messagefoo = {
+      type: MessageType.OUTCOME,
+      requestId,
+      sender,
+      result
+    }
+  })
+
+  it('should respond to socket B with an outcome response message, containing the same data as the outcome message', async () => {
+    const message = await fetch(messagefoo, socketA, socketB)
 
     expect(message).toEqual({
       type: MessageType.OUTCOME,
       requestId,
       sender,
       result
+    })
+  })
+
+  it('should respond to socket A with an outcome response message for input', async () => {
+    const message = await fetch(messagefoo, socketA, socketA)
+
+    expect(message).toEqual({
+      type: MessageType.OUTCOME,
+      requestId
     })
   })
 })

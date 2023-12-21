@@ -47,6 +47,8 @@ export type OutcomeMessage = {
 
 export type OutcomeResponseMessage = OutcomeMessage
 
+export type OutcomeResponseMessageForInput = Pick<OutcomeMessage, 'type' | 'requestId'>
+
 export type InvalidResponseMessage = {
   type: MessageType.INVALID
   requestId: string
@@ -55,4 +57,9 @@ export type InvalidResponseMessage = {
 
 export type InputMessage = RequestMessage | RecoverMessage | OutcomeMessage
 
-export type ResponseMessage = RequestResponseMessage | RecoverResponseMessage | OutcomeResponseMessage | InvalidResponseMessage
+export type ResponseMessage =
+  | RequestResponseMessage
+  | RecoverResponseMessage
+  | OutcomeResponseMessage
+  | OutcomeResponseMessageForInput
+  | InvalidResponseMessage
