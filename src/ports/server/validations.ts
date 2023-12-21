@@ -1,6 +1,6 @@
 import Ajv, { JSONSchemaType } from 'ajv'
 import { MessageType, OutcomeMessage, RecoverMessage, RequestMessage } from './types'
-const ajv = new Ajv()
+const ajv = new Ajv({ allowUnionTypes: true })
 
 const requestMessageSchema: JSONSchemaType<RequestMessage> = {
   type: 'object',
