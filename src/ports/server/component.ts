@@ -108,7 +108,7 @@ export async function createServerComponent({
 
           if (request.expiration < new Date()) {
             storage.setRequest(msg.requestId, null)
-            
+
             emit<InvalidResponseMessage>({
               type: MessageType.INVALID,
               requestId: msg.requestId,
