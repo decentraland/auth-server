@@ -1,6 +1,6 @@
 import { TestArguments } from '@well-known-components/test-helpers'
 import { Socket, io } from 'socket.io-client'
-import { InputMessage, MessageType, ResponseMessage } from '../../src/ports/server/types'
+import { InputMessage, MessageType, RequestMessage, ResponseMessage } from '../../src/ports/server/types'
 import { BaseComponents } from '../../src/types'
 import { test, testWithOverrides } from '../components'
 
@@ -210,6 +210,96 @@ testWithOverrides({ requestExpirationInSeconds: -1 })('when sending a recover me
       type: MessageType.INVALID,
       requestId,
       error: `Request with id "${requestId}" has expired`
+    })
+  })
+})
+
+test('when sending 2 request messages with a single socket, and sending a recover messages for them afterwards', args => {
+  let request: RequestMessage
+  let requestId1: string
+  let requestId2: string
+
+  beforeEach(async () => {
+    await connectClients(args)
+
+    request = {
+      type: MessageType.REQUEST,
+      method: 'method',
+      params: []
+    }
+
+    const request1 = await fetch(request)
+    const request2 = await fetch(request)
+
+    requestId1 = request1.requestId
+    requestId2 = request2.requestId
+  })
+
+  it('should respond with an invalid response message indicating that the first request does not exist', async () => {
+    const message = await fetch({ type: MessageType.RECOVER, requestId: requestId1 })
+
+    expect(message).toEqual({
+      type: MessageType.INVALID,
+      requestId: requestId1,
+      error: `Request with id "${requestId1}" not found`
+    })
+  })
+
+  it('should respond with a recover response message with the request data of the second request', async () => {
+    const message = await fetch({ type: MessageType.RECOVER, requestId: requestId2 })
+
+    expect(message).toEqual({
+      type: MessageType.RECOVER,
+      requestId: requestId2,
+      expiration: expect.any(String),
+      method: request.method,
+      params: request.params
+    })
+  })
+})
+
+test('when sending 2 request messages with different sockets, and sending a recover messages for them afterwards', args => {
+  let request: RequestMessage
+  let requestId1: string
+  let requestId2: string
+
+  beforeEach(async () => {
+    await connectClients(args)
+
+    request = {
+      type: MessageType.REQUEST,
+      method: 'method',
+      params: []
+    }
+
+    const request1 = await fetch(request, socketA, socketA)
+    const request2 = await fetch(request, socketB, socketB)
+
+    requestId1 = request1.requestId
+    requestId2 = request2.requestId
+  })
+
+  it('should respond with a recover response message with the request data of the first request', async () => {
+    const message = await fetch({ type: MessageType.RECOVER, requestId: requestId1 })
+
+    expect(message).toEqual({
+      type: MessageType.RECOVER,
+      requestId: requestId1,
+      expiration: expect.any(String),
+      method: request.method,
+      params: request.params
+    })
+  })
+
+  it('should respond with a recover response message with the request data of the second request', async () => {
+    const message = await fetch({ type: MessageType.RECOVER, requestId: requestId2 })
+
+    expect(message).toEqual({
+      type: MessageType.RECOVER,
+      requestId: requestId2,
+      expiration: expect.any(String),
+      method: request.method,
+      params: request.params
     })
   })
 })
