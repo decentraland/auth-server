@@ -24,6 +24,7 @@ export type RequestMessage = Request & {
 export type RequestResponseMessage = {
   type: MessageType.REQUEST
   requestId: string
+  expiration: Date
 }
 
 export type RecoverMessage = {

@@ -78,6 +78,7 @@ export async function createServerComponent({
       switch (msg.type) {
         case MessageType.REQUEST: {
           const requestId = uuid()
+          const expiration = new Date(Date.now() + requestExpirationInSeconds * 1000)
 
           storage.setRequest(requestId, {
             requestId: requestId,
@@ -88,7 +89,8 @@ export async function createServerComponent({
 
           emit<RequestResponseMessage>({
             type: MessageType.REQUEST,
-            requestId
+            requestId,
+            expiration
           })
 
           break

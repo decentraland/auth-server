@@ -88,7 +88,7 @@ test('when sending a request message', args => {
     await connectClients(args)
   })
 
-  it('should respond with a request response message, containing a request id', async () => {
+  it('should respond with a request response message, containing a request id and the expiration', async () => {
     const message = await fetch({
       type: MessageType.REQUEST,
       method: 'method',
@@ -97,7 +97,8 @@ test('when sending a request message', args => {
 
     expect(message).toEqual({
       type: MessageType.REQUEST,
-      requestId: expect.any(String)
+      requestId: expect.any(String),
+      expiration: expect.any(String)
     })
   })
 })

@@ -39,11 +39,11 @@ const socket = io('https://auth-api.decentraland.org')
 2. The desktop client has to send a request message with the method information to the auth server, at the same time, start listening for the response.
 
 ```ts
-const requestIdPromise = new Promise(resolve => {
+const requestPromise = new Promise(resolve => {
   const onMessage = msg => {
     if (msg.type === 'request') {
       socket.off('message', onMessage)
-      resolve(msg.requestId)
+      resolve(msg)
     }
   })
 
@@ -56,8 +56,10 @@ socket.emit('message', {
   params: ['message to sign', 'signer address']
 })
 
-const requestId = await requestIdPromise
+const { requestId, expiration } = await requestPromise
 ```
+
+The expiration can be used to know when the request will become unnavailable if not consumed before a certain time.
 
 4. Once the request is obtained, the client has to listen for the corresponding outcome message that will provide the result of the request that will be executed on the auth dapp.
 
