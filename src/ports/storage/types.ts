@@ -8,4 +8,5 @@ export type IStorageComponent = {
 export type Request = RequestMessage & {
   requestId: string
   socketId: string
+  expiration: Date
 }

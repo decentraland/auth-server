@@ -2,7 +2,7 @@ import { TestArguments } from '@well-known-components/test-helpers'
 import { Socket, io } from 'socket.io-client'
 import { InputMessage, MessageType, ResponseMessage } from '../../src/ports/server/types'
 import { BaseComponents } from '../../src/types'
-import { test } from '../components'
+import { test, testWithOverrides } from '../components'
 
 let socketA: Socket
 let socketB: Socket
@@ -125,6 +125,7 @@ test('when sending a recover message', args => {
     expect(message).toEqual({
       type: MessageType.RECOVER,
       requestId,
+      expiration: expect.any(String),
       method,
       params
     })
@@ -148,6 +149,31 @@ test('when sending a recover message, but the request does not exist', args => {
       type: MessageType.INVALID,
       requestId,
       error: `Request with id "${requestId}" not found`
+    })
+  })
+})
+
+testWithOverrides({ requestExpirationInSeconds: -1 })('when sending a recover message, but the request has expired', args => {
+  beforeEach(async () => {
+    await connectClients(args)
+  })
+
+  it('should respond with an invalid response message, containing an error message indicating the request has expired', async () => {
+    const { requestId } = await fetch({
+      type: MessageType.REQUEST,
+      method: 'method',
+      params: []
+    })
+
+    const message = await fetch({
+      type: MessageType.RECOVER,
+      requestId
+    })
+
+    expect(message).toEqual({
+      type: MessageType.INVALID,
+      requestId,
+      error: `Request with id "${requestId}" has expired`
     })
   })
 })
@@ -247,6 +273,43 @@ test('when socket A sends the output message but socket B disconnected before it
       type: MessageType.INVALID,
       requestId,
       error: `Socket with id "${socketBId}" not found`
+    })
+  })
+})
+
+testWithOverrides({ requestExpirationInSeconds: 0.2 })('when socket A sends the output message but the request has expired', args => {
+  beforeEach(async () => {
+    await connectClients(args)
+  })
+
+  it('should respond to socket A with an invalid response message, containing an error message indicating the request has expired', async () => {
+    const { requestId } = await fetch(
+      {
+        type: MessageType.REQUEST,
+        method: 'method',
+        params: []
+      },
+      socketB,
+      socketB
+    )
+
+    await new Promise(resolve => setTimeout(resolve, 200))
+
+    const message = await fetch(
+      {
+        type: MessageType.OUTCOME,
+        requestId,
+        sender: 'sender',
+        result: 'result'
+      },
+      socketA,
+      socketA
+    )
+
+    expect(message).toEqual({
+      type: MessageType.INVALID,
+      requestId,
+      error: `Request with id "${requestId}" has expired`
     })
   })
 })

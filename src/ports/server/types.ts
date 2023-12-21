@@ -31,6 +31,7 @@ export type RecoverMessage = {
 export type RecoverResponseMessage = Request & {
   type: MessageType.RECOVER
   requestId: string
+  expiration: Date
 }
 
 export type OutcomeMessage = {

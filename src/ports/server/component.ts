@@ -19,8 +19,9 @@ import { validateMessage } from './validations'
 export async function createServerComponent({
   config,
   logs,
-  storage
-}: Pick<AppComponents, 'config' | 'logs' | 'storage'>): Promise<IServerComponent> {
+  storage,
+  requestExpirationInSeconds
+}: Pick<AppComponents, 'config' | 'logs' | 'storage'> & { requestExpirationInSeconds: number }): Promise<IServerComponent> {
   const logger = logs.getLogger('websocket-server')
   const port = await config.requireNumber('HTTP_SERVER_PORT')
   const corsOrigin = await config.requireString('CORS_ORIGIN')
@@ -74,6 +75,7 @@ export async function createServerComponent({
           storage.setRequest(requestId, {
             requestId: requestId,
             socketId: socket.id,
+            expiration: new Date(Date.now() + requestExpirationInSeconds * 1000),
             ...msg
           })
 
@@ -98,9 +100,20 @@ export async function createServerComponent({
             break
           }
 
+          if (request.expiration < new Date()) {
+            emit<InvalidResponseMessage>({
+              type: MessageType.INVALID,
+              requestId: msg.requestId,
+              error: `Request with id "${msg.requestId}" has expired`
+            })
+
+            break
+          }
+
           emit<RecoverResponseMessage>({
             type: MessageType.RECOVER,
             requestId: msg.requestId,
+            expiration: request.expiration,
             method: request.method,
             params: request.params
           })
@@ -116,6 +129,16 @@ export async function createServerComponent({
               type: MessageType.INVALID,
               requestId: msg.requestId,
               error: `Request with id "${msg.requestId}" not found`
+            })
+
+            break
+          }
+
+          if (request.expiration < new Date()) {
+            emit<InvalidResponseMessage>({
+              type: MessageType.INVALID,
+              requestId: msg.requestId,
+              error: `Request with id "${msg.requestId}" has expired`
             })
 
             break
