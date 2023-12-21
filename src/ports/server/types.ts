@@ -11,6 +11,7 @@ export enum MessageType {
 
 export type Request = {
   method: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   params: any[]
   sender?: string
   chainId?: number
@@ -40,6 +41,7 @@ export type OutcomeMessage = {
   type: MessageType.OUTCOME
   requestId: string
   sender: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   result: any
 }
 
