@@ -1,125 +1,77 @@
-import Ajv, { JSONSchemaType } from 'ajv'
-import { Message, MessageType, RecoverMessage, RequestMessage, RequestType, SubmitSignatureMessage } from './types'
-const ajv = new Ajv()
+import Ajv from 'ajv'
+import { OutcomeMessage, RecoverMessage, RequestMessage } from './types'
+const ajv = new Ajv({ allowUnionTypes: true })
 
-// Schemas
-
-const messageSchema: JSONSchemaType<Pick<Message, 'type'>> = {
+const requestMessageSchema = {
   type: 'object',
   properties: {
-    type: {
-      type: 'string',
-      enum: Object.values(MessageType).filter(value => !value.endsWith('-response'))
-    }
-  },
-  required: ['type']
-}
-
-const requestMessageSchema: JSONSchemaType<RequestMessage> = {
-  type: 'object',
-  properties: {
-    type: {
-      type: 'string',
-      const: MessageType.REQUEST
+    method: {
+      type: 'string'
     },
-    payload: {
-      type: 'object',
-      properties: {
-        type: {
-          type: 'string',
-          enum: Object.values(RequestType)
-        },
-        data: {
-          type: 'string'
-        }
-      },
-      required: ['type', 'data'],
-      additionalProperties: false
+    params: {
+      type: 'array'
+    },
+    sender: {
+      type: 'string'
+    },
+    chainId: {
+      type: 'number'
     }
   },
-  required: ['type', 'payload'],
+  required: ['method', 'params'],
   additionalProperties: false
 }
 
-const recoverMessageSchema: JSONSchemaType<RecoverMessage> = {
+const recoverMessageSchema = {
   type: 'object',
   properties: {
-    type: {
-      type: 'string',
-      const: MessageType.RECOVER
-    },
-    payload: {
-      type: 'object',
-      properties: {
-        requestId: {
-          type: 'string'
-        }
-      },
-      required: ['requestId'],
-      additionalProperties: false
+    requestId: {
+      type: 'string'
     }
   },
-  required: ['type', 'payload'],
+  required: ['requestId'],
   additionalProperties: false
 }
 
-const submitSignatureMessageSchema: JSONSchemaType<SubmitSignatureMessage> = {
+const outcomeMessageSchema = {
   type: 'object',
   properties: {
-    type: {
-      type: 'string',
-      const: MessageType.SUBMIT_SIGNATURE
+    requestId: {
+      type: 'string'
     },
-    payload: {
-      type: 'object',
-      properties: {
-        requestId: {
-          type: 'string'
-        },
-        signer: {
-          type: 'string'
-        },
-        signature: {
-          type: 'string'
-        }
-      },
-      required: ['requestId', 'signer', 'signature'],
-      additionalProperties: false
-    }
+    sender: {
+      type: 'string'
+    },
+    result: {}
   },
-  required: ['type', 'payload'],
+  required: ['requestId', 'sender', 'result'],
   additionalProperties: false
 }
 
-// Compiled validators
+const requestMessageValidator = ajv.compile(requestMessageSchema)
+const recoverMessageValidator = ajv.compile(recoverMessageSchema)
+const outcomeMessageValidator = ajv.compile(outcomeMessageSchema)
 
-const _validateMessage = ajv.compile(messageSchema)
-const _validateRequestMessage = ajv.compile(requestMessageSchema)
-const _validateRecoverMessage = ajv.compile(recoverMessageSchema)
-const _validateSubmitSignatureMessage = ajv.compile(submitSignatureMessageSchema)
-
-// API
-
-export function validateMessage(message: unknown) {
-  if (!_validateMessage(message)) {
-    throw new Error(JSON.stringify(_validateMessage.errors))
+export function validateRequestMessage(msg: unknown) {
+  if (!requestMessageValidator(msg)) {
+    throw new Error(JSON.stringify(requestMessageValidator.errors))
   }
+
+  return msg as RequestMessage
 }
 
-export function validateRequestMessage(message: unknown) {
-  if (!_validateRequestMessage(message)) {
-    throw new Error(JSON.stringify(_validateRequestMessage.errors))
+export function validateRecoverMessage(msg: unknown) {
+  if (!recoverMessageValidator(msg)) {
+    throw new Error(JSON.stringify(recoverMessageValidator.errors))
   }
+
+  return msg as RecoverMessage
 }
 
-export function validateRecoverMessage(message: unknown) {
-  if (!_validateRecoverMessage(message)) {
-    throw new Error(JSON.stringify(_validateRecoverMessage.errors))
+export function validateOutcomeMessage(msg: unknown) {
+  if (!outcomeMessageValidator(msg)) {
+    throw new Error(JSON.stringify(outcomeMessageValidator.errors))
   }
-}
 
-export function validateSubmitSignatureMessage(message: unknown) {
-  if (!_validateSubmitSignatureMessage(message)) {
-    throw new Error(JSON.stringify(_validateSubmitSignatureMessage.errors))
-  }
+  return msg as OutcomeMessage
 }

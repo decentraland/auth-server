@@ -9,7 +9,13 @@ export async function initComponents(): Promise<AppComponents> {
   const config = await createDotEnvConfigComponent({ path: ['.env.default', '.env'] })
   const logs = await createLogComponent({})
   const storage = createStorageComponent()
-  const server = await createServerComponent({ config, logs, storage })
+  const server = await createServerComponent({
+    config,
+    logs,
+    storage,
+    // TODO: Get this value from config.
+    requestExpirationInSeconds: 5 * 60 // 5 Minutes
+  })
 
   return {
     config,

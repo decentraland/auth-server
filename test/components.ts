@@ -10,6 +10,10 @@ import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
 import { TestComponents } from '../src/types'
 
+type TestOverrides = {
+  requestExpirationInSeconds?: number
+}
+
 /**
  * Finds an open port using the node net library.
  * It works by starting a server on a random port, saving the port, and stopping the server.
@@ -41,7 +45,16 @@ export const test = createRunner<TestComponents>({
   initComponents
 })
 
-async function initComponents(): Promise<TestComponents> {
+/**
+ * Allows providing certain overrides to the test components.
+ */
+export const testWithOverrides = (overrides: TestOverrides) =>
+  createRunner<TestComponents>({
+    main,
+    initComponents: () => initComponents(overrides)
+  })
+
+async function initComponents(overrides: TestOverrides = {}): Promise<TestComponents> {
   const httpServerPort = await findOpenPort()
 
   const config = await createDotEnvConfigComponent(
@@ -51,7 +64,12 @@ async function initComponents(): Promise<TestComponents> {
 
   const logs = await createLogComponent({})
   const storage = createStorageComponent()
-  const server = await createServerComponent({ config, logs, storage })
+  const server = await createServerComponent({
+    config,
+    logs,
+    storage,
+    requestExpirationInSeconds: overrides.requestExpirationInSeconds ?? 5 * 60 // 5 Minutes
+  })
 
   return {
     config,

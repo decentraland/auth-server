@@ -3,107 +3,53 @@ import { IBaseComponent } from '@well-known-components/interfaces'
 export type IServerComponent = IBaseComponent
 
 export enum MessageType {
-  INVALID_RESPONSE = 'invalid-response',
   REQUEST = 'request',
-  REQUEST_RESPONSE = 'request-response',
   RECOVER = 'recover',
-  RECOVER_RESPONSE = 'recover-response',
-  SUBMIT_SIGNATURE = 'submit-signature',
-  SUBMIT_SIGNATURE_RESPONSE = 'submit-signature-response'
+  OUTCOME = 'outcome',
+  INVALID = 'invalid'
 }
 
-export enum RequestType {
-  SIGNATURE = 'signature'
+export type Request = {
+  method: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  params: any[]
+  sender?: string
+  chainId?: number
 }
 
-// Invalid Messages
-
-export type InvalidResponseMessage = {
-  type: MessageType.INVALID_RESPONSE
-  payload: {
-    requestId?: string
-    error: string
-  }
-}
-
-// Request Messages
-
-export type RequestMessage = {
-  type: MessageType.REQUEST
-  payload: {
-    type: RequestType.SIGNATURE
-    data: string
-  }
-}
+export type RequestMessage = Request
 
 export type RequestResponseMessage = {
-  type: MessageType.REQUEST_RESPONSE
-  payload:
-    | {
-        ok: true
-        requestId: string
-      }
-    | {
-        ok: false
-        error: string
-      }
+  requestId: string
+  expiration: Date
+  code: number
 }
-
-// Recover Messages
 
 export type RecoverMessage = {
-  type: MessageType.RECOVER
-  payload: {
-    requestId: string
-  }
+  requestId: string
 }
 
-export type RecoverResponseMessage = {
-  type: MessageType.RECOVER_RESPONSE
-  payload:
-    | ({
-        ok: true
-        requestId: string
-      } & RequestMessage['payload'])
-    | {
-        ok: false
-        requestId?: string
-        error: string
-      }
+export type RecoverResponseMessage = Request & {
+  expiration: Date
+  code: number
 }
 
-// Signature Submission Messages
-
-export type SubmitSignatureMessage = {
-  type: MessageType.SUBMIT_SIGNATURE
-  payload: {
-    requestId: string
-    signer: string
-    signature: string
-  }
+export type Outcome = {
+  sender: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  result: any
 }
 
-export type SubmitSignatureResponseMessage = {
-  type: MessageType.SUBMIT_SIGNATURE_RESPONSE
-  payload:
-    | {
-        ok: true
-        requestId: string
-        signer: string
-        signature: string
-      }
-    | {
-        ok: false
-        requestId?: string
-        error: string
-      }
+export type OutcomeMessage = Outcome & {
+  requestId: string
 }
 
-export type Message =
-  | InvalidResponseMessage
-  | RequestMessage
-  | RequestResponseMessage
-  | RecoverMessage
-  | RecoverResponseMessage
-  | SubmitSignatureMessage
-  | SubmitSignatureResponseMessage
+export type OutcomeResponseMessage = OutcomeMessage
+
+export type InvalidResponseMessage = {
+  error: string
+}
+
+export type InputMessage = RequestMessage | RecoverMessage | OutcomeMessage
+
+export type ResponseMessage = RequestResponseMessage | RecoverResponseMessage | OutcomeResponseMessage | InvalidResponseMessage

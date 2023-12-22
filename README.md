@@ -4,156 +4,135 @@
 
 Server in charge of communication between the decentraland desktop client and the auth dapp on the browser.
 
-Allows the client to generate signatures and send transactions using wallets installed on the browser using web sockets.
+Allows the desktop client to execute wallet methods (eth_sendTransaction, personal_sign, etc.) using the wallet the user has on their browser by leveraging the auth dapp.
+
+## Requests
+
+Requests are the main entity this server handles. Requests contain the wallet methods that the desktop client want to execute.
+
+They are created on the auth server on demand by the desktop client. The server then provides a request id, which can then be used to recover that request on a browser (which in this case it is intended to be opened on the auth dapp).
+
+On the auth dapp, the user can execute said request by using the connected wallet, and communicate the result back to the auth server, which in turn will communicate it back to the desktop client.
+
+For example, if the desktop client needs to send a transaction, it would create a transaction for the `eth_sendTransaction` method, and await for the result, which would be a transaction hash, to be returned after the flow is complete.
+
+Requests have the following characteristics:
+
+1. Only one request can exist at a time per connected socket. A new request will invalidate a previous one if it existed.
+2. Requests have an expiration, and cannot be consumed after it.
+3. If the socket disconnects, any request made by that socket will be deleted.
 
 ## Usage
 
 This section will explain the ways in which the service can be used.
 
-Use the web socket library of your choice to connect to this server. This one currently uses [Socket.IO](https://socket.io/) which can also be used in a JS client to connect.
+[Socket.IO](https://socket.io/) is required to connect to the auth server (https://auth-api.decentraland.org).
 
-All of the following require the client to have an open connection with the server to work. This means that the client could open the connection once at start and keep it alive till the application is closed or open it when starting a request and closing it when it ends.
+The next example will show how a `personal_sign` can be requested by the desktop client.
 
-### Signatures
+1. The desktop client has to connect to the auth server through web sockets.
 
-The client can use this service to generate signatures from a wallet in the browser with a couple of socket messages.
+```ts
+const socket = io('https://auth-api.decentraland.org')
+```
 
-1. From the <b>Client</b>, send a message to the server to initialize a signature request.
+2. The desktop client has to send a request message with the method information to the auth server, and wait for the response.
 
-```js
-socket.emit('message', {
-  type: 'request',
-  payload: {
-    type: 'signature',
-    data: 'data to be signed on the browser'
-  }
+```ts
+const { requestId, expiration, code } = await socket.emitWithAck('request', {
+  method: 'personal_sign',
+  params: ['message to sign', 'signer address']
 })
 ```
 
-2. The <b>Server</b> will respond to the <b>Client</b> with a message containing a `requestId`
+The expiration shows when the request will become unavailable. The request must be consumed before it expires.
 
-```js
-{
-  type: 'request-response',
-  payload: {
-    requestId: 'some request id (a random uuid)'
-  }
-}
-```
+The code can be used as an easy visual help to be displayed on both the desktop client and the auth dapp for the user to see that if they match, they have a really high chance of being for the same request.
 
-3. The <b>Auth dApp</b> can be opened on the <b>Browser</b> on the following url: https://decentraland.org/auth/requests/:requestId
+The request id is necessary for the next step.
 
-4. The <b>Browser</b> sends a message to the <b>Server</b> to recover the request sent by the <b>Client</b>.
+4. Once the request id is obtained, the client has to listen for the corresponding outcome message that will provide the result of the request that will be executed on the auth dapp.
 
-```js
-socket.emit('message', {
-  type: 'recover',
-  payload: {
-    requestId: 'some request id (a random uuid) - obtained from the URL'
-  }
+```ts
+const outcome = await new Promise((resolve, reject) => {
+  socket.on('outcome', msg => {
+    if (msg.requestId === requestId) {
+      socket.off('message', onMessage)
+      if (msg.error) {
+        reject(msg.error)
+      } else {
+        resolve(msg)
+      }
+    }
+  })
 })
 ```
 
-5. The <b>Server</b> responds with a message to the <b>Browser</b> containing the request from the <b>Client</b>. With its content, the <b>Auth dApp</b> knows that the request is for a signature.
-
-```js
-{
-  type: 'recover-response',
-  payload: {
-    requestId: 'some request id (a random uuid)',
-    type: 'signature',
-    data: 'data to be signed on the browser'
-  }
-}
-```
-
-6. Using the <b>User's Wallet</b>, sign the data from the request message and submit it to the <b>Server</b>.
-
-```js
-socket.emit('message', {
-  type: 'submit-signature',
-  payload: {
-    requestId: 'some request id (a random uuid)',
-    signer: '0x... the address of the wallet that signed the message',
-    signature: '0x.. the newly generated signature'
-  }
-})
-```
-
-7. The <b>server</b> sends the message back to the <b>Client</b>, finalizing the operation.
-
-```js
-{
-  type: 'submit-signature-response',
-  payload: {
-    requestId: 'some request id (a random uuid)',
-    signer: '0x... the address of the wallet that signed the message',
-    signature: '0x.. the newly generated signature'
-  }
-}
-```
+5. Get the `result` and the `sender` from the outcome message and do with them whatever is necessary.
 
 ### Authentication Flow
 
-The Client can use the Signature request to generate and Auth Identity and store it locally.
+For the sign in flow in the desktop client, we will need to use a special method called `dcl_personal_sign`.
 
-For this example I'll be using `ethers v6` and `@dcl/crypto`
+This methods works similarly to `personal_sign` but with a little difference.
 
-1. Generate an ephemeral account:
+For this example we'll be using `ethers v6` and `@dcl/crypto`
 
-```js
+1. The desktop client will need to generate and store an epheremeral wallet.
+
+```ts
 const ephemeralAccount = ethers.Wallet.createRandom()
 ```
 
-2. Generate the Date in which the identity should expire.
+2. The desktop client has to set a date in which the identity that will be created, expires.
 
-```js
+```ts
 const expiration = new Date(Date.now() + 24 * 60 * 60 * 1000) // 1 day in the future as an example.
 ```
 
-3. Generate the ephemeral message that has to be signed.
+3. Generate the ephemeral message to be signed using the address of the ephemeral account and the expiration.
 
-```js
+```ts
 const ephemeralMessage = Authenticator.getEphemeralMessage(ephemeralAccount.address, expiration)
 ```
 
-4. Follow the steps decribed on the [Signatures](#signatures), initializing the flow with the following message:
+4. Follow the steps decribed on the [Usage](#usage) section, initializing the flow with the following message.
 
-```js
-socket.emit('message', {
-  type: 'request',
-  payload: {
-    type: 'signature',
-    data: ephemeralMessage
-  }
+```ts
+await socket.emitWithAck('request', {
+  method: 'dcl_personal_sign',
+  params: [ephemeralMessage, code]
 })
 ```
 
-5. With the `signer` and `signature` received at the end of the flow, create an Auth Identity.
+As you can see, there is a simple difference with the previous example. That is that personal_sign requires a second parameter that is the address that will sign the message, but we don't know it yet, so only the ephemeral message is sent. The auth dApp will fill the signing address for us.
 
-```js
-{
-  expiration, // Generated on step 2.
+If the signer is sent as a param in the request, the auth dapp will use that instead of using the one of the connected wallet, and execute it as a normal personal_sign.
+
+5. Once the flow is complete, and the desktop client receives the outcome message. The `sender` and the `result` that come with it are necessary to create an auth identity, which will be used to authorize the user into the platform.
+
+```ts
+const signer = outcome.sender
+const signature = outcome.result
+
+const identity = {
+  expiration,
   ephemeralIdentity: {
-    address: ephemeralAccount.address, // Generated on step 1.
-    privateKey: ephemeralAccount.privateKey, // Generated on step 1.
-    publicKey: ephemeralAccount.publicKey // Generated on step 1.
+    address: ephemeralAccount.address,
+    privateKey: ephemeralAccount.privateKey,
+    publicKey: ephemeralAccount.publicKey
   },
   authChain: [
     {
       type: AuthLinkType.SIGNER,
-      payload: signer, // Obtained from the server.
-      signature: ""
+      payload: signer,
+      signature: ''
     },
     {
-      type: signature.length === 132 ? AuthLinkType.ECDSA_PERSONAL_EPHEMERAL : AuthLinkType.ECDSA_EIP_1654_EPHEMERAL, // Obtained from the server.
-      payload: ephemeralMessage, // Generated on step 3.
-      signature: signature // Obtained from the server.
-    },
-  ],
+      type: signature.length === 132 ? AuthLinkType.ECDSA_PERSONAL_EPHEMERAL : AuthLinkType.ECDSA_EIP_1654_EPHEMERAL,
+      payload: ephemeralMessage,
+      signature: signature
+    }
+  ]
 }
 ```
-
-6. With the Auth Identity ready and stored on the client, the user can be considered as logged in, so there is no need to execute the flow again unless disconnecting first.
-
-.

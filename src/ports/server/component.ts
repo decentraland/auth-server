@@ -7,19 +7,22 @@ import { AppComponents } from '../../types'
 import {
   IServerComponent,
   InvalidResponseMessage,
-  Message,
   MessageType,
+  OutcomeMessage,
+  OutcomeResponseMessage,
+  RecoverMessage,
   RecoverResponseMessage,
-  RequestResponseMessage,
-  SubmitSignatureResponseMessage
+  RequestMessage,
+  RequestResponseMessage
 } from './types'
-import { validateMessage, validateRecoverMessage, validateRequestMessage, validateSubmitSignatureMessage } from './validations'
+import { validateOutcomeMessage, validateRecoverMessage, validateRequestMessage } from './validations'
 
 export async function createServerComponent({
   config,
   logs,
-  storage
-}: Pick<AppComponents, 'config' | 'logs' | 'storage'>): Promise<IServerComponent> {
+  storage,
+  requestExpirationInSeconds
+}: Pick<AppComponents, 'config' | 'logs' | 'storage'> & { requestExpirationInSeconds: number }): Promise<IServerComponent> {
   const logger = logs.getLogger('websocket-server')
   const port = await config.requireNumber('HTTP_SERVER_PORT')
   const corsOrigin = await config.requireString('CORS_ORIGIN')
@@ -37,174 +40,156 @@ export async function createServerComponent({
     socket.on('disconnect', () => {
       logger.log(`[${socket.id}] Disconnected`)
 
+      const requestId = storage.getRequestIdForSocketId(socket.id)
+
+      if (requestId) {
+        storage.setRequest(requestId, null)
+      }
+
       delete sockets[socket.id]
     })
 
+    // Wraps the callback function on messages to type the message that is being sent.
+    // On the client, the response will be received using socket.emitWithAck().
+    const ack = <T>(cb: (...args: unknown[]) => void, msg: T) => {
+      try {
+        cb(msg)
+      } catch (e) {
+        // This might happen if the request was done with socket.emit instead of socket.emitWithAck.
+      }
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    socket.on('message', (socketMsg: any) => {
-      logger.log(`[${socket.id}] Message received`)
+    socket.on(MessageType.REQUEST, (data: any, cb) => {
+      let msg: RequestMessage
 
       try {
-        validateMessage(socketMsg)
-      } catch (error) {
-        logger.log(`[${socket.id}] Message does not have the expected base format: ${(error as Error).message}`)
-
-        socket.emit('message', {
-          type: MessageType.INVALID_RESPONSE,
-          payload: {
-            ok: false,
-            requestId: socketMsg?.payload?.requestId,
-            error: (error as Error).message
-          }
-        } as InvalidResponseMessage)
+        msg = validateRequestMessage(data)
+      } catch (e) {
+        ack<InvalidResponseMessage>(cb, {
+          error: (e as Error).message
+        })
 
         return
       }
 
-      const msg = socketMsg as Message
+      const requestId = uuid()
+      const expiration = new Date(Date.now() + requestExpirationInSeconds * 1000)
+      const code = Math.floor(Math.random() * 100)
 
-      switch (msg.type) {
-        case MessageType.REQUEST: {
-          try {
-            validateRequestMessage(msg)
-          } catch (error) {
-            socket.emit('message', {
-              type: MessageType.REQUEST_RESPONSE,
-              payload: {
-                ok: false,
-                error: (error as Error).message
-              }
-            } as RequestResponseMessage)
+      storage.setRequest(requestId, {
+        requestId: requestId,
+        socketId: socket.id,
+        expiration,
+        code,
+        method: msg.method,
+        params: msg.params,
+        chainId: msg.chainId,
+        sender: msg.sender
+      })
 
-            break
-          }
+      ack<RequestResponseMessage>(cb, {
+        requestId,
+        expiration,
+        code
+      })
+    })
 
-          const requestId = uuid()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    socket.on(MessageType.RECOVER, (data: any, cb) => {
+      let msg: RecoverMessage
 
-          storage.setSocketId(requestId, socket.id)
-          storage.setMessage(requestId, msg.payload)
+      try {
+        msg = validateRecoverMessage(data)
+      } catch (e) {
+        ack<InvalidResponseMessage>(cb, {
+          error: (e as Error).message
+        })
 
-          socket.emit('message', {
-            type: MessageType.REQUEST_RESPONSE,
-            payload: {
-              ok: true,
-              requestId
-            }
-          } as RequestResponseMessage)
-
-          break
-        }
-
-        case MessageType.RECOVER: {
-          try {
-            validateRecoverMessage(msg)
-          } catch (error) {
-            socket.emit('message', {
-              type: MessageType.RECOVER_RESPONSE,
-              payload: {
-                ok: false,
-                requestId: msg.payload?.requestId,
-                error: (error as Error).message
-              }
-            } as RecoverResponseMessage)
-
-            break
-          }
-
-          const { requestId } = msg.payload
-
-          const storageMessage = storage.getMessage(requestId)
-
-          if (!storageMessage) {
-            socket.emit('message', {
-              type: MessageType.RECOVER_RESPONSE,
-              payload: {
-                ok: false,
-                requestId,
-                error: `Message for request with id "${requestId}" not found`
-              }
-            } as RecoverResponseMessage)
-
-            break
-          }
-
-          socket.emit('message', {
-            type: MessageType.RECOVER_RESPONSE,
-            payload: {
-              ok: true,
-              requestId,
-              ...storageMessage
-            }
-          } as RecoverResponseMessage)
-
-          break
-        }
-
-        case MessageType.SUBMIT_SIGNATURE: {
-          try {
-            validateSubmitSignatureMessage(msg)
-          } catch (error) {
-            socket.emit('message', {
-              type: MessageType.SUBMIT_SIGNATURE_RESPONSE,
-              payload: {
-                ok: false,
-                requestId: msg.payload?.requestId,
-                error: (error as Error).message
-              }
-            } as SubmitSignatureResponseMessage)
-
-            break
-          }
-
-          const { requestId, signature, signer } = msg.payload
-
-          const storageSocketId = storage.getSocketId(requestId)
-
-          if (!storageSocketId) {
-            socket.emit('message', {
-              type: MessageType.SUBMIT_SIGNATURE_RESPONSE,
-              payload: {
-                ok: false,
-                requestId,
-                error: `Socket Id for request with id "${requestId}" not found`
-              }
-            } as SubmitSignatureResponseMessage)
-
-            break
-          }
-
-          const storageSocket = sockets[storageSocketId]
-
-          if (!storageSocket) {
-            socket.emit('message', {
-              type: MessageType.SUBMIT_SIGNATURE_RESPONSE,
-              payload: {
-                ok: false,
-                requestId,
-                error: `Socket for socket with id "${storageSocketId}" not found`
-              }
-            } as SubmitSignatureResponseMessage)
-
-            break
-          }
-
-          storageSocket.emit('message', {
-            type: MessageType.SUBMIT_SIGNATURE_RESPONSE,
-            payload: {
-              ok: true,
-              requestId,
-              signature,
-              signer
-            }
-          } as SubmitSignatureResponseMessage)
-
-          break
-        }
-
-        default: {
-          logger.log(`[${socket.id}] Unknown message type: ${msg.type}`)
-        }
+        return
       }
+
+      const request = storage.getRequest(msg.requestId)
+
+      if (!request) {
+        ack<InvalidResponseMessage>(cb, {
+          error: `Request with id "${msg.requestId}" not found`
+        })
+
+        return
+      }
+
+      if (request.expiration < new Date()) {
+        storage.setRequest(msg.requestId, null)
+
+        ack<InvalidResponseMessage>(cb, {
+          error: `Request with id "${msg.requestId}" has expired`
+        })
+
+        return
+      }
+
+      ack<RecoverResponseMessage>(cb, {
+        expiration: request.expiration,
+        code: request.code,
+        method: request.method,
+        params: request.params,
+        sender: request.sender,
+        chainId: request.chainId
+      })
+    })
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    socket.on(MessageType.OUTCOME, (data: any, cb) => {
+      let msg: OutcomeMessage
+
+      try {
+        msg = validateOutcomeMessage(data)
+      } catch (e) {
+        ack<InvalidResponseMessage>(cb, {
+          error: (e as Error).message
+        })
+
+        return
+      }
+
+      const request = storage.getRequest(msg.requestId)
+
+      if (!request) {
+        ack<InvalidResponseMessage>(cb, {
+          error: `Request with id "${msg.requestId}" not found`
+        })
+
+        return
+      }
+
+      if (request.expiration < new Date()) {
+        storage.setRequest(msg.requestId, null)
+
+        ack<InvalidResponseMessage>(cb, {
+          error: `Request with id "${msg.requestId}" has expired`
+        })
+
+        return
+      }
+
+      const storedSocket = sockets[request.socketId]
+
+      if (!storedSocket) {
+        ack<InvalidResponseMessage>(cb, {
+          error: `Socket with id "${request.socketId}" not found`
+        })
+
+        return
+      }
+
+      storage.setRequest(msg.requestId, null)
+
+      const outcomeMessage: OutcomeResponseMessage = msg
+
+      storedSocket.emit(MessageType.OUTCOME, outcomeMessage)
+
+      ack<object>(cb, {})
     })
   }
 

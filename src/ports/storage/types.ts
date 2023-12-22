@@ -1,8 +1,14 @@
-import { RequestMessage } from '../server/types'
+import { Request } from '../server/types'
 
 export type IStorageComponent = {
-  getMessage(requestId: string): RequestMessage['payload'] | null
-  setMessage(requestId: string, message: RequestMessage['payload']): void
-  getSocketId(requestId: string): string | null
-  setSocketId(requestId: string, socketId: string): void
+  getRequest(requestId: string): StorageRequest | null
+  setRequest(requestId: string, request: StorageRequest | null): void
+  getRequestIdForSocketId(socketId: string): string | null
+}
+
+export type StorageRequest = Request & {
+  requestId: string
+  socketId: string
+  expiration: Date
+  code: number
 }

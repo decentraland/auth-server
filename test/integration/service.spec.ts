@@ -1,22 +1,22 @@
-import assert from 'assert'
 import { TestArguments } from '@well-known-components/test-helpers'
 import { Socket, io } from 'socket.io-client'
-import { Message, MessageType, RequestType } from '../../src/ports/server/types'
+import { MessageType } from '../../src/ports/server/types'
 import { BaseComponents } from '../../src/types'
-import { test } from '../components'
+import { test, testWithOverrides } from '../components'
 
-let socketA: Socket
-let socketB: Socket
+let desktopClientSocket: Socket
+let authDappSocket: Socket
 
 afterEach(() => {
-  socketA.close()
+  desktopClientSocket.close()
+  authDappSocket.close()
 })
 
 async function connectClients(args: TestArguments<BaseComponents>) {
   const port = await args.components.config.getString('HTTP_SERVER_PORT')
 
-  socketA = io(`http://localhost:${port}`)
-  socketB = io(`http://localhost:${port}`)
+  desktopClientSocket = io(`http://localhost:${port}`)
+  authDappSocket = io(`http://localhost:${port}`)
 
   await new Promise(resolve => {
     let connected = 0
@@ -29,168 +29,41 @@ async function connectClients(args: TestArguments<BaseComponents>) {
       }
     }
 
-    socketA.on('connect', handleOnConnect)
-    socketB.on('connect', handleOnConnect)
+    desktopClientSocket.on('connect', handleOnConnect)
+    authDappSocket.on('connect', handleOnConnect)
   })
 }
-
-async function fetch(sentMessage: Message, sender: Socket = socketA, receiver: Socket = socketA) {
-  return new Promise<Message>(resolve => {
-    receiver.on('message', (receivedMessage: Message) => {
-      resolve(receivedMessage)
-    })
-
-    sender.emit('message', sentMessage)
-  })
-}
-
-test('when sending an object as a message with an invalid schema', args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
-
-  it('should respond with an invalid response message containing an error', async () => {
-    const message = await fetch({
-      foo: 'bar'
-    } as unknown as Message)
-
-    expect(message).toEqual({
-      type: MessageType.INVALID_RESPONSE,
-      payload: {
-        ok: false,
-        error:
-          '[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"type"},"message":"must have required property \'type\'"}]'
-      }
-    })
-  })
-})
-
-test('when sending an object as a message that has an invalid schema but contains a request id', args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
-
-  it('should respond with an invalid response message containing an error and the request id', async () => {
-    const message = await fetch({
-      foo: 'bar',
-      payload: {
-        requestId: 'foo'
-      }
-    } as unknown as Message)
-
-    expect(message).toEqual({
-      type: MessageType.INVALID_RESPONSE,
-      payload: {
-        ok: false,
-        requestId: 'foo',
-        error:
-          '[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"type"},"message":"must have required property \'type\'"}]'
-      }
-    })
-  })
-})
-
-test('when sending an object as a message that has a response type', args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
-
-  it('should respond with an invalid response message containing an error', async () => {
-    const message = await fetch({
-      type: MessageType.REQUEST_RESPONSE
-    } as unknown as Message)
-
-    expect(message).toEqual({
-      type: MessageType.INVALID_RESPONSE,
-      payload: {
-        ok: false,
-        error:
-          '[{"instancePath":"/type","schemaPath":"#/properties/type/enum","keyword":"enum","params":{"allowedValues":["request","recover","submit-signature"]},"message":"must be equal to one of the allowed values"}]'
-      }
-    })
-  })
-})
-
-test('when sending null as a message', args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
-
-  it('should respond with an invalid response message containing an error', async () => {
-    const message = await fetch(null as unknown as Message)
-
-    expect(message).toEqual({
-      type: MessageType.INVALID_RESPONSE,
-      payload: {
-        ok: false,
-        error: '[{"instancePath":"","schemaPath":"#/type","keyword":"type","params":{"type":"object"},"message":"must be object"}]'
-      }
-    })
-  })
-})
-
-test('when sending a string as a message', args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
-
-  it('should respond with an invalid response message containing an error', async () => {
-    const message = await fetch('foo' as unknown as Message)
-
-    expect(message).toEqual({
-      type: MessageType.INVALID_RESPONSE,
-      payload: {
-        ok: false,
-        error: '[{"instancePath":"","schemaPath":"#/type","keyword":"type","params":{"type":"object"},"message":"must be object"}]'
-      }
-    })
-  })
-})
 
 test('when sending a request message with an invalid schema', args => {
   beforeEach(async () => {
     await connectClients(args)
   })
 
-  it('should respond with a request response containing an error', async () => {
-    const message = await fetch({
-      type: MessageType.REQUEST,
-      payload: {
-        foo: 'bar'
-      }
-    } as unknown as Message)
+  it('should respond with an invalid response message', async () => {
+    const response = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {})
 
-    expect(message).toEqual({
-      type: MessageType.REQUEST_RESPONSE,
-      payload: {
-        ok: false,
-        error:
-          '[{"instancePath":"/payload","schemaPath":"#/properties/payload/required","keyword":"required","params":{"missingProperty":"type"},"message":"must have required property \'type\'"}]'
-      }
+    expect(response).toEqual({
+      error:
+        '[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"method"},"message":"must have required property \'method\'"}]'
     })
   })
 })
 
-test('when sending a request message with a valid schema', args => {
+test('when sending a request message', args => {
   beforeEach(async () => {
     await connectClients(args)
   })
 
-  it('should respond with a request response message containing a request id', async () => {
-    const message = await fetch({
-      type: MessageType.REQUEST,
-      payload: {
-        type: RequestType.SIGNATURE,
-        data: 'data to sign'
-      }
+  it('should respond with a request response message', async () => {
+    const response = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      method: 'method',
+      params: []
     })
 
-    expect(message).toEqual({
-      type: MessageType.REQUEST_RESPONSE,
-      payload: {
-        ok: true,
-        requestId: expect.any(String)
-      }
+    expect(response).toEqual({
+      requestId: expect.any(String),
+      expiration: expect.any(String),
+      code: expect.any(Number)
     })
   })
 })
@@ -200,279 +73,324 @@ test('when sending a recover message with an invalid schema', args => {
     await connectClients(args)
   })
 
-  it('should respond with a recover response message containing an error', async () => {
-    const message = await fetch({
-      type: MessageType.RECOVER,
-      payload: {
-        foo: 'bar'
-      }
-    } as unknown as Message)
+  it('should respond with an invalid response message', async () => {
+    const response = await authDappSocket.emitWithAck(MessageType.RECOVER, {})
 
-    expect(message).toEqual({
-      type: MessageType.RECOVER_RESPONSE,
-      payload: {
-        ok: false,
-        error:
-          '[{"instancePath":"/payload","schemaPath":"#/properties/payload/required","keyword":"required","params":{"missingProperty":"requestId"},"message":"must have required property \'requestId\'"}]'
-      }
+    expect(response).toEqual({
+      error:
+        '[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"requestId"},"message":"must have required property \'requestId\'"}]'
     })
   })
 })
 
-test('when sending a recover message with an invalid schema but containing a request id', args => {
+test('when sending a recover message but the request does not exist', args => {
   beforeEach(async () => {
     await connectClients(args)
   })
 
-  it('should respond with a recover response message containing an error and the request id', async () => {
-    const message = await fetch({
-      type: MessageType.RECOVER,
-      payload: {
-        requestId: 'foo',
-        foo: 'bar'
-      }
-    } as unknown as Message)
+  it('should respond with an invalid response message', async () => {
+    const response = await authDappSocket.emitWithAck(MessageType.RECOVER, {
+      requestId: 'requestId'
+    })
 
-    expect(message).toEqual({
-      type: MessageType.RECOVER_RESPONSE,
-      payload: {
-        ok: false,
-        requestId: 'foo',
-        error:
-          '[{"instancePath":"/payload","schemaPath":"#/properties/payload/additionalProperties","keyword":"additionalProperties","params":{"additionalProperty":"foo"},"message":"must NOT have additional properties"}]'
-      }
+    expect(response).toEqual({
+      error: 'Request with id "requestId" not found'
     })
   })
 })
 
-test('when sending a recover message with a valid schema but the request id does not exist', args => {
+testWithOverrides({ requestExpirationInSeconds: -1 })('when sending a recover message but the request has expired', args => {
   beforeEach(async () => {
     await connectClients(args)
   })
 
-  it('should respond with a recover response message containing an error', async () => {
-    const message = await fetch({
-      type: MessageType.RECOVER,
-      payload: {
-        requestId: 'foo'
-      }
+  it('should respond with an invalid response message', async () => {
+    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      method: 'method',
+      params: []
     })
 
-    expect(message).toEqual({
-      type: MessageType.RECOVER_RESPONSE,
-      payload: {
-        ok: false,
-        requestId: 'foo',
-        error: 'Message for request with id "foo" not found'
-      }
+    const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
+      requestId: requestResponse.requestId
+    })
+
+    expect(recoverResponse).toEqual({
+      error: `Request with id "${requestResponse.requestId}" has expired`
     })
   })
 })
 
-test('when sending a recover message with a valid schema and a request id that exists', args => {
-  let requestId: string
-
+test('when sending a recover message for a request that has been overriden by another one', args => {
   beforeEach(async () => {
     await connectClients(args)
-
-    const message = await fetch({
-      type: MessageType.REQUEST,
-      payload: {
-        type: RequestType.SIGNATURE,
-        data: 'data to sign'
-      }
-    })
-
-    assert(message.type === MessageType.REQUEST_RESPONSE)
-    assert(message.payload.ok)
-
-    requestId = message.payload.requestId
   })
 
-  it('should respond with a recover response message containing the stored request payload', async () => {
-    const message = await fetch({
-      type: MessageType.RECOVER,
-      payload: {
-        requestId
-      }
+  it('should respond with an invalid response message', async () => {
+    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      method: 'method',
+      params: []
     })
 
-    expect(message).toEqual({
-      type: MessageType.RECOVER_RESPONSE,
-      payload: {
-        ok: true,
-        requestId,
-        type: RequestType.SIGNATURE,
-        data: 'data to sign'
-      }
+    await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      method: 'method',
+      params: []
+    })
+
+    const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
+      requestId: requestResponse.requestId
+    })
+
+    expect(recoverResponse).toEqual({
+      error: `Request with id "${requestResponse.requestId}" not found`
+    })
+  })
+
+  it('should respond with a recover response message for the new request', async () => {
+    await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      method: 'method',
+      params: []
+    })
+
+    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      method: 'method',
+      params: []
+    })
+
+    const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
+      requestId: requestResponse.requestId
+    })
+
+    expect(recoverResponse).toEqual({
+      expiration: requestResponse.expiration,
+      code: requestResponse.code,
+      method: 'method',
+      params: []
+    })
+  })
+
+  it('should not override the first request if it was sent by a different socket', async () => {
+    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      method: 'method',
+      params: []
+    })
+
+    await authDappSocket.emitWithAck(MessageType.REQUEST, {
+      method: 'method',
+      params: []
+    })
+
+    const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
+      requestId: requestResponse.requestId
+    })
+
+    expect(recoverResponse).toEqual({
+      expiration: requestResponse.expiration,
+      code: requestResponse.code,
+      method: 'method',
+      params: []
     })
   })
 })
 
-test('when sending a submit signature message with an invalid schema', args => {
+test('when sending a recover message but the socket that sent it has disconnected', args => {
   beforeEach(async () => {
     await connectClients(args)
   })
 
-  it('should respond with a submit signature response message containing an error', async () => {
-    const message = await fetch({
-      type: MessageType.SUBMIT_SIGNATURE,
-      payload: {
-        foo: 'bar'
-      }
-    } as unknown as Message)
+  it('should respond with an invalid response message', async () => {
+    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      method: 'method',
+      params: []
+    })
 
-    expect(message).toEqual({
-      type: MessageType.SUBMIT_SIGNATURE_RESPONSE,
-      payload: {
-        ok: false,
-        error:
-          '[{"instancePath":"/payload","schemaPath":"#/properties/payload/required","keyword":"required","params":{"missingProperty":"requestId"},"message":"must have required property \'requestId\'"}]'
-      }
+    desktopClientSocket.disconnect()
+
+    const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
+      requestId: requestResponse.requestId
+    })
+
+    expect(recoverResponse).toEqual({
+      error: `Request with id "${requestResponse.requestId}" not found`
     })
   })
 })
 
-test('when sending a submit signature message with an invalid schema but containing a request id', args => {
+test('when sending a recover message', args => {
   beforeEach(async () => {
     await connectClients(args)
   })
 
-  it('should respond with a submit signature response message containing an error and the request id', async () => {
-    const message = await fetch({
-      type: MessageType.SUBMIT_SIGNATURE,
-      payload: {
-        requestId: 'foo',
-        foo: 'bar'
-      }
-    } as unknown as Message)
+  it('should respond with a recover response message', async () => {
+    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      method: 'method',
+      params: [],
+      sender: 'sender',
+      chainId: 1
+    })
 
-    expect(message).toEqual({
-      type: MessageType.SUBMIT_SIGNATURE_RESPONSE,
-      payload: {
-        ok: false,
-        requestId: 'foo',
-        error:
-          '[{"instancePath":"/payload","schemaPath":"#/properties/payload/required","keyword":"required","params":{"missingProperty":"signer"},"message":"must have required property \'signer\'"}]'
-      }
+    const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
+      requestId: requestResponse.requestId
+    })
+
+    expect(recoverResponse).toEqual({
+      expiration: requestResponse.expiration,
+      code: requestResponse.code,
+      method: 'method',
+      params: [],
+      sender: 'sender',
+      chainId: 1
     })
   })
 })
 
-test('when sending a submit signature message with a valid schema but the request id does not exist', args => {
+test('when sending an outcome message with an invalid schema', args => {
   beforeEach(async () => {
     await connectClients(args)
   })
 
-  it('should respond with a submit signature response message containing an error', async () => {
-    const message = await fetch({
-      type: MessageType.SUBMIT_SIGNATURE,
-      payload: {
-        requestId: 'foo',
-        signer: 'signer',
-        signature: 'signature'
-      }
-    })
+  it('should respond with an invalid response message', async () => {
+    const response = await authDappSocket.emitWithAck(MessageType.OUTCOME, {})
 
-    expect(message).toEqual({
-      type: MessageType.SUBMIT_SIGNATURE_RESPONSE,
-      payload: {
-        ok: false,
-        requestId: 'foo',
-        error: 'Socket Id for request with id "foo" not found'
-      }
+    expect(response).toEqual({
+      error:
+        '[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"requestId"},"message":"must have required property \'requestId\'"}]'
     })
   })
 })
 
-test('when sending a submit signature message with a valid schema and a request id that exists', args => {
-  let requestId: string
-
+test('when sending an outcome message but the request does not exist', args => {
   beforeEach(async () => {
     await connectClients(args)
-
-    const message = await fetch({
-      type: MessageType.REQUEST,
-      payload: {
-        type: RequestType.SIGNATURE,
-        data: 'data to sign'
-      }
-    })
-
-    assert(message.type === MessageType.REQUEST_RESPONSE)
-    assert(message.payload.ok)
-
-    requestId = message.payload.requestId
   })
 
-  it('should respond with a submit signature response message with the submit signature payload', async () => {
-    const message = await fetch({
-      type: MessageType.SUBMIT_SIGNATURE,
-      payload: {
-        requestId,
-        signer: 'signer',
-        signature: 'signature'
-      }
+  it('should respond with an invalid response message', async () => {
+    const response = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
+      requestId: 'requestId',
+      sender: 'sender',
+      result: 'result'
     })
 
-    expect(message).toEqual({
-      type: MessageType.SUBMIT_SIGNATURE_RESPONSE,
-      payload: {
-        ok: true,
-        requestId,
-        signer: 'signer',
-        signature: 'signature'
-      }
+    expect(response).toEqual({
+      error: 'Request with id "requestId" not found'
     })
   })
 })
 
-test('when socket B sends the request message and then socket A sends the submit signature message', args => {
-  let requestId: string
-
+testWithOverrides({ requestExpirationInSeconds: -1 })('when sending an outcome message but the request has expired', args => {
   beforeEach(async () => {
     await connectClients(args)
-
-    const message = await fetch(
-      {
-        type: MessageType.REQUEST,
-        payload: {
-          type: RequestType.SIGNATURE,
-          data: 'data to sign'
-        }
-      },
-      socketB,
-      socketB
-    )
-
-    assert(message.type === MessageType.REQUEST_RESPONSE)
-    assert(message.payload.ok)
-
-    requestId = message.payload.requestId
   })
 
-  it('should be socket B that receives the submit signature response message', async () => {
-    const message = await fetch(
-      {
-        type: MessageType.SUBMIT_SIGNATURE,
-        payload: {
-          requestId,
-          signer: 'signer',
-          signature: 'signature'
-        }
-      },
-      socketA,
-      socketB
-    )
+  it('should respond with an invalid response message', async () => {
+    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      method: 'method',
+      params: []
+    })
 
-    expect(message).toEqual({
-      type: MessageType.SUBMIT_SIGNATURE_RESPONSE,
-      payload: {
-        ok: true,
-        requestId,
-        signer: 'signer',
-        signature: 'signature'
-      }
+    const outcomeResponse = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
+      requestId: requestResponse.requestId,
+      sender: 'sender',
+      result: 'result'
+    })
+
+    expect(outcomeResponse).toEqual({
+      error: `Request with id "${requestResponse.requestId}" has expired`
+    })
+  })
+})
+
+test('when sending an outcome message but the socket that created the request disconnected', args => {
+  beforeEach(async () => {
+    await connectClients(args)
+  })
+
+  it('should respond with an invalid response message', async () => {
+    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      method: 'method',
+      params: []
+    })
+
+    desktopClientSocket.disconnect()
+
+    const outcomeResponse = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
+      requestId: requestResponse.requestId,
+      sender: 'sender',
+      result: 'result'
+    })
+
+    expect(outcomeResponse).toEqual({
+      error: `Request with id "${requestResponse.requestId}" not found`
+    })
+  })
+})
+
+test('when the auth dapp sends an outcome message', args => {
+  beforeEach(async () => {
+    await connectClients(args)
+  })
+
+  it('should respond with an empty object as ack', async () => {
+    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      method: 'method',
+      params: []
+    })
+
+    const outcomeResponse = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
+      requestId: requestResponse.requestId,
+      sender: 'sender',
+      result: 'result'
+    })
+
+    expect(outcomeResponse).toEqual({})
+  })
+
+  it('should emit to the desktop client the outcome response message', async () => {
+    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      method: 'method',
+      params: []
+    })
+
+    const outcomeResponsePromise = new Promise(resolve => {
+      desktopClientSocket.on(MessageType.OUTCOME, msg => {
+        resolve(msg)
+      })
+    })
+
+    authDappSocket.emitWithAck(MessageType.OUTCOME, {
+      requestId: requestResponse.requestId,
+      sender: 'sender',
+      result: 'result'
+    })
+
+    const outcomeResponse = await outcomeResponsePromise
+
+    expect(outcomeResponse).toEqual({
+      requestId: requestResponse.requestId,
+      sender: 'sender',
+      result: 'result'
+    })
+  })
+
+  it('should respond with an invalid response message if calling the output twice', async () => {
+    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      method: 'method',
+      params: []
+    })
+
+    await authDappSocket.emitWithAck(MessageType.OUTCOME, {
+      requestId: requestResponse.requestId,
+      sender: 'sender',
+      result: 'result'
+    })
+
+    const outcomeResponse = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
+      requestId: requestResponse.requestId,
+      sender: 'sender',
+      result: 'result'
+    })
+
+    expect(outcomeResponse).toEqual({
+      error: `Request with id "${requestResponse.requestId}" not found`
     })
   })
 })

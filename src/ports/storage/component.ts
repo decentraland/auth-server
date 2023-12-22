@@ -1,34 +1,41 @@
-import { RequestMessage } from '../server/types'
-import { IStorageComponent } from './types'
+import { IStorageComponent, StorageRequest } from './types'
 
 export function createStorageComponent(): IStorageComponent {
-  const messages: Record<string, RequestMessage['payload']> = {}
-  const socketIds: Record<string, string> = {}
+  const requests: Record<string, StorageRequest> = {}
+  const requestIdsBySocketId: Record<string, string> = {}
 
-  // Messages
-
-  const getMessage = (requestId: string) => {
-    return messages[requestId] ?? null
+  const getRequest = (requestId: string) => {
+    return requests[requestId] ?? null
   }
 
-  const setMessage = (requestId: string, message: RequestMessage['payload']) => {
-    messages[requestId] = message
+  const setRequest = (requestId: string, request: StorageRequest | null) => {
+    if (request) {
+      const previousSocketRequestId = requestIdsBySocketId[request.socketId]
+
+      if (previousSocketRequestId) {
+        delete requests[previousSocketRequestId]
+        delete requestIdsBySocketId[request.socketId]
+      }
+
+      requests[requestId] = request
+      requestIdsBySocketId[request.socketId] = requestId
+    } else {
+      const previousRequest = requests[requestId]
+
+      if (previousRequest) {
+        delete requests[requestId]
+        delete requestIdsBySocketId[previousRequest.socketId]
+      }
+    }
   }
 
-  // Sockets
-
-  const getSocketId = (requestId: string) => {
-    return socketIds[requestId] ?? null
-  }
-
-  const setSocketId = (requestId: string, socketId: string) => {
-    socketIds[requestId] = socketId
+  const getRequestIdForSocketId = (socketId: string) => {
+    return requestIdsBySocketId[socketId] ?? null
   }
 
   return {
-    getMessage,
-    setMessage,
-    getSocketId,
-    setSocketId
+    getRequest,
+    setRequest,
+    getRequestIdForSocketId
   }
 }
