@@ -89,7 +89,7 @@ export async function createServerComponent({
             method: msg.method,
             params: msg.params,
             chainId: msg.chainId,
-            sender: msg.sender,
+            sender: msg.sender
           })
 
           emit<RequestResponseMessage>({

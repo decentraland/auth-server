@@ -23,7 +23,7 @@ const requestMessageSchema = {
     }
   },
   required: ['type', 'method', 'params'],
-  additionalProperties: false,
+  additionalProperties: false
 }
 
 const recoverMessageSchema = {
