@@ -252,7 +252,8 @@ test('when sending an outcome message with an invalid schema', args => {
     const response = await authDappSocket.emitWithAck(MessageType.OUTCOME, {})
 
     expect(response).toEqual({
-      error: `[{\"instancePath\":\"\",\"schemaPath\":\"#/required\",\"keyword\":\"required\",\"params\":{\"missingProperty\":\"requestId\"},\"message\":\"must have required property 'requestId'\"}]`
+      error:
+        '[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"requestId"},"message":"must have required property \'requestId\'"}]'
     })
   })
 })
