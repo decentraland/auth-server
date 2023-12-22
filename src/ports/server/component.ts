@@ -6,16 +6,17 @@ import { v4 as uuid } from 'uuid'
 import { AppComponents } from '../../types'
 import {
   IServerComponent,
-  InputMessage,
-  MessageType,
-  RecoverResponseMessage,
-  RequestResponseMessage,
   InvalidResponseMessage,
+  MessageType,
+  OutcomeMessage,
   OutcomeResponseMessage,
-  ResponseMessage,
-  OutcomeResponseMessageForInput
+  OutcomeResponseMessageForInput,
+  RecoverMessage,
+  RecoverResponseMessage,
+  RequestMessage,
+  RequestResponseMessage
 } from './types'
-import { validateMessage } from './validations'
+import { validateOutcomeMessage, validateRecoverMessage, validateRequestMessage } from './validations'
 
 export async function createServerComponent({
   config,
@@ -49,147 +50,160 @@ export async function createServerComponent({
       delete sockets[socket.id]
     })
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    socket.on('message', (socketMsg: any) => {
-      logger.log(`[${socket.id}] Message received`)
+    const callbackW = <T>(callback: (...args: any[]) => void, msg: T) => {
+      callback(msg)
+    }
 
-      const emit = <T extends ResponseMessage>(msg: T, _socket: Socket = socket) => {
-        logger.log(`[${_socket.id}] Sending Message`)
-
-        _socket.emit('message', msg)
-      }
+    socket.on(MessageType.REQUEST, (data: any, callback) => {
+      let msg: RequestMessage
 
       try {
-        validateMessage(socketMsg)
-      } catch (error) {
-        logger.log(`[${socket.id}] Invalid Message`)
-
-        emit<InvalidResponseMessage>({
+        msg = validateRequestMessage(data)
+      } catch (e) {
+        callbackW<InvalidResponseMessage>(callback, {
           type: MessageType.INVALID,
-          requestId: socketMsg?.requestId ?? '',
-          error: (error as Error).message
+          requestId: data?.requestId,
+          error: (e as Error).message
         })
 
         return
       }
 
-      const msg = socketMsg as InputMessage
+      const requestId = uuid()
+      const expiration = new Date(Date.now() + requestExpirationInSeconds * 1000)
+      const code = Math.floor(Math.random() * 100)
 
-      switch (msg.type) {
-        case MessageType.REQUEST: {
-          const requestId = uuid()
-          const expiration = new Date(Date.now() + requestExpirationInSeconds * 1000)
-          const code = Math.floor(Math.random() * 100)
+      storage.setRequest(requestId, {
+        requestId: requestId,
+        socketId: socket.id,
+        expiration,
+        code,
+        method: msg.method,
+        params: msg.params,
+        chainId: msg.chainId,
+        sender: msg.sender
+      })
 
-          storage.setRequest(requestId, {
-            requestId: requestId,
-            socketId: socket.id,
-            expiration,
-            code,
-            method: msg.method,
-            params: msg.params,
-            chainId: msg.chainId,
-            sender: msg.sender
-          })
+      callbackW<RequestResponseMessage>(callback, {
+        type: MessageType.REQUEST,
+        requestId,
+        expiration,
+        code
+      })
+    })
 
-          emit<RequestResponseMessage>({
-            type: MessageType.REQUEST,
-            requestId,
-            expiration,
-            code
-          })
+    socket.on(MessageType.RECOVER, (data: any, callback) => {
+      let msg: RecoverMessage
 
-          break
-        }
+      try {
+        msg = validateRecoverMessage(data)
+      } catch (e) {
+        callbackW<InvalidResponseMessage>(callback, {
+          type: MessageType.INVALID,
+          requestId: data?.requestId,
+          error: (e as Error).message
+        })
 
-        case MessageType.RECOVER: {
-          const request = storage.getRequest(msg.requestId)
-
-          if (!request) {
-            emit<InvalidResponseMessage>({
-              type: MessageType.INVALID,
-              requestId: msg.requestId,
-              error: `Request with id "${msg.requestId}" not found`
-            })
-
-            break
-          }
-
-          if (request.expiration < new Date()) {
-            storage.setRequest(msg.requestId, null)
-
-            emit<InvalidResponseMessage>({
-              type: MessageType.INVALID,
-              requestId: msg.requestId,
-              error: `Request with id "${msg.requestId}" has expired`
-            })
-
-            break
-          }
-
-          emit<RecoverResponseMessage>({
-            type: MessageType.RECOVER,
-            requestId: msg.requestId,
-            expiration: request.expiration,
-            code: request.code,
-            method: request.method,
-            params: request.params,
-            sender: request.sender,
-            chainId: request.chainId
-          })
-
-          break
-        }
-
-        case MessageType.OUTCOME: {
-          const request = storage.getRequest(msg.requestId)
-
-          if (!request) {
-            emit<InvalidResponseMessage>({
-              type: MessageType.INVALID,
-              requestId: msg.requestId,
-              error: `Request with id "${msg.requestId}" not found`
-            })
-
-            break
-          }
-
-          if (request.expiration < new Date()) {
-            storage.setRequest(msg.requestId, null)
-
-            emit<InvalidResponseMessage>({
-              type: MessageType.INVALID,
-              requestId: msg.requestId,
-              error: `Request with id "${msg.requestId}" has expired`
-            })
-
-            break
-          }
-
-          const storedSocket = sockets[request.socketId]
-
-          if (!storedSocket) {
-            emit<InvalidResponseMessage>({
-              type: MessageType.INVALID,
-              requestId: msg.requestId,
-              error: `Socket with id "${request.socketId}" not found`
-            })
-
-            break
-          }
-
-          storage.setRequest(msg.requestId, null)
-
-          emit<OutcomeResponseMessageForInput>({
-            type: MessageType.OUTCOME,
-            requestId: msg.requestId
-          })
-
-          emit<OutcomeResponseMessage>(msg, storedSocket)
-
-          break
-        }
+        return
       }
+
+      const request = storage.getRequest(msg.requestId)
+
+      if (!request) {
+        callbackW<InvalidResponseMessage>(callback, {
+          type: MessageType.INVALID,
+          requestId: msg.requestId,
+          error: `Request with id "${msg.requestId}" not found`
+        })
+
+        return
+      }
+
+      if (request.expiration < new Date()) {
+        storage.setRequest(msg.requestId, null)
+
+        callbackW<InvalidResponseMessage>(callback, {
+          type: MessageType.INVALID,
+          requestId: msg.requestId,
+          error: `Request with id "${msg.requestId}" has expired`
+        })
+
+        return
+      }
+
+      callbackW<RecoverResponseMessage>(callback, {
+        type: MessageType.RECOVER,
+        requestId: msg.requestId,
+        expiration: request.expiration,
+        code: request.code,
+        method: request.method,
+        params: request.params,
+        sender: request.sender,
+        chainId: request.chainId
+      })
+    })
+
+    socket.on(MessageType.OUTCOME, (data: any, callback) => {
+      let msg: OutcomeMessage
+
+      try {
+        msg = validateOutcomeMessage(data)
+      } catch (e) {
+        callbackW<InvalidResponseMessage>(callback, {
+          type: MessageType.INVALID,
+          requestId: data?.requestId,
+          error: (e as Error).message
+        })
+
+        return
+      }
+
+      const request = storage.getRequest(msg.requestId)
+
+      if (!request) {
+        callbackW<InvalidResponseMessage>(callback, {
+          type: MessageType.INVALID,
+          requestId: msg.requestId,
+          error: `Request with id "${msg.requestId}" not found`
+        })
+
+        return
+      }
+
+      if (request.expiration < new Date()) {
+        storage.setRequest(msg.requestId, null)
+
+        callbackW<InvalidResponseMessage>(callback, {
+          type: MessageType.INVALID,
+          requestId: msg.requestId,
+          error: `Request with id "${msg.requestId}" has expired`
+        })
+
+        return
+      }
+
+      const storedSocket = sockets[request.socketId]
+
+      if (!storedSocket) {
+        callbackW<InvalidResponseMessage>(callback, {
+          type: MessageType.INVALID,
+          requestId: msg.requestId,
+          error: `Socket with id "${request.socketId}" not found`
+        })
+
+        return
+      }
+
+      storage.setRequest(msg.requestId, null)
+
+      callbackW<OutcomeResponseMessageForInput>(callback, {
+        type: MessageType.OUTCOME,
+        requestId: msg.requestId
+      })
+
+      const outcomeMessage: OutcomeResponseMessage = msg
+
+      storedSocket.emit(MessageType.OUTCOME, outcomeMessage)
     })
   }
 

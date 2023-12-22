@@ -1,5 +1,5 @@
 import Ajv from 'ajv'
-import { MessageType } from './types'
+import { MessageType, OutcomeMessage, RecoverMessage, RequestMessage } from './types'
 const ajv = new Ajv({ allowUnionTypes: true })
 
 const requestMessageSchema = {
@@ -60,12 +60,30 @@ const outcomeMessageSchema = {
   additionalProperties: false
 }
 
-const compiled = ajv.compile({
-  oneOf: [requestMessageSchema, recoverMessageSchema, outcomeMessageSchema]
-})
+const requestMessageValidator = ajv.compile(requestMessageSchema)
+const recoverMessageValidator = ajv.compile(recoverMessageSchema)
+const outcomeMessageValidator = ajv.compile(outcomeMessageSchema)
 
-export function validateMessage(msg: unknown) {
-  if (!compiled(msg)) {
-    throw new Error(JSON.stringify(compiled.errors))
+export function validateRequestMessage(msg: unknown) {
+  if (!requestMessageValidator(msg)) {
+    throw new Error(JSON.stringify(requestMessageValidator.errors))
   }
+
+  return msg as RequestMessage
+}
+
+export function validateRecoverMessage(msg: unknown) {
+  if (!recoverMessageValidator(msg)) {
+    throw new Error(JSON.stringify(recoverMessageValidator.errors))
+  }
+
+  return msg as RecoverMessage
+}
+
+export function validateOutcomeMessage(msg: unknown) {
+  if (!outcomeMessageValidator(msg)) {
+    throw new Error(JSON.stringify(outcomeMessageValidator.errors))
+  }
+
+  return msg as OutcomeMessage
 }
