@@ -17,52 +17,39 @@ export type Request = {
   chainId?: number
 }
 
-export type RequestMessage = Request & {
-  type: MessageType.REQUEST
-}
+export type RequestMessage = Request
 
 export type RequestResponseMessage = {
-  type: MessageType.REQUEST
   requestId: string
   expiration: Date
   code: number
 }
 
 export type RecoverMessage = {
-  type: MessageType.RECOVER
   requestId: string
 }
 
 export type RecoverResponseMessage = Request & {
-  type: MessageType.RECOVER
-  requestId: string
   expiration: Date
   code: number
 }
 
-export type OutcomeMessage = {
-  type: MessageType.OUTCOME
-  requestId: string
+export type Outcome = {
   sender: string
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   result: any
 }
 
+export type OutcomeMessage = Outcome & {
+  requestId: string
+}
+
 export type OutcomeResponseMessage = OutcomeMessage
 
-export type OutcomeResponseMessageForInput = Pick<OutcomeMessage, 'type' | 'requestId'>
-
 export type InvalidResponseMessage = {
-  type: MessageType.INVALID
-  requestId: string
   error: string
 }
 
 export type InputMessage = RequestMessage | RecoverMessage | OutcomeMessage
 
-export type ResponseMessage =
-  | RequestResponseMessage
-  | RecoverResponseMessage
-  | OutcomeResponseMessage
-  | OutcomeResponseMessageForInput
-  | InvalidResponseMessage
+export type ResponseMessage = RequestResponseMessage | RecoverResponseMessage | OutcomeResponseMessage | InvalidResponseMessage

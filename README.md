@@ -39,35 +39,23 @@ const socket = io('https://auth-api.decentraland.org')
 2. The desktop client has to send a request message with the method information to the auth server, at the same time, start listening for the response.
 
 ```ts
-const requestPromise = new Promise(resolve => {
-  const onMessage = msg => {
-    if (msg.type === 'request') {
-      socket.off('message', onMessage)
-      resolve(msg)
-    }
-  })
-
-  socket.on('message', onMessage)
-})
-
-socket.emit('message', {
-  type: 'request',
+const { requestId, expiration, code } = await socket.emitWithAck('request', {
   method: 'personal_sign',
   params: ['message to sign', 'signer address']
 })
-
-const { requestId, expiration, code } = await requestPromise
 ```
 
 The expiration can be used to know when the request will become unnavailable if not consumed before a certain time.
 
 The code can be used as an easy visual help to be displayed on both the desktop client and the auth dapp for the user to see that if they match, they have a really high chance of being for the same request.
 
-4. Once the request is obtained, the client has to listen for the corresponding outcome message that will provide the result of the request that will be executed on the auth dapp.
+The request id is necessary for the next step.
+
+4. Once the request id is obtained, the client has to listen for the corresponding outcome message that will provide the result of the request that will be executed on the auth dapp.
 
 ```ts
 const outcome = await new Promise((resolve, reject) => {
-  const onMessage = msg => {
+  socket.on('outcome', msg => {
     if (msg.requestId === requestId) {
       socket.off('message', onMessage)
       if (msg.error) {
@@ -77,8 +65,6 @@ const outcome = await new Promise((resolve, reject) => {
       }
     }
   })
-
-  socket.on('message', onMessage)
 })
 ```
 
@@ -113,8 +99,7 @@ const ephemeralMessage = Authenticator.getEphemeralMessage(ephemeralAccount.addr
 4. Follow the steps decribed on the [Usage](#usage) section, initializing the flow with the following message.
 
 ```ts
-socket.emit('message', {
-  type: 'request',
+socket.emitWithAck('request', {
   method: 'dcl_personal_sign',
   params: [ephemeralMessage, code]
 })
