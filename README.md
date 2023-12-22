@@ -84,35 +84,43 @@ const outcome = await new Promise((resolve, reject) => {
 
 ### Authentication Flow
 
-For the sign in flow in the desktop client. we will need to request a personal_sign, but with some things to take into consideration.
+For the sign in flow in the desktop client. we will need to request a special method called `dcl_personal_sign`.
+
+This methods works similarly to `personal_sign` but with a little difference.
 
 For this example we'll be using `ethers v6` and `@dcl/crypto`
 
 1. The desktop client will need to generate and store an epheremeral wallet.
 
-```js
+```ts
 const ephemeralAccount = ethers.Wallet.createRandom()
 ```
 
 2. The desktop client has to set a date in which the identity that will be created, expires.
 
-```js
+```ts
 const expiration = new Date(Date.now() + 24 * 60 * 60 * 1000) // 1 day in the future as an example.
 ```
 
 3. Generate the ephemeral message to be signed using the address of the ephemeral account and the expiration.
 
-```js
+```ts
 const ephemeralMessage = Authenticator.getEphemeralMessage(ephemeralAccount.address, expiration)
 ```
 
-4. Follow the steps decribed on the [Usage](#usage) section, initializing the flow with the following message
+4. Generate a random number between 0 and 99, this number is to be displayed both on the desktop client and the auth dapp as some visual validation to easily check that the request you are seeing in the auth dapp corresponds to the one created by the desktop client.
 
-```js
+```ts
+const code = Math.floor(Math.random() * 100)
+```
+
+5. Follow the steps decribed on the [Usage](#usage) section, initializing the flow with the following message.
+
+```ts
 socket.emit('message', {
   type: 'request',
-  method: 'personal_sign',
-  params: [ephemeralMessage]
+  method: 'dcl_personal_sign',
+  params: [ephemeralMessage, code]
 })
 ```
 
@@ -120,7 +128,7 @@ As you can see, there is a simple difference with the previous example. That is 
 
 If the signer is sent as a param in the request, the auth dapp will use that instead of using the one of the connected wallet, and execute it as a normal personal_sign.
 
-5. Once the flow is complete, and the desktop client receives the outcome message. The `sender` and the `result` that come with it are necessary to create an auth identity, which will be used to authorize the user into the platform.
+6. Once the flow is complete, and the desktop client receives the outcome message. The `sender` and the `result` that come with it are necessary to create an auth identity, which will be used to authorize the user into the platform.
 
 ```ts
 const signer = outcome.sender

@@ -23,7 +23,35 @@ const requestMessageSchema = {
     }
   },
   required: ['type', 'method', 'params'],
-  additionalProperties: false
+  additionalProperties: false,
+  if: {
+    properties: {
+      method: {
+        const: 'dcl_personal_sign'
+      }
+    },
+    required: ['method']
+  },
+  then: {
+    properties: {
+      params: {
+        type: 'array',
+        items: [
+          {
+            type: 'string'
+          },
+          {
+            type: 'integer',
+            minimum: 0,
+            maximum: 99
+          }
+        ],
+        additionalItems: false,
+        minItems: 2,
+        maxItems: 2
+      }
+    }
+  }
 }
 
 const recoverMessageSchema = {

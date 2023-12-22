@@ -103,6 +103,56 @@ test('when sending a request message', args => {
   })
 })
 
+test('when sending a request message with method dcl_personal_sign', args => {
+  beforeEach(async () => {
+    await connectClients(args)
+  })
+
+  it('should respond with an invalid response message when the params are invalid', async () => {
+    const testInvalidSchema = async (params: any[]) => {
+      const message = await fetch({
+        type: MessageType.REQUEST,
+        method: 'dcl_personal_sign',
+        params
+      })
+
+      expect(message).toEqual({
+        type: MessageType.INVALID,
+        requestId: '',
+        error: expect.any(String)
+      })
+    }
+
+    await testInvalidSchema([])
+    await testInvalidSchema(['address'])
+    await testInvalidSchema(['address', '99'])
+    await testInvalidSchema(['address', 'address'])
+    await testInvalidSchema(['address', 100])
+    await testInvalidSchema(['address', 50.5])
+    await testInvalidSchema(['address', -1])
+    await testInvalidSchema([99, 'address'])
+  })
+
+  it('should respond with an request response message when the params are valid', async () => {
+    const testValidSchema = async (params: any[]) => {
+      const message = await fetch({
+        type: MessageType.REQUEST,
+        method: 'dcl_personal_sign',
+        params
+      })
+
+      expect(message).toEqual({
+        type: MessageType.REQUEST,
+        requestId: expect.any(String),
+        expiration: expect.any(String)
+      })
+    }
+
+    await testValidSchema(['address', 99])
+    await testValidSchema(['address', 0])
+  })
+})
+
 test('when sending a recover message', args => {
   beforeEach(async () => {
     await connectClients(args)
