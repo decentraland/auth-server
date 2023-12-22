@@ -50,18 +50,20 @@ export async function createServerComponent({
       delete sockets[socket.id]
     })
 
-    const callbackW = <T>(callback: (...args: unknown[]) => void, msg: T) => {
-      callback(msg)
+    // Wraps the callback function on messages to type the message that is being sent.
+    // On the client, the response will be received using socket.emitWithAck().
+    const ack = <T>(cb: (...args: unknown[]) => void, msg: T) => {
+      cb(msg)
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    socket.on(MessageType.REQUEST, (data: any, callback) => {
+    socket.on(MessageType.REQUEST, (data: any, cb) => {
       let msg: RequestMessage
 
       try {
         msg = validateRequestMessage(data)
       } catch (e) {
-        callbackW<InvalidResponseMessage>(callback, {
+        ack<InvalidResponseMessage>(cb, {
           type: MessageType.INVALID,
           requestId: data?.requestId,
           error: (e as Error).message
@@ -85,7 +87,7 @@ export async function createServerComponent({
         sender: msg.sender
       })
 
-      callbackW<RequestResponseMessage>(callback, {
+      ack<RequestResponseMessage>(cb, {
         type: MessageType.REQUEST,
         requestId,
         expiration,
@@ -94,13 +96,13 @@ export async function createServerComponent({
     })
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    socket.on(MessageType.RECOVER, (data: any, callback) => {
+    socket.on(MessageType.RECOVER, (data: any, cb) => {
       let msg: RecoverMessage
 
       try {
         msg = validateRecoverMessage(data)
       } catch (e) {
-        callbackW<InvalidResponseMessage>(callback, {
+        ack<InvalidResponseMessage>(cb, {
           type: MessageType.INVALID,
           requestId: data?.requestId,
           error: (e as Error).message
@@ -112,7 +114,7 @@ export async function createServerComponent({
       const request = storage.getRequest(msg.requestId)
 
       if (!request) {
-        callbackW<InvalidResponseMessage>(callback, {
+        ack<InvalidResponseMessage>(cb, {
           type: MessageType.INVALID,
           requestId: msg.requestId,
           error: `Request with id "${msg.requestId}" not found`
@@ -124,7 +126,7 @@ export async function createServerComponent({
       if (request.expiration < new Date()) {
         storage.setRequest(msg.requestId, null)
 
-        callbackW<InvalidResponseMessage>(callback, {
+        ack<InvalidResponseMessage>(cb, {
           type: MessageType.INVALID,
           requestId: msg.requestId,
           error: `Request with id "${msg.requestId}" has expired`
@@ -133,7 +135,7 @@ export async function createServerComponent({
         return
       }
 
-      callbackW<RecoverResponseMessage>(callback, {
+      ack<RecoverResponseMessage>(cb, {
         type: MessageType.RECOVER,
         requestId: msg.requestId,
         expiration: request.expiration,
@@ -146,13 +148,13 @@ export async function createServerComponent({
     })
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    socket.on(MessageType.OUTCOME, (data: any, callback) => {
+    socket.on(MessageType.OUTCOME, (data: any, cb) => {
       let msg: OutcomeMessage
 
       try {
         msg = validateOutcomeMessage(data)
       } catch (e) {
-        callbackW<InvalidResponseMessage>(callback, {
+        ack<InvalidResponseMessage>(cb, {
           type: MessageType.INVALID,
           requestId: data?.requestId,
           error: (e as Error).message
@@ -164,7 +166,7 @@ export async function createServerComponent({
       const request = storage.getRequest(msg.requestId)
 
       if (!request) {
-        callbackW<InvalidResponseMessage>(callback, {
+        ack<InvalidResponseMessage>(cb, {
           type: MessageType.INVALID,
           requestId: msg.requestId,
           error: `Request with id "${msg.requestId}" not found`
@@ -176,7 +178,7 @@ export async function createServerComponent({
       if (request.expiration < new Date()) {
         storage.setRequest(msg.requestId, null)
 
-        callbackW<InvalidResponseMessage>(callback, {
+        ack<InvalidResponseMessage>(cb, {
           type: MessageType.INVALID,
           requestId: msg.requestId,
           error: `Request with id "${msg.requestId}" has expired`
@@ -188,7 +190,7 @@ export async function createServerComponent({
       const storedSocket = sockets[request.socketId]
 
       if (!storedSocket) {
-        callbackW<InvalidResponseMessage>(callback, {
+        ack<InvalidResponseMessage>(cb, {
           type: MessageType.INVALID,
           requestId: msg.requestId,
           error: `Socket with id "${request.socketId}" not found`
@@ -199,7 +201,7 @@ export async function createServerComponent({
 
       storage.setRequest(msg.requestId, null)
 
-      callbackW<OutcomeResponseMessageForInput>(callback, {
+      ack<OutcomeResponseMessageForInput>(cb, {
         type: MessageType.OUTCOME,
         requestId: msg.requestId
       })
