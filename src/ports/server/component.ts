@@ -10,7 +10,6 @@ import {
   MessageType,
   OutcomeMessage,
   OutcomeResponseMessage,
-  OutcomeResponseMessageForInput,
   RecoverMessage,
   RecoverResponseMessage,
   RequestMessage,
@@ -64,8 +63,6 @@ export async function createServerComponent({
         msg = validateRequestMessage(data)
       } catch (e) {
         ack<InvalidResponseMessage>(cb, {
-          type: MessageType.INVALID,
-          requestId: data?.requestId,
           error: (e as Error).message
         })
 
@@ -88,7 +85,6 @@ export async function createServerComponent({
       })
 
       ack<RequestResponseMessage>(cb, {
-        type: MessageType.REQUEST,
         requestId,
         expiration,
         code
@@ -103,8 +99,6 @@ export async function createServerComponent({
         msg = validateRecoverMessage(data)
       } catch (e) {
         ack<InvalidResponseMessage>(cb, {
-          type: MessageType.INVALID,
-          requestId: data?.requestId,
           error: (e as Error).message
         })
 
@@ -115,8 +109,6 @@ export async function createServerComponent({
 
       if (!request) {
         ack<InvalidResponseMessage>(cb, {
-          type: MessageType.INVALID,
-          requestId: msg.requestId,
           error: `Request with id "${msg.requestId}" not found`
         })
 
@@ -127,8 +119,6 @@ export async function createServerComponent({
         storage.setRequest(msg.requestId, null)
 
         ack<InvalidResponseMessage>(cb, {
-          type: MessageType.INVALID,
-          requestId: msg.requestId,
           error: `Request with id "${msg.requestId}" has expired`
         })
 
@@ -136,8 +126,6 @@ export async function createServerComponent({
       }
 
       ack<RecoverResponseMessage>(cb, {
-        type: MessageType.RECOVER,
-        requestId: msg.requestId,
         expiration: request.expiration,
         code: request.code,
         method: request.method,
@@ -155,8 +143,6 @@ export async function createServerComponent({
         msg = validateOutcomeMessage(data)
       } catch (e) {
         ack<InvalidResponseMessage>(cb, {
-          type: MessageType.INVALID,
-          requestId: data?.requestId,
           error: (e as Error).message
         })
 
@@ -167,8 +153,6 @@ export async function createServerComponent({
 
       if (!request) {
         ack<InvalidResponseMessage>(cb, {
-          type: MessageType.INVALID,
-          requestId: msg.requestId,
           error: `Request with id "${msg.requestId}" not found`
         })
 
@@ -179,8 +163,6 @@ export async function createServerComponent({
         storage.setRequest(msg.requestId, null)
 
         ack<InvalidResponseMessage>(cb, {
-          type: MessageType.INVALID,
-          requestId: msg.requestId,
           error: `Request with id "${msg.requestId}" has expired`
         })
 
@@ -191,8 +173,6 @@ export async function createServerComponent({
 
       if (!storedSocket) {
         ack<InvalidResponseMessage>(cb, {
-          type: MessageType.INVALID,
-          requestId: msg.requestId,
           error: `Socket with id "${request.socketId}" not found`
         })
 
@@ -201,10 +181,7 @@ export async function createServerComponent({
 
       storage.setRequest(msg.requestId, null)
 
-      ack<OutcomeResponseMessageForInput>(cb, {
-        type: MessageType.OUTCOME,
-        requestId: msg.requestId
-      })
+      ack<object>(cb, {})
 
       const outcomeMessage: OutcomeResponseMessage = msg
 

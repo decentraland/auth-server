@@ -1,14 +1,10 @@
 import Ajv from 'ajv'
-import { MessageType, OutcomeMessage, RecoverMessage, RequestMessage } from './types'
+import { OutcomeMessage, RecoverMessage, RequestMessage } from './types'
 const ajv = new Ajv({ allowUnionTypes: true })
 
 const requestMessageSchema = {
   type: 'object',
   properties: {
-    type: {
-      type: 'string',
-      const: MessageType.REQUEST
-    },
     method: {
       type: 'string'
     },
@@ -22,32 +18,24 @@ const requestMessageSchema = {
       type: 'number'
     }
   },
-  required: ['type', 'method', 'params'],
+  required: ['method', 'params'],
   additionalProperties: false
 }
 
 const recoverMessageSchema = {
   type: 'object',
   properties: {
-    type: {
-      type: 'string',
-      const: MessageType.RECOVER
-    },
     requestId: {
       type: 'string'
     }
   },
-  required: ['type', 'requestId'],
+  required: ['requestId'],
   additionalProperties: false
 }
 
 const outcomeMessageSchema = {
   type: 'object',
   properties: {
-    type: {
-      type: 'string',
-      const: MessageType.OUTCOME
-    },
     requestId: {
       type: 'string'
     },
@@ -56,7 +44,7 @@ const outcomeMessageSchema = {
     },
     result: {}
   },
-  required: ['type', 'requestId', 'sender', 'result'],
+  required: ['requestId', 'sender', 'result'],
   additionalProperties: false
 }
 
