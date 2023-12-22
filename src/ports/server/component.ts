@@ -79,18 +79,24 @@ export async function createServerComponent({
         case MessageType.REQUEST: {
           const requestId = uuid()
           const expiration = new Date(Date.now() + requestExpirationInSeconds * 1000)
+          const code = Math.floor(Math.random() * 100)
 
           storage.setRequest(requestId, {
             requestId: requestId,
             socketId: socket.id,
-            expiration: new Date(Date.now() + requestExpirationInSeconds * 1000),
-            ...msg
+            expiration,
+            code,
+            method: msg.method,
+            params: msg.params,
+            chainId: msg.chainId,
+            sender: msg.sender,
           })
 
           emit<RequestResponseMessage>({
             type: MessageType.REQUEST,
             requestId,
-            expiration
+            expiration,
+            code
           })
 
           break
@@ -125,6 +131,7 @@ export async function createServerComponent({
             type: MessageType.RECOVER,
             requestId: msg.requestId,
             expiration: request.expiration,
+            code: request.code,
             method: request.method,
             params: request.params,
             sender: request.sender,

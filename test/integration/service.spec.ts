@@ -1,6 +1,14 @@
 import { TestArguments } from '@well-known-components/test-helpers'
 import { Socket, io } from 'socket.io-client'
-import { InputMessage, MessageType, OutcomeMessage, RecoverMessage, RequestMessage, ResponseMessage } from '../../src/ports/server/types'
+import {
+  InputMessage,
+  MessageType,
+  OutcomeMessage,
+  RecoverMessage,
+  RequestMessage,
+  RequestResponseMessage,
+  ResponseMessage
+} from '../../src/ports/server/types'
 import { BaseComponents } from '../../src/types'
 import { test, testWithOverrides } from '../components'
 
@@ -98,58 +106,9 @@ test('when sending a request message', args => {
     expect(message).toEqual({
       type: MessageType.REQUEST,
       requestId: expect.any(String),
-      expiration: expect.any(String)
+      expiration: expect.any(String),
+      code: expect.any(Number)
     })
-  })
-})
-
-test('when sending a request message with method dcl_personal_sign', args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
-
-  it('should respond with an invalid response message when the params are invalid', async () => {
-    const testInvalidSchema = async (params: any[]) => {
-      const message = await fetch({
-        type: MessageType.REQUEST,
-        method: 'dcl_personal_sign',
-        params
-      })
-
-      expect(message).toEqual({
-        type: MessageType.INVALID,
-        requestId: '',
-        error: expect.any(String)
-      })
-    }
-
-    await testInvalidSchema([])
-    await testInvalidSchema(['address'])
-    await testInvalidSchema(['address', '99'])
-    await testInvalidSchema(['address', 'address'])
-    await testInvalidSchema(['address', 100])
-    await testInvalidSchema(['address', 50.5])
-    await testInvalidSchema(['address', -1])
-    await testInvalidSchema([99, 'address'])
-  })
-
-  it('should respond with an request response message when the params are valid', async () => {
-    const testValidSchema = async (params: any[]) => {
-      const message = await fetch({
-        type: MessageType.REQUEST,
-        method: 'dcl_personal_sign',
-        params
-      })
-
-      expect(message).toEqual({
-        type: MessageType.REQUEST,
-        requestId: expect.any(String),
-        expiration: expect.any(String)
-      })
-    }
-
-    await testValidSchema(['address', 99])
-    await testValidSchema(['address', 0])
   })
 })
 
@@ -178,7 +137,33 @@ test('when sending a recover message', args => {
       requestId,
       expiration: expect.any(String),
       method,
+      params,
+      code: expect.any(Number)
+    })
+  })
+
+  it('should respond with a recover response message, containing the same code as the one provided by the request response message', async () => {
+    const method = 'method'
+    const params: string[] = []
+
+    const { requestId, code } = (await fetch({
+      type: MessageType.REQUEST,
+      method,
       params
+    })) as RequestResponseMessage
+
+    const message = await fetch({
+      type: MessageType.RECOVER,
+      requestId
+    })
+
+    expect(message).toEqual({
+      type: MessageType.RECOVER,
+      requestId,
+      expiration: expect.any(String),
+      method,
+      params,
+      code
     })
   })
 })
@@ -214,7 +199,8 @@ test('when sending a recover message, after a request that contained sender and 
       method,
       params,
       sender,
-      chainId
+      chainId,
+      code: expect.any(Number)
     })
   })
 })
@@ -325,7 +311,8 @@ test('when sending 2 request messages with a single socket, and sending a recove
       requestId: requestId2,
       expiration: expect.any(String),
       method: request.method,
-      params: request.params
+      params: request.params,
+      code: expect.any(Number)
     })
   })
 })
@@ -359,7 +346,8 @@ test('when sending 2 request messages with different sockets, and sending a reco
       requestId: requestId1,
       expiration: expect.any(String),
       method: request.method,
-      params: request.params
+      params: request.params,
+      code: expect.any(Number)
     })
   })
 
@@ -371,7 +359,8 @@ test('when sending 2 request messages with different sockets, and sending a reco
       requestId: requestId2,
       expiration: expect.any(String),
       method: request.method,
-      params: request.params
+      params: request.params,
+      code: expect.any(Number)
     })
   })
 })

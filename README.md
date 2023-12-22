@@ -56,10 +56,12 @@ socket.emit('message', {
   params: ['message to sign', 'signer address']
 })
 
-const { requestId, expiration } = await requestPromise
+const { requestId, expiration, code } = await requestPromise
 ```
 
 The expiration can be used to know when the request will become unnavailable if not consumed before a certain time.
+
+The code can be used as an easy visual help to be displayed on both the desktop client and the auth dapp for the user to see that if they match, they have a really high chance of being for the same request.
 
 4. Once the request is obtained, the client has to listen for the corresponding outcome message that will provide the result of the request that will be executed on the auth dapp.
 
@@ -108,13 +110,7 @@ const expiration = new Date(Date.now() + 24 * 60 * 60 * 1000) // 1 day in the fu
 const ephemeralMessage = Authenticator.getEphemeralMessage(ephemeralAccount.address, expiration)
 ```
 
-4. Generate a random number between 0 and 99, this number is to be displayed both on the desktop client and the auth dapp as some visual validation to easily check that the request you are seeing in the auth dapp corresponds to the one created by the desktop client.
-
-```ts
-const code = Math.floor(Math.random() * 100)
-```
-
-5. Follow the steps decribed on the [Usage](#usage) section, initializing the flow with the following message.
+4. Follow the steps decribed on the [Usage](#usage) section, initializing the flow with the following message.
 
 ```ts
 socket.emit('message', {
@@ -128,7 +124,7 @@ As you can see, there is a simple difference with the previous example. That is 
 
 If the signer is sent as a param in the request, the auth dapp will use that instead of using the one of the connected wallet, and execute it as a normal personal_sign.
 
-6. Once the flow is complete, and the desktop client receives the outcome message. The `sender` and the `result` that come with it are necessary to create an auth identity, which will be used to authorize the user into the platform.
+5. Once the flow is complete, and the desktop client receives the outcome message. The `sender` and the `result` that come with it are necessary to create an auth identity, which will be used to authorize the user into the platform.
 
 ```ts
 const signer = outcome.sender

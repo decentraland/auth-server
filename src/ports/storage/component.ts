@@ -1,14 +1,14 @@
-import { IStorageComponent, Request } from './types'
+import { IStorageComponent, StorageRequest } from './types'
 
 export function createStorageComponent(): IStorageComponent {
-  const requests: Record<string, Request> = {}
+  const requests: Record<string, StorageRequest> = {}
   const requestIdsBySocketId: Record<string, string> = {}
 
   const getRequest = (requestId: string) => {
     return requests[requestId] ?? null
   }
 
-  const setRequest = (requestId: string, request: Request | null) => {
+  const setRequest = (requestId: string, request: StorageRequest | null) => {
     if (request) {
       const previousSocketRequestId = requestIdsBySocketId[request.socketId]
 
