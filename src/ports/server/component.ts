@@ -52,7 +52,11 @@ export async function createServerComponent({
     // Wraps the callback function on messages to type the message that is being sent.
     // On the client, the response will be received using socket.emitWithAck().
     const ack = <T>(cb: (...args: unknown[]) => void, msg: T) => {
-      cb(msg)
+      try {
+        cb(msg)
+      } catch (e) {
+        // This might happen if the message what called with socket.emit instead of socket.emitWithAck.
+      }
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -181,11 +185,11 @@ export async function createServerComponent({
 
       storage.setRequest(msg.requestId, null)
 
-      ack<object>(cb, {})
-
       const outcomeMessage: OutcomeResponseMessage = msg
 
       storedSocket.emit(MessageType.OUTCOME, outcomeMessage)
+
+      ack<object>(cb, {})
     })
   }
 

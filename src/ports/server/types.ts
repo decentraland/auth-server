@@ -44,7 +44,7 @@ export type OutcomeMessage = Outcome & {
   requestId: string
 }
 
-export type OutcomeResponseMessage = Outcome
+export type OutcomeResponseMessage = OutcomeMessage
 
 export type InvalidResponseMessage = {
   error: string
