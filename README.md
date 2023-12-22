@@ -14,9 +14,9 @@ They are created on the auth server on demand by the desktop client. The server 
 
 On the auth dapp, the user can execute said request by using the connected wallet, and communicate the result back to the auth server, which in turn will communicate it back to the desktop client.
 
-For example, if the desktop client need to send a transaction, it would create a transaction for the eth_sendTransaction method, and await for the result, which would be a transaction hash, to be returned after the flow is complete.
+For example, if the desktop client needs to send a transaction, it would create a transaction for the `eth_sendTransaction` method, and await for the result, which would be a transaction hash, to be returned after the flow is complete.
 
-Some charactistics of requests are:
+Requests have the following characteristics:
 
 1. Only one request can exist at a time per connected socket. A new request will invalidate a previous one if it existed.
 2. Requests have an expiration, and cannot be consumed after it.
@@ -26,7 +26,7 @@ Some charactistics of requests are:
 
 This section will explain the ways in which the service can be used.
 
-Use the web socket library of your choice to connect to this server (https://auth-api.decentraland.org). This one currently uses [Socket.IO](https://socket.io/) which can also be used in a JS client to connect.
+[Socket.IO](https://socket.io/) is required to connect to the auth server (https://auth-api.decentraland.org).
 
 The next example will show how a `personal_sign` can be requested by the desktop client.
 
@@ -36,7 +36,7 @@ The next example will show how a `personal_sign` can be requested by the desktop
 const socket = io('https://auth-api.decentraland.org')
 ```
 
-2. The desktop client has to send a request message with the method information to the auth server, at the same time, start listening for the response.
+2. The desktop client has to send a request message with the method information to the auth server, and wait for the response.
 
 ```ts
 const { requestId, expiration, code } = await socket.emitWithAck('request', {
@@ -45,7 +45,7 @@ const { requestId, expiration, code } = await socket.emitWithAck('request', {
 })
 ```
 
-The expiration can be used to know when the request will become unnavailable if not consumed before a certain time.
+The expiration shows when the request will become unavailable. The request must be consumed before it expires.
 
 The code can be used as an easy visual help to be displayed on both the desktop client and the auth dapp for the user to see that if they match, they have a really high chance of being for the same request.
 
@@ -72,7 +72,7 @@ const outcome = await new Promise((resolve, reject) => {
 
 ### Authentication Flow
 
-For the sign in flow in the desktop client. we will need to request a special method called `dcl_personal_sign`.
+For the sign in flow in the desktop client, we will need to use a special method called `dcl_personal_sign`.
 
 This methods works similarly to `personal_sign` but with a little difference.
 
@@ -99,13 +99,13 @@ const ephemeralMessage = Authenticator.getEphemeralMessage(ephemeralAccount.addr
 4. Follow the steps decribed on the [Usage](#usage) section, initializing the flow with the following message.
 
 ```ts
-socket.emitWithAck('request', {
+await socket.emitWithAck('request', {
   method: 'dcl_personal_sign',
   params: [ephemeralMessage, code]
 })
 ```
 
-As you can see, there is a simple difference with the previous example. That is that personal_sign requires a second parameter that is the address that will sign the message. But we don't know it yet, so only the ephemeral message is sent. The auth dapp will fill the signing address for us.
+As you can see, there is a simple difference with the previous example. That is that personal_sign requires a second parameter that is the address that will sign the message, but we don't know it yet, so only the ephemeral message is sent. The auth dApp will fill the signing address for us.
 
 If the signer is sent as a param in the request, the auth dapp will use that instead of using the one of the connected wallet, and execute it as a normal personal_sign.
 
