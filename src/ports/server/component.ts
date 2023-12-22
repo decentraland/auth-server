@@ -50,10 +50,11 @@ export async function createServerComponent({
       delete sockets[socket.id]
     })
 
-    const callbackW = <T>(callback: (...args: any[]) => void, msg: T) => {
+    const callbackW = <T>(callback: (...args: unknown[]) => void, msg: T) => {
       callback(msg)
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     socket.on(MessageType.REQUEST, (data: any, callback) => {
       let msg: RequestMessage
 
@@ -92,6 +93,7 @@ export async function createServerComponent({
       })
     })
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     socket.on(MessageType.RECOVER, (data: any, callback) => {
       let msg: RecoverMessage
 
@@ -143,6 +145,7 @@ export async function createServerComponent({
       })
     })
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     socket.on(MessageType.OUTCOME, (data: any, callback) => {
       let msg: OutcomeMessage
 
