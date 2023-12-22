@@ -55,7 +55,7 @@ export async function createServerComponent({
       try {
         cb(msg)
       } catch (e) {
-        // This might happen if the message what called with socket.emit instead of socket.emitWithAck.
+        // This might happen if the request was done with socket.emit instead of socket.emitWithAck.
       }
     }
 
