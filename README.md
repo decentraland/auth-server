@@ -136,5 +136,3 @@ const identity = {
   ]
 }
 ```
-
-.
