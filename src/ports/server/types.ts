@@ -1,5 +1,5 @@
-import { AuthChain } from '@dcl/schemas'
 import { IBaseComponent } from '@well-known-components/interfaces'
+import { AuthChain } from '@dcl/schemas'
 
 export type IServerComponent = IBaseComponent
 

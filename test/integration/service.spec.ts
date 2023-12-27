@@ -1,11 +1,11 @@
 import { TestArguments } from '@well-known-components/test-helpers'
+import { ethers } from 'ethers'
 import { Socket, io } from 'socket.io-client'
+import { AuthChain, Authenticator, AuthLinkType } from '@dcl/crypto'
+import { METHOD_DCL_PERSONAL_SIGN } from '../../src/ports/server/constants'
 import { MessageType } from '../../src/ports/server/types'
 import { BaseComponents } from '../../src/types'
 import { test, testWithOverrides } from '../components'
-import { METHOD_DCL_PERSONAL_SIGN } from '../../src/ports/server/constants'
-import { ethers } from 'ethers'
-import { AuthChain, Authenticator, AuthLinkType } from '@dcl/crypto'
 
 let desktopClientSocket: Socket
 let authDappSocket: Socket
@@ -110,7 +110,7 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       })
 
       expect(response).toEqual({
-        error: `Auth chain is required`
+        error: 'Auth chain is required'
       })
     })
   })
@@ -177,7 +177,7 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
           authChain
         })
 
-        expect(requestResponse.error).toEqual(`Could not get final authority from auth chain`)
+        expect(requestResponse.error).toEqual('Could not get final authority from auth chain')
       })
     })
   })

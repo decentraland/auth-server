@@ -3,7 +3,9 @@ import { IBaseComponent } from '@well-known-components/interfaces'
 import express from 'express'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
+import { Authenticator, parseEmphemeralPayload } from '@dcl/crypto'
 import { AppComponents } from '../../types'
+import { METHOD_DCL_PERSONAL_SIGN } from './constants'
 import {
   IServerComponent,
   InvalidResponseMessage,
@@ -16,8 +18,6 @@ import {
   RequestResponseMessage
 } from './types'
 import { validateOutcomeMessage, validateRecoverMessage, validateRequestMessage } from './validations'
-import { Authenticator, parseEmphemeralPayload } from '@dcl/crypto'
-import { METHOD_DCL_PERSONAL_SIGN } from './constants'
 
 export async function createServerComponent({
   config,
