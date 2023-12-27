@@ -101,7 +101,7 @@ const ephemeralMessage = Authenticator.getEphemeralMessage(ephemeralAccount.addr
 ```ts
 await socket.emitWithAck('request', {
   method: 'dcl_personal_sign',
-  params: [ephemeralMessage, code]
+  params: [ephemeralMessage]
 })
 ```
 
@@ -136,4 +136,3 @@ const identity = {
   ]
 }
 ```
-.
