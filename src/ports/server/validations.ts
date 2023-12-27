@@ -1,5 +1,7 @@
 import Ajv from 'ajv'
+import { AuthChain } from '@dcl/schemas'
 import { OutcomeMessage, RecoverMessage, RequestMessage } from './types'
+
 const ajv = new Ajv({ allowUnionTypes: true })
 
 const requestMessageSchema = {
@@ -11,12 +13,7 @@ const requestMessageSchema = {
     params: {
       type: 'array'
     },
-    sender: {
-      type: 'string'
-    },
-    chainId: {
-      type: 'number'
-    }
+    authChain: AuthChain.schema
   },
   required: ['method', 'params'],
   additionalProperties: false
