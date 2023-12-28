@@ -152,6 +152,7 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
 
         authChain[0].payload = otherAccount.address
       })
+
       it('should respond with an invalid response message, indicating that the expected signer address is different', async () => {
         const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
           method: 'method',
