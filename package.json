@@ -35,6 +35,7 @@
     "typescript": "^5.2.2"
   },
   "dependencies": {
+    "@dcl/crypto": "^3.4.5",
     "@dcl/schemas": "^9.6.0",
     "@well-known-components/env-config-provider": "^1.2.0",
     "@well-known-components/http-requests-logger-component": "^2.1.0",
@@ -49,6 +50,7 @@
     "ajv": "^8.12.0",
     "ajv-formats": "^2.1.1",
     "decentraland-crypto-middleware": "^1.1.0",
+    "ethers": "^6.9.1",
     "express": "^4.18.2",
     "socket.io": "^4.7.2",
     "uuid": "^9.0.1"

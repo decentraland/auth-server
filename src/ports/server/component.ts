@@ -3,7 +3,9 @@ import { IBaseComponent } from '@well-known-components/interfaces'
 import express from 'express'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
+import { Authenticator, parseEmphemeralPayload } from '@dcl/crypto'
 import { AppComponents } from '../../types'
+import { METHOD_DCL_PERSONAL_SIGN } from './constants'
 import {
   IServerComponent,
   InvalidResponseMessage,
@@ -60,7 +62,7 @@ export async function createServerComponent({
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    socket.on(MessageType.REQUEST, (data: any, cb) => {
+    socket.on(MessageType.REQUEST, async (data: any, cb) => {
       let msg: RequestMessage
 
       try {
@@ -71,6 +73,44 @@ export async function createServerComponent({
         })
 
         return
+      }
+
+      let sender: string | undefined
+
+      if (msg.method !== METHOD_DCL_PERSONAL_SIGN) {
+        const authChain = msg.authChain
+
+        if (!authChain) {
+          ack<InvalidResponseMessage>(cb, {
+            error: 'Auth chain is required'
+          })
+
+          return
+        }
+
+        sender = Authenticator.ownerAddress(authChain)
+
+        let finalAuthority: string
+
+        try {
+          finalAuthority = parseEmphemeralPayload(authChain[authChain.length - 1].payload).ephemeralAddress
+        } catch (e) {
+          ack<InvalidResponseMessage>(cb, {
+            error: 'Could not get final authority from auth chain'
+          })
+
+          return
+        }
+
+        const validationResult = await Authenticator.validateSignature(finalAuthority, authChain, null)
+
+        if (!validationResult.ok) {
+          ack<InvalidResponseMessage>(cb, {
+            error: validationResult.message ?? 'Signature validation failed'
+          })
+
+          return
+        }
       }
 
       const requestId = uuid()
@@ -84,8 +124,7 @@ export async function createServerComponent({
         code,
         method: msg.method,
         params: msg.params,
-        chainId: msg.chainId,
-        sender: msg.sender
+        sender: sender?.toLowerCase()
       })
 
       ack<RequestResponseMessage>(cb, {
@@ -134,8 +173,7 @@ export async function createServerComponent({
         code: request.code,
         method: request.method,
         params: request.params,
-        sender: request.sender,
-        chainId: request.chainId
+        sender: request.sender
       })
     })
 

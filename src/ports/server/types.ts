@@ -1,4 +1,5 @@
 import { IBaseComponent } from '@well-known-components/interfaces'
+import { AuthChain } from '@dcl/schemas'
 
 export type IServerComponent = IBaseComponent
 
@@ -13,11 +14,11 @@ export type Request = {
   method: string
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   params: any[]
-  sender?: string
-  chainId?: number
 }
 
-export type RequestMessage = Request
+export type RequestMessage = Request & {
+  authChain?: AuthChain
+}
 
 export type RequestResponseMessage = {
   requestId: string
@@ -32,6 +33,7 @@ export type RecoverMessage = {
 export type RecoverResponseMessage = Request & {
   expiration: Date
   code: number
+  sender?: string
 }
 
 export type Outcome = {

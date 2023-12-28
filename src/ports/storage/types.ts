@@ -11,4 +11,5 @@ export type StorageRequest = Request & {
   socketId: string
   expiration: Date
   code: number
+  sender?: string
 }

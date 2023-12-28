@@ -1,5 +1,8 @@
 import { TestArguments } from '@well-known-components/test-helpers'
+import { ethers } from 'ethers'
 import { Socket, io } from 'socket.io-client'
+import { AuthChain, Authenticator, AuthLinkType } from '@dcl/crypto'
+import { METHOD_DCL_PERSONAL_SIGN } from '../../src/ports/server/constants'
 import { MessageType } from '../../src/ports/server/types'
 import { BaseComponents } from '../../src/types'
 import { test, testWithOverrides } from '../components'
@@ -56,7 +59,7 @@ test('when sending a request message', args => {
 
   it('should respond with a request response message', async () => {
     const response = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: 'method',
+      method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -64,6 +67,119 @@ test('when sending a request message', args => {
       requestId: expect.any(String),
       expiration: expect.any(String),
       code: expect.any(Number)
+    })
+  })
+})
+
+test(`when sending a request message for a method that is not ${METHOD_DCL_PERSONAL_SIGN}`, args => {
+  let mainAccount: ethers.HDNodeWallet
+  let ephemeralAccount: ethers.HDNodeWallet
+  let expiration: Date
+  let ephemeralMessage: string
+  let signature: string
+  let authChain: AuthChain
+
+  beforeEach(async () => {
+    await connectClients(args)
+
+    mainAccount = ethers.Wallet.createRandom()
+    ephemeralAccount = ethers.Wallet.createRandom()
+    expiration = new Date(Date.now() + 60000) // 1 minute
+    ephemeralMessage = Authenticator.getEphemeralMessage(ephemeralAccount.address, expiration)
+    signature = await mainAccount.signMessage(ephemeralMessage)
+
+    authChain = [
+      {
+        type: AuthLinkType.SIGNER,
+        payload: mainAccount.address,
+        signature: ''
+      },
+      {
+        type: AuthLinkType.ECDSA_PERSONAL_EPHEMERAL,
+        payload: ephemeralMessage,
+        signature: signature
+      }
+    ]
+  })
+
+  describe('when an auth chain is not provided', () => {
+    it('should respond with an invalid response message indicating that the auth chain is required', async () => {
+      const response = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+        method: 'method',
+        params: []
+      })
+
+      expect(response).toEqual({
+        error: 'Auth chain is required'
+      })
+    })
+  })
+
+  describe('when an auth chain is provided', () => {
+    it('should respond with a request response message', async () => {
+      const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+        method: 'method',
+        params: [],
+        authChain
+      })
+
+      expect(requestResponse).toEqual({
+        requestId: expect.any(String),
+        expiration: expect.any(String),
+        code: expect.any(Number)
+      })
+    })
+
+    it('should return the sender derived from the auth chain on the recover response', async () => {
+      const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+        method: 'method',
+        params: [],
+        authChain
+      })
+
+      const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
+        requestId: requestResponse.requestId
+      })
+
+      expect(recoverResponse.sender).toEqual(mainAccount.address.toLowerCase())
+    })
+
+    describe('when the payload on the signer link does not match the address of the ephemeral message signer', () => {
+      let otherAccount: ethers.HDNodeWallet
+
+      beforeEach(() => {
+        otherAccount = ethers.Wallet.createRandom()
+
+        authChain[0].payload = otherAccount.address
+      })
+
+      it('should respond with an invalid response message, indicating that the expected signer address is different', async () => {
+        const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+          method: 'method',
+          params: [],
+          authChain
+        })
+
+        expect(requestResponse.error).toEqual(
+          `ERROR. Link type: ECDSA_EPHEMERAL. Invalid signer address. Expected: ${otherAccount.address.toLowerCase()}. Actual: ${mainAccount.address.toLowerCase()}.`
+        )
+      })
+    })
+
+    describe('when the auth chain does not have a parseable payload in the second link', () => {
+      beforeEach(() => {
+        authChain[1].payload = 'unparseable'
+      })
+
+      it('should respond with an invalid response message, indicating that the final authority could not be obtained', async () => {
+        const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+          method: 'method',
+          params: [],
+          authChain
+        })
+
+        expect(requestResponse.error).toEqual('Could not get final authority from auth chain')
+      })
     })
   })
 })
@@ -106,7 +222,7 @@ testWithOverrides({ requestExpirationInSeconds: -1 })('when sending a recover me
 
   it('should respond with an invalid response message', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: 'method',
+      method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -127,12 +243,12 @@ test('when sending a recover message for a request that has been overriden by an
 
   it('should respond with an invalid response message', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: 'method',
+      method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
     await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: 'method',
+      method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -147,12 +263,12 @@ test('when sending a recover message for a request that has been overriden by an
 
   it('should respond with a recover response message for the new request', async () => {
     await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: 'method',
+      method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: 'method',
+      method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -163,19 +279,19 @@ test('when sending a recover message for a request that has been overriden by an
     expect(recoverResponse).toEqual({
       expiration: requestResponse.expiration,
       code: requestResponse.code,
-      method: 'method',
+      method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
   })
 
   it('should not override the first request if it was sent by a different socket', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: 'method',
+      method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
     await authDappSocket.emitWithAck(MessageType.REQUEST, {
-      method: 'method',
+      method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -186,7 +302,7 @@ test('when sending a recover message for a request that has been overriden by an
     expect(recoverResponse).toEqual({
       expiration: requestResponse.expiration,
       code: requestResponse.code,
-      method: 'method',
+      method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
   })
@@ -199,7 +315,7 @@ test('when sending a recover message but the socket that sent it has disconnecte
 
   it('should respond with an invalid response message', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: 'method',
+      method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -222,10 +338,8 @@ test('when sending a recover message', args => {
 
   it('should respond with a recover response message', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: 'method',
-      params: [],
-      sender: 'sender',
-      chainId: 1
+      method: METHOD_DCL_PERSONAL_SIGN,
+      params: []
     })
 
     const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
@@ -235,10 +349,8 @@ test('when sending a recover message', args => {
     expect(recoverResponse).toEqual({
       expiration: requestResponse.expiration,
       code: requestResponse.code,
-      method: 'method',
-      params: [],
-      sender: 'sender',
-      chainId: 1
+      method: METHOD_DCL_PERSONAL_SIGN,
+      params: []
     })
   })
 })
@@ -283,7 +395,7 @@ testWithOverrides({ requestExpirationInSeconds: -1 })('when sending an outcome m
 
   it('should respond with an invalid response message', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: 'method',
+      method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -306,7 +418,7 @@ test('when sending an outcome message but the socket that created the request di
 
   it('should respond with an invalid response message', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: 'method',
+      method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -331,7 +443,7 @@ test('when the auth dapp sends an outcome message', args => {
 
   it('should respond with an empty object as ack', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: 'method',
+      method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -346,7 +458,7 @@ test('when the auth dapp sends an outcome message', args => {
 
   it('should emit to the desktop client the outcome response message', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: 'method',
+      method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -373,7 +485,7 @@ test('when the auth dapp sends an outcome message', args => {
 
   it('should respond with an invalid response message if calling the output twice', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: 'method',
+      method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
