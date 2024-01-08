@@ -36,10 +36,17 @@ export type RecoverResponseMessage = Request & {
   sender?: string
 }
 
+export type OutcomeError = {
+  code: number
+  message: string
+  data?: any
+}
+
 export type Outcome = {
   sender: string
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  result: any
+  result?: any
+  error?: OutcomeError
 }
 
 export type OutcomeMessage = Outcome & {

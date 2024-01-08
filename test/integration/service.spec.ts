@@ -468,7 +468,7 @@ test('when the auth dapp sends an outcome message', args => {
       })
     })
 
-    authDappSocket.emitWithAck(MessageType.OUTCOME, {
+    await authDappSocket.emitWithAck(MessageType.OUTCOME, {
       requestId: requestResponse.requestId,
       sender: 'sender',
       result: 'result'
@@ -480,6 +480,39 @@ test('when the auth dapp sends an outcome message', args => {
       requestId: requestResponse.requestId,
       sender: 'sender',
       result: 'result'
+    })
+  })
+
+  it('should emit to the desktop client the outcome response message with an error', async () => {
+    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      method: METHOD_DCL_PERSONAL_SIGN,
+      params: []
+    })
+
+    const outcomeResponsePromise = new Promise(resolve => {
+      desktopClientSocket.on(MessageType.OUTCOME, msg => {
+        resolve(msg)
+      })
+    })
+
+    await authDappSocket.emitWithAck(MessageType.OUTCOME, {
+      requestId: requestResponse.requestId,
+      sender: 'sender',
+      error: {
+        code: 1233,
+        message: 'anErrorOcurred'
+      }
+    })
+
+    const outcomeResponse = await outcomeResponsePromise
+
+    expect(outcomeResponse).toEqual({
+      requestId: requestResponse.requestId,
+      sender: 'sender',
+      error: {
+        code: 1233,
+        message: 'anErrorOcurred'
+      }
     })
   })
 
