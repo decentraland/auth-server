@@ -365,7 +365,7 @@ test('when sending an outcome message with an invalid schema', args => {
 
     expect(response).toEqual({
       error:
-        '[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"requestId"},"message":"must have required property \'requestId\'"}]'
+        '[{"instancePath":"","schemaPath":"#/oneOf/0/required","keyword":"required","params":{"missingProperty":"result"},"message":"must have required property \'result\'"},{"instancePath":"","schemaPath":"#/oneOf/1/required","keyword":"required","params":{"missingProperty":"error"},"message":"must have required property \'error\'"},{"instancePath":"","schemaPath":"#/oneOf","keyword":"oneOf","params":{"passingSchemas":null},"message":"must match exactly one schema in oneOf"}]'
     })
   })
 })
@@ -468,7 +468,7 @@ test('when the auth dapp sends an outcome message', args => {
       })
     })
 
-    authDappSocket.emitWithAck(MessageType.OUTCOME, {
+    await authDappSocket.emitWithAck(MessageType.OUTCOME, {
       requestId: requestResponse.requestId,
       sender: 'sender',
       result: 'result'
@@ -480,6 +480,39 @@ test('when the auth dapp sends an outcome message', args => {
       requestId: requestResponse.requestId,
       sender: 'sender',
       result: 'result'
+    })
+  })
+
+  it('should emit to the desktop client the outcome response message with an error', async () => {
+    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      method: METHOD_DCL_PERSONAL_SIGN,
+      params: []
+    })
+
+    const outcomeResponsePromise = new Promise(resolve => {
+      desktopClientSocket.on(MessageType.OUTCOME, msg => {
+        resolve(msg)
+      })
+    })
+
+    await authDappSocket.emitWithAck(MessageType.OUTCOME, {
+      requestId: requestResponse.requestId,
+      sender: 'sender',
+      error: {
+        code: 1233,
+        message: 'anErrorOcurred'
+      }
+    })
+
+    const outcomeResponse = await outcomeResponsePromise
+
+    expect(outcomeResponse).toEqual({
+      requestId: requestResponse.requestId,
+      sender: 'sender',
+      error: {
+        code: 1233,
+        message: 'anErrorOcurred'
+      }
     })
   })
 

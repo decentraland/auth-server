@@ -39,9 +39,31 @@ const outcomeMessageSchema = {
     sender: {
       type: 'string'
     },
-    result: {}
+    result: {},
+    error: {
+      type: 'object',
+      properties: {
+        code: {
+          type: 'number'
+        },
+        message: {
+          type: 'string'
+        },
+        data: {}
+      },
+      required: ['code', 'message'],
+      additionalProperties: false
+    }
   },
-  required: ['requestId', 'sender', 'result'],
+  required: ['requestId', 'sender'],
+  oneOf: [
+    {
+      required: ['result']
+    },
+    {
+      required: ['error']
+    }
+  ],
   additionalProperties: false
 }
 
