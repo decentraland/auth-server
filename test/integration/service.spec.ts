@@ -355,6 +355,94 @@ test('when sending a recover message', args => {
   })
 })
 
+testWithOverrides({ requestExpirationInSeconds: -1, clearRequestsInSeconds: 0.75 })(
+  'when sending a recover message - with overrides to test that expired requests are cleared by the interval',
+  args => {
+    let waitTime: number
+
+    beforeEach(async () => {
+      await connectClients(args)
+    })
+
+    describe('when the request has expired but the clear requests interval has not passed yet', () => {
+      beforeEach(() => {
+        waitTime = 500
+      })
+
+      it('should respond with an invalid response message mentioning that the request has expired', async () => {
+        const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+          method: METHOD_DCL_PERSONAL_SIGN,
+          params: []
+        })
+
+        await new Promise(resolve => setTimeout(resolve, waitTime))
+
+        const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
+          requestId: requestResponse.requestId
+        })
+
+        expect(recoverResponse).toEqual({
+          error: `Request with id "${requestResponse.requestId}" has expired`
+        })
+      })
+    })
+
+    describe('when the request has expired and the clear requests interval has passed', () => {
+      beforeEach(() => {
+        waitTime = 1000
+      })
+
+      it('should respond with an invalid response message mentioning that the request cannot be found', async () => {
+        const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+          method: METHOD_DCL_PERSONAL_SIGN,
+          params: []
+        })
+
+        await new Promise(resolve => setTimeout(resolve, waitTime))
+
+        const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
+          requestId: requestResponse.requestId
+        })
+
+        expect(recoverResponse).toEqual({
+          error: `Request with id "${requestResponse.requestId}" not found`
+        })
+      })
+    })
+  }
+)
+
+testWithOverrides({ clearRequestsInSeconds: 0.75 })(
+  'when sending a recover message - with overrides to test that non expired requests are not cleared by the interval',
+  args => {
+    beforeEach(async () => {
+      await connectClients(args)
+    })
+
+    describe('when the request has not expired but the clear requests interval has passed', () => {
+      it('should respond with a recover response message', async () => {
+        const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+          method: METHOD_DCL_PERSONAL_SIGN,
+          params: []
+        })
+
+        await new Promise(resolve => setTimeout(resolve, 1000))
+
+        const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
+          requestId: requestResponse.requestId
+        })
+
+        expect(recoverResponse).toEqual({
+          expiration: requestResponse.expiration,
+          code: requestResponse.code,
+          method: METHOD_DCL_PERSONAL_SIGN,
+          params: []
+        })
+      })
+    })
+  }
+)
+
 test('when sending an outcome message with an invalid schema', args => {
   beforeEach(async () => {
     await connectClients(args)

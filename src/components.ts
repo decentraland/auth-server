@@ -7,14 +7,21 @@ import { AppComponents } from './types'
 // Initialize all the components of the app
 export async function initComponents(): Promise<AppComponents> {
   const config = await createDotEnvConfigComponent({ path: ['.env.default', '.env'] })
+
+  // TODO: Get this value from config.
+  const requestExpiration = 5 * 60 // 5 Minutes
+
   const logs = await createLogComponent({})
-  const storage = createStorageComponent()
+
+  const storage = createStorageComponent({
+    clearRequestsInSeconds: requestExpiration
+  })
+
   const server = await createServerComponent({
     config,
     logs,
     storage,
-    // TODO: Get this value from config.
-    requestExpirationInSeconds: 5 * 60 // 5 Minutes
+    requestExpirationInSeconds: requestExpiration
   })
 
   return {

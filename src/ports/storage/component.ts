@@ -1,8 +1,29 @@
 import { IStorageComponent, StorageRequest } from './types'
 
-export function createStorageComponent(): IStorageComponent {
+export function createStorageComponent(args: { clearRequestsInSeconds: number }): IStorageComponent {
   const requests: Record<string, StorageRequest> = {}
   const requestIdsBySocketId: Record<string, string> = {}
+
+  let clearRequestsInterval: NodeJS.Timer | undefined = undefined
+
+  const start = async () => {
+    clearRequestsInterval = setInterval(() => {
+      for (const key in requests) {
+        if (Object.prototype.hasOwnProperty.call(requests, key)) {
+          const request = requests[key]
+
+          if (request.expiration.getTime() < Date.now()) {
+            delete requests[key]
+            delete requestIdsBySocketId[request.socketId]
+          }
+        }
+      }
+    }, args.clearRequestsInSeconds * 1000)
+  }
+
+  const stop = async () => {
+    clearInterval(clearRequestsInterval)
+  }
 
   const getRequest = (requestId: string) => {
     return requests[requestId] ?? null
@@ -34,6 +55,8 @@ export function createStorageComponent(): IStorageComponent {
   }
 
   return {
+    start,
+    stop,
     getRequest,
     setRequest,
     getRequestIdForSocketId
