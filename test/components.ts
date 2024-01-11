@@ -12,6 +12,7 @@ import { TestComponents } from '../src/types'
 
 type TestOverrides = {
   requestExpirationInSeconds?: number
+  clearRequestsInSeconds?: number
 }
 
 /**
@@ -61,9 +62,12 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     { path: [path.resolve(__dirname, '../.env.spec')] },
     { HTTP_SERVER_PORT: httpServerPort.toString() }
   )
-
   const logs = await createLogComponent({})
-  const storage = createStorageComponent()
+
+  const storage = createStorageComponent({
+    clearRequestsInSeconds: overrides.clearRequestsInSeconds ?? 999 * 60 // 999 seconds (So they are not cleared on tests by default)
+  })
+
   const server = await createServerComponent({
     config,
     logs,
