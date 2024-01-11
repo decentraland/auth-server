@@ -4,19 +4,26 @@ export function createStorageComponent(args: { clearRequestsInSeconds: number })
   const requests: Record<string, StorageRequest> = {}
   const requestIdsBySocketId: Record<string, string> = {}
 
-  // Clears expired requests every x amount of time.
-  setInterval(() => {
-    for (const key in requests) {
-      if (Object.prototype.hasOwnProperty.call(requests, key)) {
-        const request = requests[key]
+  let clearRequestsInterval: NodeJS.Timer | undefined = undefined
 
-        if (request.expiration.getTime() < Date.now()) {
-          delete requests[key]
-          delete requestIdsBySocketId[request.socketId]
+  const start = async () => {
+    clearRequestsInterval = setInterval(() => {
+      for (const key in requests) {
+        if (Object.prototype.hasOwnProperty.call(requests, key)) {
+          const request = requests[key]
+
+          if (request.expiration.getTime() < Date.now()) {
+            delete requests[key]
+            delete requestIdsBySocketId[request.socketId]
+          }
         }
       }
-    }
-  }, args.clearRequestsInSeconds * 1000)
+    }, args.clearRequestsInSeconds * 1000)
+  }
+
+  const stop = async () => {
+    clearInterval(clearRequestsInterval)
+  }
 
   const getRequest = (requestId: string) => {
     return requests[requestId] ?? null
@@ -48,6 +55,8 @@ export function createStorageComponent(args: { clearRequestsInSeconds: number })
   }
 
   return {
+    start,
+    stop,
     getRequest,
     setRequest,
     getRequestIdForSocketId
