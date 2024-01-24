@@ -20,7 +20,7 @@
     "prepare": "husky install"
   },
   "devDependencies": {
-    "@dcl/eslint-config": "^1.1.6",
+    "@dcl/eslint-config": "^2.0.0",
     "@types/jest": "^29.5.4",
     "@types/node": "^18.16.18",
     "@types/uuid": "^9.0.7",
