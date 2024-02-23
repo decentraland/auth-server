@@ -1,4 +1,4 @@
-import { Request } from '../server/types'
+import { OutcomeResponseMessage, Request } from '../server/types'
 
 export type IStorageComponent = {
   getRequest(requestId: string): StorageRequest | null
@@ -8,8 +8,9 @@ export type IStorageComponent = {
 
 export type StorageRequest = Request & {
   requestId: string
-  socketId: string
+  socketId?: string
   expiration: Date
   code: number
   sender?: string
+  response?: OutcomeResponseMessage
 }

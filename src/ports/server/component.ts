@@ -1,6 +1,7 @@
 import { createServer } from 'http'
 import { IBaseComponent } from '@well-known-components/interfaces'
-import express from 'express'
+import bodyParser from 'body-parser'
+import express, { Request, Response } from 'express'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
 import { Authenticator, parseEmphemeralPayload } from '@dcl/crypto'
@@ -193,7 +194,8 @@ export async function createServerComponent({
 
       const request = storage.getRequest(msg.requestId)
 
-      if (!request) {
+      // If the response was already received, it's like the request doesn't exist anymore
+      if (!request || request.response) {
         ack<InvalidResponseMessage>(cb, {
           error: `Request with id "${msg.requestId}" not found`
         })
@@ -211,22 +213,25 @@ export async function createServerComponent({
         return
       }
 
-      const storedSocket = sockets[request.socketId]
+      // If it has a socketId, it means it was a request by socket.io
+      //  otherwise, we hold the response until the client polls for it.
+      if (request.socketId) {
+        const storedSocket = sockets[request.socketId]
+        if (!storedSocket) {
+          ack<InvalidResponseMessage>(cb, {
+            error: `Socket with id "${request.socketId}" not found`
+          })
 
-      if (!storedSocket) {
-        ack<InvalidResponseMessage>(cb, {
-          error: `Socket with id "${request.socketId}" not found`
-        })
+          return
+        }
 
-        return
+        storage.setRequest(msg.requestId, null)
+
+        const outcomeMessage: OutcomeResponseMessage = msg
+        storedSocket.emit(MessageType.OUTCOME, outcomeMessage)
+      } else {
+        request.response = msg
       }
-
-      storage.setRequest(msg.requestId, null)
-
-      const outcomeMessage: OutcomeResponseMessage = msg
-
-      storedSocket.emit(MessageType.OUTCOME, outcomeMessage)
-
       ack<object>(cb, {})
     })
   }
@@ -241,6 +246,9 @@ export async function createServerComponent({
     const app = express()
     const httpServer = createServer(app)
 
+    // Middleware to parse JSON in the request body
+    app.use(bodyParser.json())
+
     app.get('/health/ready', (_req, res) => {
       res.sendStatus(200)
     })
@@ -251,6 +259,118 @@ export async function createServerComponent({
 
     app.get('/health/live', (_req, res) => {
       res.sendStatus(200)
+    })
+
+    // Wraps the callback function on messages to type the message that is being sent
+    const sendResponse = <T>(res: Response, statusCode: number, msg: T) => {
+      res.status(statusCode).json(msg)
+    }
+
+    app.post('/requests', async (req: Request, res: Response) => {
+      const data = req.body
+      let msg: RequestMessage
+
+      try {
+        msg = validateRequestMessage(data)
+      } catch (e) {
+        sendResponse<InvalidResponseMessage>(res, 400, {
+          error: (e as Error).message
+        })
+
+        return
+      }
+
+      let sender: string | undefined
+
+      if (msg.method !== METHOD_DCL_PERSONAL_SIGN) {
+        const authChain = msg.authChain
+
+        if (!authChain) {
+          sendResponse<InvalidResponseMessage>(res, 400, {
+            error: 'Auth chain is required'
+          })
+
+          return
+        }
+
+        sender = Authenticator.ownerAddress(authChain)
+
+        let finalAuthority: string
+
+        try {
+          finalAuthority = parseEmphemeralPayload(authChain[authChain.length - 1].payload).ephemeralAddress
+        } catch (e) {
+          sendResponse<InvalidResponseMessage>(res, 400, {
+            error: 'Could not get final authority from auth chain'
+          })
+
+          return
+        }
+
+        const validationResult = await Authenticator.validateSignature(finalAuthority, authChain, null)
+
+        if (!validationResult.ok) {
+          sendResponse<InvalidResponseMessage>(res, 400, {
+            error: validationResult.message ?? 'Signature validation failed'
+          })
+
+          return
+        }
+      }
+
+      const requestId = uuid()
+      const expiration = new Date(Date.now() + requestExpirationInSeconds * 1000)
+      const code = Math.floor(Math.random() * 100)
+
+      storage.setRequest(requestId, {
+        requestId: requestId,
+        expiration,
+        code,
+        method: msg.method,
+        params: msg.params,
+        sender: sender?.toLowerCase()
+      })
+
+      sendResponse<RequestResponseMessage>(res, 201, {
+        requestId,
+        expiration,
+        code
+      })
+    })
+
+    app.get('/requests/:requestId', async (req: Request, res: Response) => {
+      const requestId = req.params.requestId
+      const request = storage.getRequest(requestId)
+
+      if (!request) {
+        sendResponse<InvalidResponseMessage>(res, 404, {
+          error: `Request with id "${requestId}" not found`
+        })
+
+        return
+      }
+
+      if (request.expiration < new Date()) {
+        storage.setRequest(requestId, null)
+
+        sendResponse<InvalidResponseMessage>(res, 410, {
+          error: `Request with id "${requestId}" has expired`
+        })
+
+        return
+      }
+
+      if (!request.response) {
+        sendResponse<InvalidResponseMessage>(res, 204, {
+          error: `Request with id "${requestId}" has not been completed`
+        })
+
+        return
+      }
+
+      storage.setRequest(requestId, null)
+
+      sendResponse<OutcomeResponseMessage>(res, 200, request.response)
     })
 
     server = new Server(httpServer, { cors: { origin: corsOrigin, methods: corsMethods } })
