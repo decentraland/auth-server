@@ -22,7 +22,7 @@ function createHttpPollingClient(url: string): HttpPollingClient {
   return {
     async request(data: unknown) {
       // Make a post request
-      const response = await fetch(`${url}/http-polling/request`, {
+      const response = await fetch(`${url}/requests`, {
         method: 'POST',
         body: JSON.stringify(data),
         headers: [['Content-Type', 'application/json']]
@@ -32,7 +32,7 @@ function createHttpPollingClient(url: string): HttpPollingClient {
     },
     async poll(requestId: string) {
       while (shouldPoll) {
-        const response = await fetch(`${url}/http-polling/${requestId}`)
+        const response = await fetch(`${url}/requests/${requestId}`)
         if (response.status === 204) {
           await new Promise(resolve => setTimeout(resolve, 1000))
           continue
@@ -67,7 +67,7 @@ async function connectClients(args: TestArguments<BaseComponents>) {
   })
 }
 
-test('when sending a request message with an invalid schema (http-polling-version)', args => {
+test('when sending a request message with an invalid schema', args => {
   beforeEach(async () => {
     await connectClients(args)
   })
@@ -82,7 +82,7 @@ test('when sending a request message with an invalid schema (http-polling-versio
   })
 })
 
-test('when sending a request message (http-polling-version)', args => {
+test('when sending a request message', args => {
   beforeEach(async () => {
     await connectClients(args)
   })
@@ -101,7 +101,7 @@ test('when sending a request message (http-polling-version)', args => {
   })
 })
 
-test(`when sending a request message for a method that is not ${METHOD_DCL_PERSONAL_SIGN} (http-polling-version)`, args => {
+test(`when sending a request message for a method that is not ${METHOD_DCL_PERSONAL_SIGN}`, args => {
   let mainAccount: ethers.HDNodeWallet
   let ephemeralAccount: ethers.HDNodeWallet
   let expiration: Date
@@ -214,7 +214,7 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
   })
 })
 
-test('when sending a recover message with an invalid schema (http-polling-version)', args => {
+test('when sending a recover message with an invalid schema', args => {
   beforeEach(async () => {
     await connectClients(args)
   })
@@ -229,7 +229,7 @@ test('when sending a recover message with an invalid schema (http-polling-versio
   })
 })
 
-test('when sending a recover message but the request does not exist (http-polling-version)', args => {
+test('when sending a recover message but the request does not exist', args => {
   beforeEach(async () => {
     await connectClients(args)
   })
@@ -266,7 +266,7 @@ testWithOverrides({ requestExpirationInSeconds: -1 })('when sending a recover me
   })
 })
 
-test('when sending a recover message (http-polling-version)', args => {
+test('when sending a recover message', args => {
   beforeEach(async () => {
     await connectClients(args)
   })
@@ -290,7 +290,7 @@ test('when sending a recover message (http-polling-version)', args => {
   })
 })
 
-test('when sending an outcome message with an invalid schema (http-polling-version)', args => {
+test('when sending an outcome message with an invalid schema', args => {
   beforeEach(async () => {
     await connectClients(args)
   })
@@ -305,7 +305,7 @@ test('when sending an outcome message with an invalid schema (http-polling-versi
   })
 })
 
-test('when sending an outcome message but the request does not exist (http-polling-version)', args => {
+test('when sending an outcome message but the request does not exist', args => {
   beforeEach(async () => {
     await connectClients(args)
   })
@@ -346,7 +346,7 @@ testWithOverrides({ requestExpirationInSeconds: -1 })('when sending an outcome m
   })
 })
 
-test('when the auth dapp sends an outcome message (http-polling-version)', args => {
+test('when the auth dapp sends an outcome message', args => {
   beforeEach(async () => {
     await connectClients(args)
   })

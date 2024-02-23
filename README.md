@@ -70,6 +70,43 @@ const outcome = await new Promise((resolve, reject) => {
 
 5. Get the `result` and the `sender` from the outcome message and do with them whatever is necessary.
 
+#### Using http-polling without Socket.IO
+It is possible avoid using `SocketIO` as a request maker (client-side). In the next example, the same flow as below is presented but using http-polling:
+
+1. The desktop client has to send a request message with the method information to the auth server by directly sending a http POST to the `/requests` path.
+
+```ts
+const authServerUrl = 'https://auth-api.decentraland.org'
+const response = await fetch(`${authServerUrl}/requests`, {
+  method: 'POST',
+  headers: [['Content-type', 'application/json']],
+  body: JSON.stringify({
+    method: 'personal_sign',
+    params: ['message to sign', 'signer address']
+  })
+})
+const { requestId, expiration, code } = await response.json()
+```
+
+2. Once the request id is obtained, the client has to polling periodically for the corresponding outcome message that will provide the result of the request that will be executed on the auth dapp.
+
+```ts
+async function getResponse(requestId: string) {
+  while (true) {
+    const response = await fetch(`${authServerUrl}/requests/${requestId}`)
+    if (response.statusCode === 204) {
+      // Result is not ready yet, wait a second
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      continue;
+    }
+    return await response.json()
+  }
+}
+const outcome = await getResponse(requestId)
+```
+
+3. Get the `result` and the `sender` from the outcome message and do with them whatever is necessary.
+
 ### Authentication Flow
 
 For the sign in flow in the desktop client, we will need to use a special method called `dcl_personal_sign`.

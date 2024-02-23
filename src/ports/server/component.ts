@@ -266,7 +266,7 @@ export async function createServerComponent({
       res.status(statusCode).json(msg)
     }
 
-    app.post('/http-polling/request', async (req: Request, res: Response) => {
+    app.post('/requests', async (req: Request, res: Response) => {
       const data = req.body
       let msg: RequestMessage
 
@@ -338,7 +338,7 @@ export async function createServerComponent({
       })
     })
 
-    app.get('/http-polling/:requestId', async (req: Request, res: Response) => {
+    app.get('/requests/:requestId', async (req: Request, res: Response) => {
       const requestId = req.params.requestId
       const request = storage.getRequest(requestId)
 
