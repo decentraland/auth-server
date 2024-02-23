@@ -49,6 +49,7 @@
     "@well-known-components/tracer-component": "^1.2.0",
     "ajv": "^8.12.0",
     "ajv-formats": "^2.1.1",
+    "body-parser": "^1.20.2",
     "decentraland-crypto-middleware": "^1.1.0",
     "ethers": "^6.9.1",
     "express": "^4.18.2",
