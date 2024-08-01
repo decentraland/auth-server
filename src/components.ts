@@ -15,6 +15,11 @@ export async function initComponents(): Promise<AppComponents> {
     storage,
     // TODO: Get this value from config.
     requestExpirationInSeconds: 5 * 60 // 5 Minutes
+  }, {
+    cors: {
+      methods: ['GET', 'HEAD', 'OPTIONS', 'DELETE', 'POST', 'PUT'],
+      maxAge: 86400
+    }
   })
 
   return {
