@@ -1,6 +1,7 @@
 import { createServer } from 'http'
 import { IBaseComponent } from '@well-known-components/interfaces'
 import bodyParser from 'body-parser'
+import cors from 'cors'
 import express, { Request, Response } from 'express'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
@@ -248,6 +249,9 @@ export async function createServerComponent({
 
     // Middleware to parse JSON in the request body
     app.use(bodyParser.json())
+
+    // CORS middleware
+    app.use(cors({ origin: corsOrigin, methods: corsMethods }))
 
     app.get('/health/ready', (_req, res) => {
       res.sendStatus(200)
