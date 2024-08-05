@@ -25,14 +25,20 @@ function createHttpPollingClient(url: string): HttpPollingClient {
       const response = await fetch(`${url}/requests`, {
         method: 'POST',
         body: JSON.stringify(data),
-        headers: [['Content-Type', 'application/json']]
+        headers: [
+          ['Content-Type', 'application/json'],
+          ['Origin', 'http://localhost:3000']
+        ]
       })
 
       return response.json()
     },
     async poll(requestId: string) {
       while (shouldPoll) {
-        const response = await fetch(`${url}/requests/${requestId}`)
+        const response = await fetch(`${url}/requests/${requestId}`, {
+          method: 'GET',
+          headers: [['Origin', 'http://localhost:3000']]
+        })
         if (response.status === 204) {
           await new Promise(resolve => setTimeout(resolve, 1000))
           continue

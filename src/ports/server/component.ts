@@ -29,8 +29,10 @@ export async function createServerComponent({
 }: Pick<AppComponents, 'config' | 'logs' | 'storage'> & { requestExpirationInSeconds: number }): Promise<IServerComponent> {
   const logger = logs.getLogger('websocket-server')
   const port = await config.requireNumber('HTTP_SERVER_PORT')
-  const corsOrigin = await config.requireString('CORS_ORIGIN')
-  const corsMethods = await config.requireString('CORS_METHODS')
+  const corsOptions = {
+    origin: (await config.requireString('CORS_ORIGIN')).split(';').map(origin => new RegExp(origin)),
+    methods: await config.requireString('CORS_METHODS')
+  }
 
   const sockets: Record<string, Socket> = {}
 
@@ -249,9 +251,7 @@ export async function createServerComponent({
 
     // Middleware to parse JSON in the request body
     app.use(bodyParser.json())
-
-    // CORS middleware
-    app.use(cors({ origin: corsOrigin, methods: corsMethods }))
+    app.use(cors(corsOptions))
 
     app.get('/health/ready', (_req, res) => {
       res.sendStatus(200)
@@ -377,7 +377,7 @@ export async function createServerComponent({
       sendResponse<OutcomeResponseMessage>(res, 200, request.response)
     })
 
-    server = new Server(httpServer, { cors: { origin: corsOrigin, methods: corsMethods } })
+    server = new Server(httpServer, { cors: corsOptions })
 
     server.on('connection', onConnection)
 
