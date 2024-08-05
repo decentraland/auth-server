@@ -29,8 +29,8 @@ export async function createServerComponent({
 }: Pick<AppComponents, 'config' | 'logs' | 'storage'> & { requestExpirationInSeconds: number }): Promise<IServerComponent> {
   const logger = logs.getLogger('websocket-server')
   const port = await config.requireNumber('HTTP_SERVER_PORT')
-  const corsOrigin = await config.requireString('CORS_ORIGIN')
-  const corsMethods = await config.requireString('CORS_METHODS')
+  const corsOrigin = (await config.requireString('CORS_ORIGIN')).split(';')
+  const corsMethods = (await config.requireString('CORS_METHODS')).split(';')
 
   const sockets: Record<string, Socket> = {}
 
@@ -251,7 +251,27 @@ export async function createServerComponent({
     app.use(bodyParser.json())
 
     // CORS middleware
-    app.use(cors({ origin: corsOrigin, methods: corsMethods }))
+    const corsOptions = {
+      origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
+        if (!origin) return callback(new Error('Not allowed by CORS'), false)
+
+        const allowedOrigins = corsOrigin.map(o => {
+          if (o.startsWith('regex:')) {
+            return new RegExp(o.slice(6))
+          }
+          return new RegExp(o.replace(/\*/g, '.*'))
+        })
+
+        const isAllowed = allowedOrigins.some(regex => regex.test(origin))
+        if (isAllowed) {
+          callback(null, true)
+        } else {
+          callback(new Error('Not allowed by CORS'))
+        }
+      },
+      methods: corsMethods
+    }
+    app.use(cors(corsOptions))
 
     app.get('/health/ready', (_req, res) => {
       res.sendStatus(200)
