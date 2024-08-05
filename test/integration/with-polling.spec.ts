@@ -27,7 +27,7 @@ function createHttpPollingClient(url: string): HttpPollingClient {
         body: JSON.stringify(data),
         headers: [
           ['Content-Type', 'application/json'],
-          ['Origin', 'https://mvfw.org']
+          ['Origin', 'https://test-origins.org']
         ]
       })
 
@@ -37,7 +37,7 @@ function createHttpPollingClient(url: string): HttpPollingClient {
       while (shouldPoll) {
         const response = await fetch(`${url}/requests/${requestId}`, {
           method: 'GET',
-          headers: [['Origin', 'https://mvfw.org']]
+          headers: [['Origin', 'https://test-origins.zone']]
         })
         if (response.status === 204) {
           await new Promise(resolve => setTimeout(resolve, 1000))

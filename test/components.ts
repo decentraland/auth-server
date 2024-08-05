@@ -59,7 +59,7 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
 
   const config = await createDotEnvConfigComponent(
     { path: [path.resolve(__dirname, '../.env.spec')] },
-    { HTTP_SERVER_PORT: httpServerPort.toString() }
+    { HTTP_SERVER_PORT: httpServerPort.toString(), CORS_ORIGIN: 'https://test-*.org;https://test-*.zone' }
   )
 
   const logs = await createLogComponent({})
