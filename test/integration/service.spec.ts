@@ -166,9 +166,9 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       })
     })
 
-    describe('when the auth chain does not have a parseable payload in the second link', () => {
+    describe('when the auth chain does not have a parsable payload in the second link', () => {
       beforeEach(() => {
-        authChain[1].payload = 'unparseable'
+        authChain[1].payload = 'unparsable'
       })
 
       it('should respond with an invalid response message, indicating that the final authority could not be obtained', async () => {
@@ -236,7 +236,7 @@ testWithOverrides({ requestExpirationInSeconds: -1 })('when sending a recover me
   })
 })
 
-test('when sending a recover message for a request that has been overriden by another one', args => {
+test('when sending a recover message for a request that has been overridden by another one', args => {
   beforeEach(async () => {
     await connectClients(args)
   })
@@ -432,6 +432,37 @@ test('when sending an outcome message but the socket that created the request di
 
     expect(outcomeResponse).toEqual({
       error: `Request with id "${requestResponse.requestId}" not found`
+    })
+  })
+})
+
+test('when the auth dapp sends an outcome message for a request that already has a response', args => {
+  beforeEach(async () => {
+    await connectClients(args)
+  })
+
+  it('should respond with an invalid response message if the request already has a response', async () => {
+    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      method: METHOD_DCL_PERSONAL_SIGN,
+      params: []
+    })
+
+    // First outcome message
+    await authDappSocket.emitWithAck(MessageType.OUTCOME, {
+      requestId: requestResponse.requestId,
+      sender: 'sender',
+      result: 'result'
+    })
+
+    // Second outcome message for the same request
+    const secondOutcomeResponse = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
+      requestId: requestResponse.requestId,
+      sender: 'sender',
+      result: 'another result'
+    })
+
+    expect(secondOutcomeResponse).toEqual({
+      error: `Request with id "${requestResponse.requestId}" already has a response`
     })
   })
 })
