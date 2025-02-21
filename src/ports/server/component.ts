@@ -79,7 +79,7 @@ export async function createServerComponent({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       socket.on(MessageType.REQUEST, async (data: any, cb) =>
         tracer.span(
-          'websocket-disconnect',
+          'websocket-request',
           async () => {
             let msg: RequestMessage
             logger.log('Received a request')
@@ -163,7 +163,7 @@ export async function createServerComponent({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       socket.on(MessageType.RECOVER, (data: any, cb) =>
         tracer.span(
-          'websocket-disconnect',
+          'websocket-recover',
           () => {
             let msg: RecoverMessage
             logger.log('Received a recover request')
@@ -222,7 +222,7 @@ export async function createServerComponent({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       socket.on(MessageType.OUTCOME, (data: any, cb) =>
         tracer.span(
-          'websocket-disconnect',
+          'websocket-outcome',
           () => {
             let msg: OutcomeMessage
             logger.log('Received an outcome message')
