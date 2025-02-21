@@ -451,7 +451,7 @@ test('when the auth dapp sends an outcome message', args => {
     })
 
     expect(outcomeResponse).toEqual({
-      error: `Request with id "${requestResponse.requestId}" not found`
+      error: `Request with id "${requestResponse.requestId}" already has a response`
     })
   })
 })

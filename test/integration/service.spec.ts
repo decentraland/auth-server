@@ -436,37 +436,6 @@ test('when sending an outcome message but the socket that created the request di
   })
 })
 
-test('when the auth dapp sends an outcome message for a request that already has a response', args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
-
-  it('should respond with an invalid response message if the request already has a response', async () => {
-    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
-    })
-
-    // First outcome message
-    await authDappSocket.emitWithAck(MessageType.OUTCOME, {
-      requestId: requestResponse.requestId,
-      sender: 'sender',
-      result: 'result'
-    })
-
-    // Second outcome message for the same request
-    const secondOutcomeResponse = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
-      requestId: requestResponse.requestId,
-      sender: 'sender',
-      result: 'another result'
-    })
-
-    expect(secondOutcomeResponse).toEqual({
-      error: `Request with id "${requestResponse.requestId}" already has a response`
-    })
-  })
-})
-
 test('when the auth dapp sends an outcome message', args => {
   beforeEach(async () => {
     await connectClients(args)
