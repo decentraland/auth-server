@@ -166,9 +166,9 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       })
     })
 
-    describe('when the auth chain does not have a parseable payload in the second link', () => {
+    describe('when the auth chain does not have a parsable payload in the second link', () => {
       beforeEach(() => {
-        authChain[1].payload = 'unparseable'
+        authChain[1].payload = 'unparsable'
       })
 
       it('should respond with an invalid response message, indicating that the final authority could not be obtained', async () => {
@@ -236,7 +236,7 @@ testWithOverrides({ requestExpirationInSeconds: -1 })('when sending a recover me
   })
 })
 
-test('when sending a recover message for a request that has been overriden by another one', args => {
+test('when sending a recover message for a request that has been overridden by another one', args => {
   beforeEach(async () => {
     await connectClients(args)
   })
