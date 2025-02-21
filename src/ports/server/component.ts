@@ -6,6 +6,7 @@ import express, { Request, Response } from 'express'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
 import { Authenticator, parseEmphemeralPayload } from '@dcl/crypto'
+import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
 import { METHOD_DCL_PERSONAL_SIGN } from './constants'
 import {
@@ -68,13 +69,19 @@ export async function createServerComponent({
 
       // Wraps the callback function on messages to type the message that is being sent.
       // On the client, the response will be received using socket.emitWithAck().
-      const ack = <T>(cb: (...args: unknown[]) => void, msg: T) => {
-        try {
-          cb(msg)
-        } catch (e) {
-          // This might happen if the request was done with socket.emit instead of socket.emitWithAck.
-        }
-      }
+      const ack = <T>(cb: (...args: unknown[]) => void, msg: T) =>
+        tracer.span(
+          'websocket-ack',
+          () => {
+            try {
+              cb(msg)
+            } catch (e) {
+              // This might happen if the request was done with socket.emit instead of socket.emitWithAck.
+              logger.error(`There was an error sending the response message: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
+            }
+          },
+          parentTracingContext
+        )
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       socket.on(MessageType.REQUEST, async (data: any, cb) =>
