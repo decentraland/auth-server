@@ -27,8 +27,12 @@ export async function createServerComponent({
   logs,
   storage,
   tracer,
-  requestExpirationInSeconds
-}: Pick<AppComponents, 'config' | 'logs' | 'storage' | 'tracer'> & { requestExpirationInSeconds: number }): Promise<IServerComponent> {
+  requestExpirationInSeconds,
+  dclPersonalSignExpirationInSeconds
+}: Pick<AppComponents, 'config' | 'logs' | 'storage' | 'tracer'> & {
+  requestExpirationInSeconds: number
+  dclPersonalSignExpirationInSeconds: number
+}): Promise<IServerComponent> {
   const port = await config.requireNumber('HTTP_SERVER_PORT')
   const logger = logs.getLogger('websocket-server')
 
@@ -142,7 +146,10 @@ export async function createServerComponent({
             }
 
             const requestId = uuid()
-            const expiration = new Date(Date.now() + requestExpirationInSeconds * 1000)
+            const expiration = new Date(
+              Date.now() +
+                (msg.method !== METHOD_DCL_PERSONAL_SIGN ? requestExpirationInSeconds : dclPersonalSignExpirationInSeconds) * 1000
+            )
             const code = Math.floor(Math.random() * 100)
 
             storage.setRequest(requestId, {
