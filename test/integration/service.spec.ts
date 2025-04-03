@@ -215,7 +215,7 @@ test('when sending a recover message but the request does not exist', args => {
   })
 })
 
-testWithOverrides({ requestExpirationInSeconds: -1 })('when sending a recover message but the request has expired', args => {
+testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending a recover message but the request has expired', args => {
   beforeEach(async () => {
     await connectClients(args)
   })
@@ -388,7 +388,7 @@ test('when sending an outcome message but the request does not exist', args => {
   })
 })
 
-testWithOverrides({ requestExpirationInSeconds: -1 })('when sending an outcome message but the request has expired', args => {
+testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending an outcome message but the request has expired', args => {
   beforeEach(async () => {
     await connectClients(args)
   })
