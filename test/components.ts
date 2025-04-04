@@ -13,6 +13,7 @@ import { TestComponents } from '../src/types'
 
 type TestOverrides = {
   requestExpirationInSeconds?: number
+  dclPersonalSignExpirationInSeconds?: number
 }
 
 /**
@@ -71,7 +72,8 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     logs,
     tracer,
     storage,
-    requestExpirationInSeconds: overrides.requestExpirationInSeconds ?? 5 * 60 // 5 Minutes
+    requestExpirationInSeconds: overrides.requestExpirationInSeconds ?? 5 * 60, // 5 Minutes
+    dclPersonalSignExpirationInSeconds: overrides.dclPersonalSignExpirationInSeconds ?? 5 * 60 // 5 Minutes
   })
 
   return {

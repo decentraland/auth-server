@@ -8,6 +8,8 @@ import { AppComponents } from './types'
 // Initialize all the components of the app
 export async function initComponents(): Promise<AppComponents> {
   const config = await createDotEnvConfigComponent({ path: ['.env.default', '.env'] })
+  const requestExpirationInSeconds = await config.requireNumber('REQUEST_EXPIRATION_IN_SECONDS')
+  const dclPersonalSignExpirationInSeconds = await config.requireNumber('DCL_PERSONAL_SIGN_REQUEST_EXPIRATION_IN_SECONDS')
   const tracer = await createTracerComponent()
   const logs = await createLogComponent({ tracer })
   const storage = createStorageComponent()
@@ -16,8 +18,8 @@ export async function initComponents(): Promise<AppComponents> {
     logs,
     storage,
     tracer,
-    // TODO: Get this value from config.
-    requestExpirationInSeconds: 5 * 60 // 5 Minutes
+    requestExpirationInSeconds,
+    dclPersonalSignExpirationInSeconds
   })
 
   return {
