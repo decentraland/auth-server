@@ -14,13 +14,8 @@ type HttpPollingClient = {
   request(data: unknown): Promise<any>
   sendSuccessfulOutcome(requestId: string, sender: string, result: any): Promise<any>
   sendFailedOutcome(requestId: string, sender: string, error: { code: number; message: string }): Promise<any>
-  getOutcome(requestId: string, version: POLLING_VERSION): Promise<any>
+  getOutcome(requestId: string): Promise<any>
   recover(requestId: string): Promise<RecoverResponseMessage>
-}
-
-enum POLLING_VERSION {
-  V1 = 'v1',
-  V2 = 'v2'
 }
 
 function createHttpClient(url: string): HttpPollingClient {
@@ -78,8 +73,8 @@ function createHttpClient(url: string): HttpPollingClient {
 
       return response.json()
     },
-    async getOutcome(requestId: string, version: POLLING_VERSION) {
-      const response = await fetch(version === POLLING_VERSION.V1 ? `${url}/requests/${requestId}` : `${url}/v2/outcomes/${requestId}`, {
+    async getOutcome(requestId: string) {
+      const response = await fetch(`${url}/requests/${requestId}`, {
         method: 'GET',
         headers: [['Origin', 'http://localhost:3000']]
       })
@@ -345,7 +340,7 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
 
     await desktopHTTPClient.sendSuccessfulOutcome(requestResponse.requestId, 'sender', 'result')
 
-    const outcomeResponse = await desktopHTTPClient.getOutcome(requestResponse.requestId, POLLING_VERSION.V1)
+    const outcomeResponse = await desktopHTTPClient.getOutcome(requestResponse.requestId)
 
     expect(outcomeResponse).toEqual({
       requestId: requestResponse.requestId,
@@ -386,7 +381,7 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
       message: 'anErrorOccurred'
     })
 
-    const outcomeResponse = await desktopHTTPClient.getOutcome(requestResponse.requestId, POLLING_VERSION.V1)
+    const outcomeResponse = await desktopHTTPClient.getOutcome(requestResponse.requestId)
 
     expect(outcomeResponse).toEqual({
       requestId: requestResponse.requestId,

@@ -459,43 +459,7 @@ export async function createServerComponent({
       })
     })
 
-    app.get('/v2/outcomes/:requestId', async (req: Request, res: Response) => {
-      const requestId = req.params.requestId
-      const request = storage.getRequest(requestId)
-
-      if (!request) {
-        sendResponse<InvalidResponseMessage>(res, 404, {
-          error: `Request with id "${requestId}" not found`
-        })
-
-        return
-      }
-
-      if (request.expiration < new Date()) {
-        storage.setRequest(requestId, null)
-
-        sendResponse<InvalidResponseMessage>(res, 410, {
-          error: `Request with id "${requestId}" has expired`
-        })
-
-        return
-      }
-
-      if (!request.response) {
-        sendResponse<InvalidResponseMessage>(res, 204, {
-          error: `Request with id "${requestId}" has not been completed`
-        })
-
-        return
-      }
-
-      storage.setRequest(requestId, null)
-
-      sendResponse<OutcomeResponseMessage>(res, 200, request.response)
-    })
-
     // Get the outcome of a request
-    // @deprecated
     app.get('/requests/:requestId', async (req: Request, res: Response) => {
       const requestId = req.params.requestId
       const request = storage.getRequest(requestId)
