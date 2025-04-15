@@ -1,6 +1,6 @@
 import Ajv from 'ajv'
 import { AuthChain } from '@dcl/schemas'
-import { OutcomeMessage, RecoverMessage, RequestMessage } from './types'
+import { HttpOutcomeMessage, OutcomeMessage, RecoverMessage, RequestMessage } from './types'
 
 const ajv = new Ajv({ allowUnionTypes: true })
 
@@ -67,9 +67,15 @@ const outcomeMessageSchema = {
   additionalProperties: false
 }
 
+const httpOutcomeMessageSchema = {
+  ...outcomeMessageSchema,
+  required: ['sender']
+}
+
 const requestMessageValidator = ajv.compile(requestMessageSchema)
 const recoverMessageValidator = ajv.compile(recoverMessageSchema)
 const outcomeMessageValidator = ajv.compile(outcomeMessageSchema)
+const httpOutcomeMessageValidator = ajv.compile(httpOutcomeMessageSchema)
 
 export function validateRequestMessage(msg: unknown) {
   if (!requestMessageValidator(msg)) {
@@ -93,4 +99,12 @@ export function validateOutcomeMessage(msg: unknown) {
   }
 
   return msg as OutcomeMessage
+}
+
+export function validateHttpOutcomeMessage(msg: unknown) {
+  if (!httpOutcomeMessageValidator(msg)) {
+    throw new Error(JSON.stringify(httpOutcomeMessageValidator.errors))
+  }
+
+  return msg as HttpOutcomeMessage
 }
