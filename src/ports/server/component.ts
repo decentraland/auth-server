@@ -10,6 +10,7 @@ import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
 import { METHOD_DCL_PERSONAL_SIGN } from './constants'
 import {
+  HttpOutcomeMessage,
   IServerComponent,
   InvalidResponseMessage,
   MessageType,
@@ -20,7 +21,7 @@ import {
   RequestMessage,
   RequestResponseMessage
 } from './types'
-import { validateOutcomeMessage, validateRecoverMessage, validateRequestMessage } from './validations'
+import { validateHttpOutcomeMessage, validateOutcomeMessage, validateRecoverMessage, validateRequestMessage } from './validations'
 
 export async function createServerComponent({
   config,
@@ -426,7 +427,8 @@ export async function createServerComponent({
       })
     })
 
-    app.get('/requests/:requestId', async (req: Request, res: Response) => {
+    // Get a request by id
+    app.get('/v2/requests/:requestId', async (req: Request, res: Response) => {
       const requestId = req.params.requestId
       const request = storage.getRequest(requestId)
 
@@ -448,6 +450,36 @@ export async function createServerComponent({
         return
       }
 
+      sendResponse<RecoverResponseMessage>(res, 200, {
+        expiration: request.expiration,
+        code: request.code,
+        method: request.method,
+        params: request.params,
+        sender: request.sender
+      })
+    })
+
+    // Get the outcome of a request
+    app.get('/requests/:requestId', async (req: Request, res: Response) => {
+      const requestId = req.params.requestId
+      const request = storage.getRequest(requestId)
+
+      if (!request) {
+        sendResponse<InvalidResponseMessage>(res, 404, {
+          error: `Request with id "${requestId}" not found`
+        })
+        return
+      }
+
+      if (request.expiration < new Date()) {
+        storage.setRequest(requestId, null)
+        sendResponse<InvalidResponseMessage>(res, 410, {
+          error: `Request with id "${requestId}" has expired`
+        })
+
+        return
+      }
+
       if (!request.response) {
         sendResponse<InvalidResponseMessage>(res, 204, {
           error: `Request with id "${requestId}" has not been completed`
@@ -457,8 +489,85 @@ export async function createServerComponent({
       }
 
       storage.setRequest(requestId, null)
-
       sendResponse<OutcomeResponseMessage>(res, 200, request.response)
+    })
+
+    // Record the outcome of a request
+    app.post('/v2/outcomes/:requestId', async (req: Request, res: Response) => {
+      const requestId = req.params.requestId
+
+      const data = req.body
+      let msg: HttpOutcomeMessage
+
+      try {
+        msg = validateHttpOutcomeMessage(data)
+      } catch (e) {
+        sendResponse<InvalidResponseMessage>(res, 400, {
+          error: (e as Error).message
+        })
+
+        return
+      }
+
+      const request = storage.getRequest(requestId)
+
+      // If the response was already received, it's like the request doesn't exist anymore
+      if (!request) {
+        sendResponse<InvalidResponseMessage>(res, 404, {
+          error: `Request with id "${requestId}" not found`
+        })
+
+        logger.log(`[RID:${requestId}] Received an outcome message for a non-existent request`)
+
+        return
+      }
+
+      if (request.response) {
+        sendResponse<InvalidResponseMessage>(res, 400, {
+          error: `Request with id "${requestId}" already has a response`
+        })
+
+        logger.log(`[RID:${requestId}] Received an outcome message for a request that already has a response`)
+
+        return
+      }
+
+      if (request.expiration < new Date()) {
+        storage.setRequest(requestId, null)
+
+        sendResponse<InvalidResponseMessage>(res, 410, {
+          error: `Request with id "${requestId}" has expired`
+        })
+
+        logger.log(`[RID:${requestId}] Received an outcome message for an expired request`)
+
+        return
+      }
+
+      const outcomeMessage: OutcomeResponseMessage = {
+        ...msg,
+        requestId
+      }
+
+      if (request.socketId && sockets[request.socketId]) {
+        const storedSocket = sockets[request.socketId]
+        storedSocket.emit(MessageType.OUTCOME, outcomeMessage)
+        logger.log(
+          `[METHOD:${request.method}][RID:${
+            request.requestId
+          }][EXP:${request.expiration.getTime()}] Successfully sent outcome message to the client via socket`
+        )
+        // Remove the request from the storage after it has been sent to the client
+        storage.setRequest(requestId, null)
+      } else {
+        // Store the outcome message in the request
+        request.response = {
+          ...msg,
+          requestId
+        }
+      }
+
+      return res.sendStatus(200)
     })
 
     server = new Server(httpServer, { cors: corsOptions })

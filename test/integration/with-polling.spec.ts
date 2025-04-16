@@ -3,24 +3,24 @@ import { ethers } from 'ethers'
 import { Socket, io } from 'socket.io-client'
 import { AuthChain, Authenticator, AuthLinkType } from '@dcl/crypto'
 import { METHOD_DCL_PERSONAL_SIGN } from '../../src/ports/server/constants'
-import { MessageType } from '../../src/ports/server/types'
+import { OutcomeResponseMessage, RecoverResponseMessage, RequestResponseMessage } from '../../src/ports/server/types'
 import { BaseComponents } from '../../src/types'
 import { test, testWithOverrides } from '../components'
 
-let desktopClientSocket: HttpPollingClient
+let desktopHTTPClient: HttpPollingClient
 let authDappSocket: Socket
 
 type HttpPollingClient = {
-  request(data: unknown): Promise<any>
-  poll(requestId: string): Promise<any>
-  cancel(): void
+  request(data: unknown): Promise<RequestResponseMessage | { error: string }>
+  sendSuccessfulOutcome(requestId: string, sender: string, result: unknown): Promise<{ error: string } | undefined>
+  sendFailedOutcome(requestId: string, sender: string, error: { code: number; message: string }): Promise<{ error: string } | undefined>
+  getOutcome(requestId: string): Promise<OutcomeResponseMessage | undefined>
+  recover(requestId: string): Promise<RecoverResponseMessage>
 }
 
-function createHttpPollingClient(url: string): HttpPollingClient {
-  let shouldPoll = true
-
+function createHttpClient(url: string): HttpPollingClient {
   return {
-    async request(data: unknown) {
+    async request(data: unknown): Promise<RequestResponseMessage | { error: string }> {
       // Make a post request
       const response = await fetch(`${url}/requests`, {
         method: 'POST',
@@ -33,35 +33,73 @@ function createHttpPollingClient(url: string): HttpPollingClient {
 
       return response.json()
     },
-    async poll(requestId: string) {
-      while (shouldPoll) {
-        const response = await fetch(`${url}/requests/${requestId}`, {
-          method: 'GET',
-          headers: [['Origin', 'http://localhost:3000']]
-        })
-        if (response.status === 204) {
-          await new Promise(resolve => setTimeout(resolve, 1000))
-          continue
-        }
+    async sendSuccessfulOutcome(requestId: string, sender: string, result: unknown): Promise<{ error: string } | undefined> {
+      const response = await fetch(`${url}/v2/outcomes/${requestId}`, {
+        method: 'POST',
+        body: JSON.stringify({ sender, result }),
+        headers: [['Content-Type', 'application/json']]
+      })
+      let body: { error: string } | undefined
 
-        return response.json()
+      try {
+        body = await response.json()
+      } catch (e) {
+        return undefined
       }
+
+      return body
     },
-    cancel() {
-      shouldPoll = false
+    async sendFailedOutcome(
+      requestId: string,
+      sender: string,
+      error: { code: number; message: string }
+    ): Promise<{ error: string } | undefined> {
+      const response = await fetch(`${url}/v2/outcomes/${requestId}`, {
+        method: 'POST',
+        body: JSON.stringify({ sender, error }),
+        headers: [['Content-Type', 'application/json']]
+      })
+      let body: { error: string } | undefined
+
+      try {
+        body = await response.json()
+      } catch (e) {
+        return undefined
+      }
+
+      return body
+    },
+    async recover(requestId: string): Promise<RecoverResponseMessage> {
+      const response = await fetch(`${url}/v2/requests/${requestId}`, {
+        method: 'GET',
+        headers: [['Origin', 'http://localhost:3000']]
+      })
+
+      return response.json()
+    },
+    async getOutcome(requestId: string): Promise<OutcomeResponseMessage | undefined> {
+      const response = await fetch(`${url}/requests/${requestId}`, {
+        method: 'GET',
+        headers: [['Origin', 'http://localhost:3000']]
+      })
+
+      if (response.status === 204) {
+        return undefined
+      }
+
+      return response.json()
     }
   }
 }
 
 afterEach(() => {
-  desktopClientSocket.cancel()
   authDappSocket.close()
 })
 
 async function connectClients(args: TestArguments<BaseComponents>) {
   const port = await args.components.config.getString('HTTP_SERVER_PORT')
 
-  desktopClientSocket = createHttpPollingClient(`http://localhost:${port}`)
+  desktopHTTPClient = createHttpClient(`http://localhost:${port}`)
   authDappSocket = io(`http://localhost:${port}`)
 
   await new Promise(resolve => {
@@ -79,30 +117,11 @@ test('when sending a request message with an invalid schema', args => {
   })
 
   it('should respond with an invalid response message', async () => {
-    const response = await desktopClientSocket.request({})
+    const response = await desktopHTTPClient.request({})
 
     expect(response).toEqual({
       error:
         '[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"method"},"message":"must have required property \'method\'"}]'
-    })
-  })
-})
-
-test('when sending a request message', args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
-
-  it('should respond with a request response message', async () => {
-    const response = await desktopClientSocket.request({
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
-    })
-
-    expect(response).toEqual({
-      requestId: expect.any(String),
-      expiration: expect.any(String),
-      code: expect.any(Number)
     })
   })
 })
@@ -138,9 +157,9 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
     ]
   })
 
-  describe('when an auth chain is not provided', () => {
+  describe('and an auth chain is not provided', () => {
     it('should respond with an invalid response message indicating that the auth chain is required', async () => {
-      const response = await desktopClientSocket.request({
+      const response = await desktopHTTPClient.request({
         method: 'method',
         params: []
       })
@@ -151,9 +170,9 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
     })
   })
 
-  describe('when an auth chain is provided', () => {
-    it('should respond with a request response message', async () => {
-      const requestResponse = await desktopClientSocket.request({
+  describe('and an auth chain is provided', () => {
+    it('should respond with the data of the request', async () => {
+      const requestResponse = await desktopHTTPClient.request({
         method: 'method',
         params: [],
         authChain
@@ -167,20 +186,18 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
     })
 
     it('should return the sender derived from the auth chain on the recover response', async () => {
-      const requestResponse = await desktopClientSocket.request({
+      const requestResponse = (await desktopHTTPClient.request({
         method: 'method',
         params: [],
         authChain
-      })
+      })) as RequestResponseMessage
 
-      const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
-        requestId: requestResponse.requestId
-      })
+      const recoverResponse = await desktopHTTPClient.recover(requestResponse.requestId)
 
       expect(recoverResponse.sender).toEqual(mainAccount.address.toLowerCase())
     })
 
-    describe('when the payload on the signer link does not match the address of the ephemeral message signer', () => {
+    describe('and the payload on the signer link does not match the address of the ephemeral message signer', () => {
       let otherAccount: ethers.HDNodeWallet
 
       beforeEach(() => {
@@ -190,11 +207,11 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       })
 
       it('should respond with an invalid response message, indicating that the expected signer address is different', async () => {
-        const requestResponse = await desktopClientSocket.request({
+        const requestResponse = (await desktopHTTPClient.request({
           method: 'method',
           params: [],
           authChain
-        })
+        })) as { error: string }
 
         expect(requestResponse.error).toEqual(
           `ERROR. Link type: ECDSA_EPHEMERAL. Invalid signer address. Expected: ${otherAccount.address.toLowerCase()}. Actual: ${mainAccount.address.toLowerCase()}.`
@@ -202,51 +219,20 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       })
     })
 
-    describe('when the auth chain does not have a parseable payload in the second link', () => {
+    describe('and the auth chain does not have a parsable payload in the second link', () => {
       beforeEach(() => {
-        authChain[1].payload = 'unparseable'
+        authChain[1].payload = 'unparsable'
       })
 
       it('should respond with an invalid response message, indicating that the final authority could not be obtained', async () => {
-        const requestResponse = await desktopClientSocket.request({
+        const requestResponse = (await desktopHTTPClient.request({
           method: 'method',
           params: [],
           authChain
-        })
+        })) as { error: string }
 
         expect(requestResponse.error).toEqual('Could not get final authority from auth chain')
       })
-    })
-  })
-})
-
-test('when sending a recover message with an invalid schema', args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
-
-  it('should respond with an invalid response message', async () => {
-    const response = await authDappSocket.emitWithAck(MessageType.RECOVER, {})
-
-    expect(response).toEqual({
-      error:
-        '[{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"requestId"},"message":"must have required property \'requestId\'"}]'
-    })
-  })
-})
-
-test('when sending a recover message but the request does not exist', args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
-
-  it('should respond with an invalid response message', async () => {
-    const response = await authDappSocket.emitWithAck(MessageType.RECOVER, {
-      requestId: 'requestId'
-    })
-
-    expect(response).toEqual({
-      error: 'Request with id "requestId" not found'
     })
   })
 })
@@ -257,14 +243,12 @@ testWithOverrides({ requestExpirationInSeconds: -1 })('when sending a recover me
   })
 
   it('should respond with an invalid response message', async () => {
-    const requestResponse = await desktopClientSocket.request({
+    const requestResponse = (await desktopHTTPClient.request({
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
-    })
+    })) as RequestResponseMessage
 
-    const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
-      requestId: requestResponse.requestId
-    })
+    const recoverResponse = await desktopHTTPClient.recover(requestResponse.requestId)
 
     expect(recoverResponse).toEqual({
       error: `Request with id "${requestResponse.requestId}" has expired`
@@ -277,15 +261,13 @@ test('when sending a recover message', args => {
     await connectClients(args)
   })
 
-  it('should respond with a recover response message', async () => {
-    const requestResponse = await desktopClientSocket.request({
+  it('should respond with the recover data of the request', async () => {
+    const requestResponse = (await desktopHTTPClient.request({
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
-    })
+    })) as RequestResponseMessage
 
-    const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
-      requestId: requestResponse.requestId
-    })
+    const recoverResponse = await desktopHTTPClient.recover(requestResponse.requestId)
 
     expect(recoverResponse).toEqual({
       expiration: requestResponse.expiration,
@@ -302,7 +284,12 @@ test('when sending an outcome message with an invalid schema', args => {
   })
 
   it('should respond with an invalid response message', async () => {
-    const response = await authDappSocket.emitWithAck(MessageType.OUTCOME, {})
+    const requestResponse = (await desktopHTTPClient.request({
+      method: METHOD_DCL_PERSONAL_SIGN,
+      params: []
+    })) as RequestResponseMessage
+
+    const response = await desktopHTTPClient.sendSuccessfulOutcome(requestResponse.requestId, 'sender', undefined)
 
     expect(response).toEqual({
       error:
@@ -317,11 +304,7 @@ test('when sending an outcome message but the request does not exist', args => {
   })
 
   it('should respond with an invalid response message', async () => {
-    const response = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
-      requestId: 'requestId',
-      sender: 'sender',
-      result: 'result'
-    })
+    const response = await desktopHTTPClient.sendSuccessfulOutcome('requestId', 'sender', 'result')
 
     expect(response).toEqual({
       error: 'Request with id "requestId" not found'
@@ -335,16 +318,12 @@ testWithOverrides({ requestExpirationInSeconds: -1 })('when sending an outcome m
   })
 
   it('should respond with an invalid response message', async () => {
-    const requestResponse = await desktopClientSocket.request({
+    const requestResponse = (await desktopHTTPClient.request({
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
-    })
+    })) as RequestResponseMessage
 
-    const outcomeResponse = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
-      requestId: requestResponse.requestId,
-      sender: 'sender',
-      result: 'result'
-    })
+    const outcomeResponse = await desktopHTTPClient.sendSuccessfulOutcome(requestResponse.requestId, 'sender', 'result')
 
     expect(outcomeResponse).toEqual({
       error: `Request with id "${requestResponse.requestId}" has expired`
@@ -352,45 +331,20 @@ testWithOverrides({ requestExpirationInSeconds: -1 })('when sending an outcome m
   })
 })
 
-test('when the auth dapp sends an outcome message', args => {
+test('when sending a valid outcome message with the HTTP endpoints', args => {
   beforeEach(async () => {
     await connectClients(args)
   })
 
-  it('should respond with an empty object as ack', async () => {
-    const requestResponse = await desktopClientSocket.request({
+  it('should respond with the outcome response message', async () => {
+    const requestResponse = (await desktopHTTPClient.request({
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
-    })
+    })) as RequestResponseMessage
 
-    const outcomeResponse = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
-      requestId: requestResponse.requestId,
-      sender: 'sender',
-      result: 'result'
-    })
+    await desktopHTTPClient.sendSuccessfulOutcome(requestResponse.requestId, 'sender', 'result')
 
-    expect(outcomeResponse).toEqual({})
-  })
-
-  it('should emit to the desktop client the outcome response message', async () => {
-    const requestResponse = await desktopClientSocket.request({
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
-    })
-
-    const outcomeResponsePromise = new Promise(resolve => {
-      desktopClientSocket.poll(requestResponse.requestId).then(msg => {
-        resolve(msg)
-      })
-    })
-
-    await authDappSocket.emitWithAck(MessageType.OUTCOME, {
-      requestId: requestResponse.requestId,
-      sender: 'sender',
-      result: 'result'
-    })
-
-    const outcomeResponse = await outcomeResponsePromise
+    const outcomeResponse = await desktopHTTPClient.getOutcome(requestResponse.requestId)
 
     expect(outcomeResponse).toEqual({
       requestId: requestResponse.requestId,
@@ -399,56 +353,59 @@ test('when the auth dapp sends an outcome message', args => {
     })
   })
 
-  it('should emit to the desktop client the outcome response message with an error', async () => {
-    const requestResponse = await desktopClientSocket.request({
+  it('should send the outcome response message to a websocket connected client when the outcome is sent via the HTTP', async () => {
+    const requestResponse = (await authDappSocket.emitWithAck('request', {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
-    })
+    })) as RequestResponseMessage
 
-    const outcomeResponsePromise = new Promise(resolve => {
-      desktopClientSocket.poll(requestResponse.requestId).then(msg => {
-        resolve(msg)
+    const promiseOfAnOutcome = new Promise<OutcomeResponseMessage>((resolve, _) => {
+      authDappSocket.on('outcome', (data: OutcomeResponseMessage) => {
+        resolve(data)
       })
     })
 
-    await authDappSocket.emitWithAck(MessageType.OUTCOME, {
+    await desktopHTTPClient.sendSuccessfulOutcome(requestResponse.requestId, 'sender', 'result')
+
+    return expect(promiseOfAnOutcome).resolves.toEqual({
       requestId: requestResponse.requestId,
       sender: 'sender',
-      error: {
-        code: 1233,
-        message: 'anErrorOcurred'
-      }
+      result: 'result'
+    })
+  })
+
+  it('should respond with the outcome response message with an error', async () => {
+    const requestResponse = (await desktopHTTPClient.request({
+      method: METHOD_DCL_PERSONAL_SIGN,
+      params: []
+    })) as RequestResponseMessage
+
+    await desktopHTTPClient.sendFailedOutcome(requestResponse.requestId, 'sender', {
+      code: 1233,
+      message: 'anErrorOccurred'
     })
 
-    const outcomeResponse = await outcomeResponsePromise
+    const outcomeResponse = await desktopHTTPClient.getOutcome(requestResponse.requestId)
 
     expect(outcomeResponse).toEqual({
       requestId: requestResponse.requestId,
       sender: 'sender',
       error: {
         code: 1233,
-        message: 'anErrorOcurred'
+        message: 'anErrorOccurred'
       }
     })
   })
 
   it('should respond with an invalid response message if calling the output twice', async () => {
-    const requestResponse = await desktopClientSocket.request({
+    const requestResponse = (await desktopHTTPClient.request({
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
-    })
+    })) as RequestResponseMessage
 
-    await authDappSocket.emitWithAck(MessageType.OUTCOME, {
-      requestId: requestResponse.requestId,
-      sender: 'sender',
-      result: 'result'
-    })
+    await desktopHTTPClient.sendSuccessfulOutcome(requestResponse.requestId, 'sender', 'result')
 
-    const outcomeResponse = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
-      requestId: requestResponse.requestId,
-      sender: 'sender',
-      result: 'result'
-    })
+    const outcomeResponse = await desktopHTTPClient.sendSuccessfulOutcome(requestResponse.requestId, 'sender', 'result')
 
     expect(outcomeResponse).toEqual({
       error: `Request with id "${requestResponse.requestId}" already has a response`
