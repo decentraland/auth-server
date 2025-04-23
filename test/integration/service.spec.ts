@@ -593,7 +593,8 @@ test('when posting that a request needs validation and the request is valid', ar
       })
 
       return expect(promiseOfRequestValidation).resolves.toEqual({
-        requestId: requestResponse.requestId
+        requestId: requestResponse.requestId,
+        code: requestResponse.code
       })
     })
   })
