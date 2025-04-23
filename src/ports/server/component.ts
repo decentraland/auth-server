@@ -365,12 +365,14 @@ export async function createServerComponent({
               })
             }
 
-            if (request.socketId && sockets[request.socketId]) {
+            if (request.socketId && sockets[request.socketId] && !request.requiresValidation) {
               const storedSocket = sockets[request.socketId]
 
               // Relay the request validation to the client
               storedSocket.emit(MessageType.REQUEST_VALIDATION_STATUS, { requestId: msg.requestId, code: request.code })
             }
+
+            request.requiresValidation = true
 
             ack<object>(cb, {})
           },
@@ -530,7 +532,7 @@ export async function createServerComponent({
         })
       }
 
-      if (request.socketId && sockets[request.socketId]) {
+      if (request.socketId && sockets[request.socketId] && !request.requiresValidation) {
         const storedSocket = sockets[request.socketId]
 
         logger.log(`[RID:${requestId}] Successfully sent request validation to the client via socket`)
