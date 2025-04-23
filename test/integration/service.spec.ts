@@ -1,11 +1,12 @@
 import { TestArguments } from '@well-known-components/test-helpers'
 import { ethers } from 'ethers'
-import { Socket, io } from 'socket.io-client'
+import { Socket } from 'socket.io-client'
 import { AuthChain, Authenticator, AuthLinkType } from '@dcl/crypto'
 import { METHOD_DCL_PERSONAL_SIGN } from '../../src/ports/server/constants'
-import { MessageType } from '../../src/ports/server/types'
+import { MessageType, RequestResponseMessage, RequestValidationMessage } from '../../src/ports/server/types'
 import { BaseComponents } from '../../src/types'
 import { test, testWithOverrides } from '../components'
+import { createAuthWsClient } from '../utils'
 
 let desktopClientSocket: Socket
 let authDappSocket: Socket
@@ -16,25 +17,10 @@ afterEach(() => {
 })
 
 async function connectClients(args: TestArguments<BaseComponents>) {
-  const port = await args.components.config.getString('HTTP_SERVER_PORT')
+  const port = await args.components.config.requireString('HTTP_SERVER_PORT')
 
-  desktopClientSocket = io(`http://localhost:${port}`)
-  authDappSocket = io(`http://localhost:${port}`)
-
-  await new Promise(resolve => {
-    let connected = 0
-
-    const handleOnConnect = () => {
-      connected++
-
-      if (connected === 2) {
-        resolve(undefined)
-      }
-    }
-
-    desktopClientSocket.on('connect', handleOnConnect)
-    authDappSocket.on('connect', handleOnConnect)
-  })
+  desktopClientSocket = await createAuthWsClient(port)
+  authDappSocket = await createAuthWsClient(port)
 }
 
 test('when sending a request message with an invalid schema', args => {
@@ -536,6 +522,97 @@ test('when the auth dapp sends an outcome message', args => {
 
     expect(outcomeResponse).toEqual({
       error: `Request with id "${requestResponse.requestId}" not found`
+    })
+  })
+})
+
+testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })(
+  'when posting that a request needs validation but the request has expired',
+  args => {
+    beforeEach(async () => {
+      await connectClients(args)
+    })
+
+    it('should respond with an error indicating that the request has expired', async () => {
+      const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+        method: METHOD_DCL_PERSONAL_SIGN,
+        params: []
+      })
+
+      const response = await authDappSocket.emitWithAck(MessageType.REQUEST_VALIDATION_STATUS, {
+        requestId: requestResponse.requestId
+      })
+
+      expect(response).toEqual({
+        error: `Request with id "${requestResponse.requestId}" has expired`
+      })
+    })
+  }
+)
+
+test('when posting that a request needs validation but the request does not exist', args => {
+  beforeEach(async () => {
+    await connectClients(args)
+  })
+
+  it('should respond with an error indicating that the request does not exist', async () => {
+    const response = await authDappSocket.emitWithAck(MessageType.REQUEST_VALIDATION_STATUS, {
+      requestId: 'requestId'
+    })
+
+    expect(response).toEqual({
+      error: 'Request with id "requestId" not found'
+    })
+  })
+})
+
+test('when posting that a request needs validation and the request is valid', args => {
+  let requestResponse: RequestResponseMessage
+
+  beforeEach(async () => {
+    await connectClients(args)
+  })
+
+  describe('and there is a client connected listening for the request validation', () => {
+    beforeEach(async () => {
+      requestResponse = (await desktopClientSocket.emitWithAck('request', {
+        method: METHOD_DCL_PERSONAL_SIGN,
+        params: []
+      })) as RequestResponseMessage
+    })
+
+    it('should respond with an empty object as ack and send the request validation to the client', async () => {
+      const promiseOfRequestValidation = new Promise<RequestValidationMessage>((resolve, _) => {
+        desktopClientSocket.on(MessageType.REQUEST_VALIDATION_STATUS, (data: RequestValidationMessage) => {
+          resolve(data)
+        })
+      })
+
+      await authDappSocket.emitWithAck(MessageType.REQUEST_VALIDATION_STATUS, {
+        requestId: requestResponse.requestId
+      })
+
+      return expect(promiseOfRequestValidation).resolves.toEqual({
+        requestId: requestResponse.requestId,
+        code: requestResponse.code
+      })
+    })
+  })
+
+  describe('and there is no client connected listening for the request validation', () => {
+    beforeEach(async () => {
+      requestResponse = (await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+        method: METHOD_DCL_PERSONAL_SIGN,
+        params: []
+      })) as RequestResponseMessage
+    })
+
+    it('should respond with an empty object as ack', async () => {
+      return expect(
+        authDappSocket.emitWithAck(MessageType.REQUEST_VALIDATION_STATUS, {
+          requestId: requestResponse.requestId
+        })
+      ).resolves.toEqual({})
     })
   })
 })

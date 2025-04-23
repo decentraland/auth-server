@@ -19,9 +19,17 @@ import {
   RecoverMessage,
   RecoverResponseMessage,
   RequestMessage,
-  RequestResponseMessage
+  RequestResponseMessage,
+  RequestValidationMessage,
+  RequestValidationStatusMessage
 } from './types'
-import { validateHttpOutcomeMessage, validateOutcomeMessage, validateRecoverMessage, validateRequestMessage } from './validations'
+import {
+  validateHttpOutcomeMessage,
+  validateOutcomeMessage,
+  validateRecoverMessage,
+  validateRequestMessage,
+  validateRequestValidationMessage
+} from './validations'
 
 export async function createServerComponent({
   config,
@@ -156,6 +164,7 @@ export async function createServerComponent({
             storage.setRequest(requestId, {
               requestId: requestId,
               socketId: socket.id,
+              requiresValidation: false,
               expiration,
               code,
               method: msg.method,
@@ -240,7 +249,6 @@ export async function createServerComponent({
           'websocket-outcome',
           () => {
             let msg: OutcomeMessage
-            logger.log('Received an outcome message')
 
             try {
               msg = validateOutcomeMessage(data)
@@ -321,6 +329,56 @@ export async function createServerComponent({
           parentTracingContext
         )
       )
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      socket.on(MessageType.REQUEST_VALIDATION_STATUS, (data: any, cb) => {
+        tracer.span(
+          'websocket-request-validation',
+          () => {
+            let msg: RequestValidationMessage
+
+            try {
+              msg = validateRequestValidationMessage(data)
+            } catch (e) {
+              logger.log('Received an outcome message with invalid message')
+              return ack<InvalidResponseMessage>(cb, {
+                error: (e as Error).message
+              })
+            }
+
+            const request = storage.getRequest(msg.requestId)
+
+            // If the response was already received, it's like the request doesn't exist anymore
+            if (!request) {
+              logger.log(`[RID:${msg.requestId}] Tried to communicate that the request must be validated but it doesn't exist`)
+              return ack<InvalidResponseMessage>(cb, {
+                error: `Request with id "${msg.requestId}" not found`
+              })
+            }
+
+            if (request.expiration < new Date()) {
+              storage.setRequest(msg.requestId, null)
+
+              logger.log(`[RID:${msg.requestId}] Tried to communicate that the request must be validated but it has expired`)
+              return ack<InvalidResponseMessage>(cb, {
+                error: `Request with id "${msg.requestId}" has expired`
+              })
+            }
+
+            if (request.socketId && sockets[request.socketId] && !request.requiresValidation) {
+              const storedSocket = sockets[request.socketId]
+
+              // Relay the request validation to the client
+              storedSocket.emit(MessageType.REQUEST_VALIDATION_STATUS, { requestId: msg.requestId, code: request.code })
+            }
+
+            request.requiresValidation = true
+
+            ack<object>(cb, {})
+          },
+          parentTracingContext
+        )
+      })
     })
 
   const start: IBaseComponent['start'] = async () => {
@@ -362,11 +420,9 @@ export async function createServerComponent({
       try {
         msg = validateRequestMessage(data)
       } catch (e) {
-        sendResponse<InvalidResponseMessage>(res, 400, {
+        return sendResponse<InvalidResponseMessage>(res, 400, {
           error: (e as Error).message
         })
-
-        return
       }
 
       let sender: string | undefined
@@ -375,11 +431,9 @@ export async function createServerComponent({
         const authChain = msg.authChain
 
         if (!authChain) {
-          sendResponse<InvalidResponseMessage>(res, 400, {
+          return sendResponse<InvalidResponseMessage>(res, 400, {
             error: 'Auth chain is required'
           })
-
-          return
         }
 
         sender = Authenticator.ownerAddress(authChain)
@@ -389,26 +443,24 @@ export async function createServerComponent({
         try {
           finalAuthority = parseEmphemeralPayload(authChain[authChain.length - 1].payload).ephemeralAddress
         } catch (e) {
-          sendResponse<InvalidResponseMessage>(res, 400, {
+          return sendResponse<InvalidResponseMessage>(res, 400, {
             error: 'Could not get final authority from auth chain'
           })
-
-          return
         }
 
         const validationResult = await Authenticator.validateSignature(finalAuthority, authChain, null)
 
         if (!validationResult.ok) {
-          sendResponse<InvalidResponseMessage>(res, 400, {
+          return sendResponse<InvalidResponseMessage>(res, 400, {
             error: validationResult.message ?? 'Signature validation failed'
           })
-
-          return
         }
       }
 
       const requestId = uuid()
-      const expiration = new Date(Date.now() + requestExpirationInSeconds * 1000)
+      const expiration = new Date(
+        Date.now() + (msg.method !== METHOD_DCL_PERSONAL_SIGN ? requestExpirationInSeconds : dclPersonalSignExpirationInSeconds) * 1000
+      )
       const code = Math.floor(Math.random() * 100)
 
       storage.setRequest(requestId, {
@@ -417,7 +469,8 @@ export async function createServerComponent({
         code,
         method: msg.method,
         params: msg.params,
-        sender: sender?.toLowerCase()
+        sender: sender?.toLowerCase(),
+        requiresValidation: false
       })
 
       sendResponse<RequestResponseMessage>(res, 201, {
@@ -433,21 +486,17 @@ export async function createServerComponent({
       const request = storage.getRequest(requestId)
 
       if (!request) {
-        sendResponse<InvalidResponseMessage>(res, 404, {
+        return sendResponse<InvalidResponseMessage>(res, 404, {
           error: `Request with id "${requestId}" not found`
         })
-
-        return
       }
 
       if (request.expiration < new Date()) {
         storage.setRequest(requestId, null)
 
-        sendResponse<InvalidResponseMessage>(res, 410, {
+        return sendResponse<InvalidResponseMessage>(res, 410, {
           error: `Request with id "${requestId}" has expired`
         })
-
-        return
       }
 
       sendResponse<RecoverResponseMessage>(res, 200, {
@@ -459,41 +508,97 @@ export async function createServerComponent({
       })
     })
 
+    // Communicate that the request must be validated
+    app.post('/v2/requests/:requestId/validation', async (req: Request, res: Response) => {
+      const requestId = req.params.requestId
+
+      const request = storage.getRequest(requestId)
+
+      if (!request) {
+        logger.log(`[RID:${requestId}] Received a validation request message for a non-existent request`)
+        return sendResponse<InvalidResponseMessage>(res, 404, {
+          error: `Request with id "${requestId}" not found`
+        })
+      }
+
+      if (request.expiration < new Date()) {
+        logger.log(`[RID:${requestId}] Received a validation request message for an expired request`)
+
+        // Remove the request from the storage as it is expired
+        storage.setRequest(requestId, null)
+
+        return sendResponse<InvalidResponseMessage>(res, 410, {
+          error: `Request with id "${requestId}" has expired`
+        })
+      }
+
+      if (request.socketId && sockets[request.socketId] && !request.requiresValidation) {
+        const storedSocket = sockets[request.socketId]
+
+        logger.log(`[RID:${requestId}] Successfully sent request validation to the client via socket`)
+        // Send the request validation to the client
+        storedSocket.emit(MessageType.REQUEST_VALIDATION_STATUS, { requestId })
+      }
+
+      request.requiresValidation = true
+
+      res.sendStatus(204)
+    })
+
+    // Get the request validation status
+    app.get('/v2/requests/:requestId/validation', async (req: Request, res: Response) => {
+      const requestId = req.params.requestId
+      const request = storage.getRequest(requestId)
+
+      if (!request) {
+        return sendResponse<InvalidResponseMessage>(res, 404, {
+          error: `Request with id "${requestId}" not found`
+        })
+      }
+
+      if (request.expiration < new Date()) {
+        storage.setRequest(requestId, null)
+
+        return sendResponse<InvalidResponseMessage>(res, 410, {
+          error: `Request with id "${requestId}" has expired`
+        })
+      }
+
+      sendResponse<RequestValidationStatusMessage>(res, 200, { requiresValidation: request.requiresValidation })
+    })
+
     // Get the outcome of a request
     app.get('/requests/:requestId', async (req: Request, res: Response) => {
       const requestId = req.params.requestId
       const request = storage.getRequest(requestId)
 
       if (!request) {
-        sendResponse<InvalidResponseMessage>(res, 404, {
+        return sendResponse<InvalidResponseMessage>(res, 404, {
           error: `Request with id "${requestId}" not found`
         })
-        return
       }
 
       if (request.expiration < new Date()) {
         storage.setRequest(requestId, null)
-        sendResponse<InvalidResponseMessage>(res, 410, {
+        return sendResponse<InvalidResponseMessage>(res, 410, {
           error: `Request with id "${requestId}" has expired`
         })
-
-        return
       }
 
       if (!request.response) {
-        sendResponse<InvalidResponseMessage>(res, 204, {
+        return sendResponse<InvalidResponseMessage>(res, 204, {
           error: `Request with id "${requestId}" has not been completed`
         })
-
-        return
       }
+
+      logger.log(`[RID:${requestId}] Successfully sent outcome message to the client via HTTP`)
 
       storage.setRequest(requestId, null)
       sendResponse<OutcomeResponseMessage>(res, 200, request.response)
     })
 
     // Record the outcome of a request
-    app.post('/v2/outcomes/:requestId', async (req: Request, res: Response) => {
+    app.post('/v2/requests/:requestId/outcome', async (req: Request, res: Response) => {
       const requestId = req.params.requestId
 
       const data = req.body
@@ -502,46 +607,36 @@ export async function createServerComponent({
       try {
         msg = validateHttpOutcomeMessage(data)
       } catch (e) {
-        sendResponse<InvalidResponseMessage>(res, 400, {
+        return sendResponse<InvalidResponseMessage>(res, 400, {
           error: (e as Error).message
         })
-
-        return
       }
 
       const request = storage.getRequest(requestId)
 
       // If the response was already received, it's like the request doesn't exist anymore
       if (!request) {
-        sendResponse<InvalidResponseMessage>(res, 404, {
+        logger.log(`[RID:${requestId}] Received an outcome message for a non-existent request`)
+        return sendResponse<InvalidResponseMessage>(res, 404, {
           error: `Request with id "${requestId}" not found`
         })
-
-        logger.log(`[RID:${requestId}] Received an outcome message for a non-existent request`)
-
-        return
       }
 
       if (request.response) {
-        sendResponse<InvalidResponseMessage>(res, 400, {
-          error: `Request with id "${requestId}" already has a response`
-        })
-
         logger.log(`[RID:${requestId}] Received an outcome message for a request that already has a response`)
 
-        return
+        return sendResponse<InvalidResponseMessage>(res, 400, {
+          error: `Request with id "${requestId}" already has a response`
+        })
       }
 
       if (request.expiration < new Date()) {
         storage.setRequest(requestId, null)
 
-        sendResponse<InvalidResponseMessage>(res, 410, {
+        logger.log(`[RID:${requestId}] Received an outcome message for an expired request`)
+        return sendResponse<InvalidResponseMessage>(res, 410, {
           error: `Request with id "${requestId}" has expired`
         })
-
-        logger.log(`[RID:${requestId}] Received an outcome message for an expired request`)
-
-        return
       }
 
       const outcomeMessage: OutcomeResponseMessage = {
