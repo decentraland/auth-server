@@ -331,7 +331,7 @@ export async function createServerComponent({
       )
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      socket.on(MessageType.REQUEST_VALIDATION, (data: any, cb) => {
+      socket.on(MessageType.REQUEST_VALIDATION_STATUS, (data: any, cb) => {
         tracer.span(
           'websocket-request-validation',
           () => {
@@ -369,7 +369,7 @@ export async function createServerComponent({
               const storedSocket = sockets[request.socketId]
 
               // Relay the request validation to the client
-              storedSocket.emit(MessageType.REQUEST_VALIDATION, { requestId: msg.requestId, code: request.code })
+              storedSocket.emit(MessageType.REQUEST_VALIDATION_STATUS, { requestId: msg.requestId, code: request.code })
             }
 
             ack<object>(cb, {})
@@ -535,12 +535,10 @@ export async function createServerComponent({
 
         logger.log(`[RID:${requestId}] Successfully sent request validation to the client via socket`)
         // Send the request validation to the client
-        storedSocket.emit(MessageType.REQUEST_VALIDATION, { requestId })
+        storedSocket.emit(MessageType.REQUEST_VALIDATION_STATUS, { requestId })
       }
 
       request.requiresValidation = true
-
-      logger.log(`[RID:${requestId}] Done! `)
 
       res.sendStatus(204)
     })
@@ -661,8 +659,6 @@ export async function createServerComponent({
           requestId
         }
       }
-
-      logger.log(`[RID:${requestId}] Done! `)
 
       return res.sendStatus(200)
     })

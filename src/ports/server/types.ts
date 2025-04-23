@@ -8,7 +8,7 @@ export enum MessageType {
   RECOVER = 'recover',
   OUTCOME = 'outcome',
   INVALID = 'invalid',
-  REQUEST_VALIDATION = 'request-validation'
+  REQUEST_VALIDATION_STATUS = 'request-validation-status'
 }
 
 export type Request = {

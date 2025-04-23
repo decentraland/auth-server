@@ -385,7 +385,7 @@ test('when posting that a request needs validation and the request is valid', ar
 
     it('should respond with a 204 and a valid response message and send the request validation to the client', async () => {
       const promiseOfRequestValidation = new Promise<RequestValidationMessage>((resolve, _) => {
-        wsClient.on(MessageType.REQUEST_VALIDATION, (data: RequestValidationMessage) => {
+        wsClient.on(MessageType.REQUEST_VALIDATION_STATUS, (data: RequestValidationMessage) => {
           resolve(data)
         })
       })

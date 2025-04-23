@@ -539,7 +539,7 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })(
         params: []
       })
 
-      const response = await authDappSocket.emitWithAck(MessageType.REQUEST_VALIDATION, {
+      const response = await authDappSocket.emitWithAck(MessageType.REQUEST_VALIDATION_STATUS, {
         requestId: requestResponse.requestId
       })
 
@@ -556,7 +556,7 @@ test('when posting that a request needs validation but the request does not exis
   })
 
   it('should respond with an error indicating that the request does not exist', async () => {
-    const response = await authDappSocket.emitWithAck(MessageType.REQUEST_VALIDATION, {
+    const response = await authDappSocket.emitWithAck(MessageType.REQUEST_VALIDATION_STATUS, {
       requestId: 'requestId'
     })
 
@@ -583,12 +583,12 @@ test('when posting that a request needs validation and the request is valid', ar
 
     it('should respond with an empty object as ack and send the request validation to the client', async () => {
       const promiseOfRequestValidation = new Promise<RequestValidationMessage>((resolve, _) => {
-        desktopClientSocket.on(MessageType.REQUEST_VALIDATION, (data: RequestValidationMessage) => {
+        desktopClientSocket.on(MessageType.REQUEST_VALIDATION_STATUS, (data: RequestValidationMessage) => {
           resolve(data)
         })
       })
 
-      await authDappSocket.emitWithAck(MessageType.REQUEST_VALIDATION, {
+      await authDappSocket.emitWithAck(MessageType.REQUEST_VALIDATION_STATUS, {
         requestId: requestResponse.requestId
       })
 
@@ -609,7 +609,7 @@ test('when posting that a request needs validation and the request is valid', ar
 
     it('should respond with an empty object as ack', async () => {
       return expect(
-        authDappSocket.emitWithAck(MessageType.REQUEST_VALIDATION, {
+        authDappSocket.emitWithAck(MessageType.REQUEST_VALIDATION_STATUS, {
           requestId: requestResponse.requestId
         })
       ).resolves.toEqual({})
