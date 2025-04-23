@@ -7,7 +7,8 @@ export enum MessageType {
   REQUEST = 'request',
   RECOVER = 'recover',
   OUTCOME = 'outcome',
-  INVALID = 'invalid'
+  INVALID = 'invalid',
+  REQUEST_VALIDATION = 'request-validation'
 }
 
 export type Request = {
@@ -51,6 +52,14 @@ export type Outcome = {
 
 export type OutcomeMessage = Outcome & {
   requestId: string
+}
+
+export type RequestValidationMessage = {
+  requestId: string
+}
+
+export type RequestValidationStatusMessage = {
+  requiresValidation: boolean
 }
 
 export type HttpOutcomeMessage = Outcome

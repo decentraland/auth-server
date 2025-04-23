@@ -13,4 +13,5 @@ export type StorageRequest = Request & {
   code: number
   sender?: string
   response?: OutcomeResponseMessage
+  requiresValidation: boolean
 }
