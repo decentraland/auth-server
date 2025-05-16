@@ -6,6 +6,7 @@ import { createDotEnvConfigComponent } from '@well-known-components/env-config-p
 import { createLogComponent } from '@well-known-components/logger'
 import { createRunner } from '@well-known-components/test-helpers'
 import { createTracerComponent } from '@well-known-components/tracer-component'
+import { createReferralServerComponent } from '../src/ports/referral-server/component'
 import { createServerComponent } from '../src/ports/server/component'
 import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
@@ -75,12 +76,14 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     requestExpirationInSeconds: overrides.requestExpirationInSeconds ?? 5 * 60, // 5 Minutes
     dclPersonalSignExpirationInSeconds: overrides.dclPersonalSignExpirationInSeconds ?? 5 * 60 // 5 Minutes
   })
+  const referralServer = await createReferralServerComponent({ config, logs })
 
   return {
     config,
     tracer,
     logs,
     server,
-    storage
+    storage,
+    referralServer
   }
 }
