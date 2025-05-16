@@ -1,3 +1,4 @@
+import { IReferralServerComponent } from './ports/referral-server/types'
 import { IServerComponent } from './ports/server/types'
 import { IStorageComponent } from './ports/storage/types'
 import type { IConfigComponent, ILoggerComponent, ITracerComponent } from '@well-known-components/interfaces'
@@ -17,10 +18,10 @@ export type BaseComponents = {
 
 // components used in runtime
 export type AppComponents = BaseComponents & {
-  // Add components that are only used on runtime.
+  referralServer: IReferralServerComponent
 }
 
 // components used in tests
 export type TestComponents = BaseComponents & {
-  // Add components that are only used on tests.
+  referralServer: IReferralServerComponent
 }
