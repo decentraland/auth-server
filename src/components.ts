@@ -1,7 +1,7 @@
 import { createDotEnvConfigComponent } from '@well-known-components/env-config-provider'
 import { createLogComponent } from '@well-known-components/logger'
 import { createTracerComponent } from '@well-known-components/tracer-component'
-import { createReferralServerComponent } from './ports/referral-server/component'
+import { createReferralComponent } from './ports/referral/component'
 import { createServerComponent } from './ports/server/component'
 import { createStorageComponent } from './ports/storage/component'
 import { AppComponents } from './types'
@@ -23,7 +23,7 @@ export async function initComponents(): Promise<AppComponents> {
     dclPersonalSignExpirationInSeconds
   })
 
-  const referralServer = await createReferralServerComponent({
+  const referralServer = await createReferralComponent({
     config,
     logs
   })

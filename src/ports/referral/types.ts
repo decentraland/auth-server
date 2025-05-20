@@ -1,7 +1,6 @@
 import { IBaseComponent } from '@well-known-components/interfaces'
 
-export interface IReferralServerComponent extends IBaseComponent {
-  createReferral(referrer: string, invitedUser: string): Promise<void>
+export interface IReferralComponent extends IBaseComponent {
   updateReferral(invitedUserAddress: string): Promise<void>
 }
 
