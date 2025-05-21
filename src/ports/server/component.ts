@@ -8,6 +8,7 @@ import { v4 as uuid } from 'uuid'
 import { Authenticator, parseEmphemeralPayload } from '@dcl/crypto'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
+import { IReferralComponent } from '../referral/types'
 import { METHOD_DCL_PERSONAL_SIGN } from './constants'
 import {
   HttpOutcomeMessage,
@@ -37,10 +38,12 @@ export async function createServerComponent({
   storage,
   tracer,
   requestExpirationInSeconds,
-  dclPersonalSignExpirationInSeconds
+  dclPersonalSignExpirationInSeconds,
+  referral
 }: Pick<AppComponents, 'config' | 'logs' | 'storage' | 'tracer'> & {
   requestExpirationInSeconds: number
   dclPersonalSignExpirationInSeconds: number
+  referral: IReferralComponent
 }): Promise<IServerComponent> {
   const port = await config.requireNumber('HTTP_SERVER_PORT')
   const logger = logs.getLogger('websocket-server')
@@ -315,6 +318,11 @@ export async function createServerComponent({
 
               const outcomeMessage: OutcomeResponseMessage = msg
               storedSocket.emit(MessageType.OUTCOME, outcomeMessage)
+
+              if (request.method === METHOD_DCL_PERSONAL_SIGN && request.sender) {
+                referral.updateReferral(request.sender)
+              }
+
               logger.log(
                 `[METHOD:${request.method}][RID:${
                   request.requestId
@@ -647,6 +655,11 @@ export async function createServerComponent({
       if (request.socketId && sockets[request.socketId]) {
         const storedSocket = sockets[request.socketId]
         storedSocket.emit(MessageType.OUTCOME, outcomeMessage)
+
+        if (request.method === METHOD_DCL_PERSONAL_SIGN && request.sender) {
+          referral.updateReferral(request.sender)
+        }
+
         logger.log(
           `[METHOD:${request.method}][RID:${
             request.requestId

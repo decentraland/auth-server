@@ -1,3 +1,4 @@
+import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
 import { IReferralComponent, ReferralError } from './types'
 
@@ -21,18 +22,13 @@ export async function createReferralComponent({ config, logs }: Pick<AppComponen
 
       if (!response.ok) {
         const error = await response.text()
-        throw new Error(`Failed to update referral: ${error}`)
-      }
-
-      if (response.status !== 204) {
-        throw new Error(`Unexpected status code: ${response.status}`)
+        logger.error(`Error updating user ${invitedUserAddress} referral: ${error}`)
       }
     } catch (error: unknown) {
       const referralError: ReferralError = {
-        message: error instanceof Error ? error.message : String(error)
+        message: isErrorWithMessage(error) ? error.message : 'Unknown error'
       }
       logger.error('Error updating referral', { error: referralError.message, invitedUserAddress })
-      throw referralError
     }
   }
 

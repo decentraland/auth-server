@@ -14,18 +14,20 @@ export async function initComponents(): Promise<AppComponents> {
   const tracer = await createTracerComponent()
   const logs = await createLogComponent({ tracer })
   const storage = createStorageComponent()
+
+  const referral = await createReferralComponent({
+    config,
+    logs
+  })
+
   const server = await createServerComponent({
     config,
     logs,
     storage,
     tracer,
     requestExpirationInSeconds,
-    dclPersonalSignExpirationInSeconds
-  })
-
-  const referralServer = await createReferralComponent({
-    config,
-    logs
+    dclPersonalSignExpirationInSeconds,
+    referral
   })
 
   return {
@@ -34,6 +36,6 @@ export async function initComponents(): Promise<AppComponents> {
     server,
     storage,
     tracer,
-    referralServer
+    referral
   }
 }

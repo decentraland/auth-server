@@ -68,15 +68,16 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
   const tracer = await createTracerComponent()
   const logs = await createLogComponent({ tracer })
   const storage = createStorageComponent()
+  const referral = await createReferralComponent({ config, logs })
   const server = await createServerComponent({
     config,
     logs,
     tracer,
     storage,
+    referral,
     requestExpirationInSeconds: overrides.requestExpirationInSeconds ?? 5 * 60, // 5 Minutes
     dclPersonalSignExpirationInSeconds: overrides.dclPersonalSignExpirationInSeconds ?? 5 * 60 // 5 Minutes
   })
-  const referralServer = await createReferralComponent({ config, logs })
 
   return {
     config,
@@ -84,6 +85,6 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     logs,
     server,
     storage,
-    referralServer
+    referral
   }
 }

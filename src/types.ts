@@ -18,10 +18,10 @@ export type BaseComponents = {
 
 // components used in runtime
 export type AppComponents = BaseComponents & {
-  referralServer: IReferralComponent
+  referral: IReferralComponent
 }
 
 // components used in tests
 export type TestComponents = BaseComponents & {
-  referralServer: IReferralComponent
+  referral: IReferralComponent
 }
