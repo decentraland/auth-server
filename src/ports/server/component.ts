@@ -13,6 +13,7 @@ import {
   HttpOutcomeMessage,
   IServerComponent,
   InvalidResponseMessage,
+  LiveResponseMessage,
   MessageType,
   OutcomeMessage,
   OutcomeResponseMessage,
@@ -405,7 +406,9 @@ export async function createServerComponent({
     })
 
     app.get('/health/live', (_req, res) => {
-      res.sendStatus(200)
+      return sendResponse<LiveResponseMessage>(res, 200, {
+        timestamp: Date.now()
+      })
     })
 
     // Wraps the callback function on messages to type the message that is being sent

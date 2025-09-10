@@ -21,6 +21,10 @@ export type RequestMessage = Request & {
   authChain?: AuthChain
 }
 
+export type LiveResponseMessage = {
+  timestamp: number
+}
+
 export type RequestResponseMessage = {
   requestId: string
   expiration: Date
