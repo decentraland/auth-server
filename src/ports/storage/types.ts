@@ -1,4 +1,5 @@
-import { OutcomeResponseMessage, Request, AuthIdentity } from '../server/types'
+import { AuthIdentity } from '@dcl/crypto'
+import { OutcomeResponseMessage, Request } from '../server/types'
 
 export type IStorageComponent = {
   getRequest(requestId: string): StorageRequest | null
