@@ -1,11 +1,11 @@
-import { ethers } from 'ethers'
 import { DefaultEventsMap } from 'socket.io/dist/typed-events'
 import { Socket } from 'socket.io-client'
-import { AuthChain, Authenticator, AuthLinkType } from '@dcl/crypto'
+import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
 import { METHOD_DCL_PERSONAL_SIGN } from '../../src/ports/server/constants'
 import { MessageType, OutcomeResponseMessage, RequestResponseMessage, RequestValidationMessage } from '../../src/ports/server/types'
 import { test, testWithOverrides } from '../components'
 import { createHttpClient, createAuthWsClient, HttpPollingClient } from '../utils'
+import { createTestIdentity, generateRandomIdentityId } from '../utils/test-identity'
 
 let httpClient: HttpPollingClient
 let wsClient: Socket<DefaultEventsMap, DefaultEventsMap>
@@ -33,36 +33,10 @@ test('when sending a request message with an invalid schema', args => {
 })
 
 test(`when sending a request message for a method that is not ${METHOD_DCL_PERSONAL_SIGN}`, args => {
-  let mainAccount: ethers.HDNodeWallet
-  let ephemeralAccount: ethers.HDNodeWallet
-  let expiration: Date
-  let ephemeralMessage: string
-  let signature: string
-  let authChain: AuthChain
-
   beforeEach(async () => {
     const port = await args.components.config.requireString('HTTP_SERVER_PORT')
     wsClient = await createAuthWsClient(port)
     httpClient = await createHttpClient(port)
-
-    mainAccount = ethers.Wallet.createRandom()
-    ephemeralAccount = ethers.Wallet.createRandom()
-    expiration = new Date(Date.now() + 60000) // 1 minute
-    ephemeralMessage = Authenticator.getEphemeralMessage(ephemeralAccount.address, expiration)
-    signature = await mainAccount.signMessage(ephemeralMessage)
-
-    authChain = [
-      {
-        type: AuthLinkType.SIGNER,
-        payload: mainAccount.address,
-        signature: ''
-      },
-      {
-        type: AuthLinkType.ECDSA_PERSONAL_EPHEMERAL,
-        payload: ephemeralMessage,
-        signature: signature
-      }
-    ]
   })
 
   describe('and an auth chain is not provided', () => {
@@ -79,11 +53,17 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
   })
 
   describe('and an auth chain is provided', () => {
+    let testIdentity: Awaited<ReturnType<typeof createTestIdentity>>
+
+    beforeEach(async () => {
+      testIdentity = await createTestIdentity()
+    })
+
     it('should respond with the data of the request', async () => {
       const requestResponse = await httpClient.request({
         method: 'method',
         params: [],
-        authChain
+        authChain: testIdentity.authChain.authChain
       })
 
       expect(requestResponse).toEqual({
@@ -97,46 +77,56 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       const requestResponse = (await httpClient.request({
         method: 'method',
         params: [],
-        authChain
+        authChain: testIdentity.authChain.authChain
       })) as RequestResponseMessage
 
       const recoverResponse = await httpClient.recover(requestResponse.requestId)
 
-      expect(recoverResponse.sender).toEqual(mainAccount.address.toLowerCase())
+      expect(recoverResponse.sender).toEqual(testIdentity.realAccount.address.toLowerCase())
     })
 
     describe('and the payload on the signer link does not match the address of the ephemeral message signer', () => {
-      let otherAccount: ethers.HDNodeWallet
+      let otherAccount: ReturnType<typeof createUnsafeIdentity>
+      let modifiedAuthChain: typeof testIdentity.authChain.authChain
 
       beforeEach(() => {
-        otherAccount = ethers.Wallet.createRandom()
-
-        authChain[0].payload = otherAccount.address
+        otherAccount = createUnsafeIdentity()
+        modifiedAuthChain = [...testIdentity.authChain.authChain]
+        modifiedAuthChain[0] = {
+          ...modifiedAuthChain[0],
+          payload: otherAccount.address
+        }
       })
 
       it('should respond with an invalid response message, indicating that the expected signer address is different', async () => {
         const requestResponse = (await httpClient.request({
           method: 'method',
           params: [],
-          authChain
+          authChain: modifiedAuthChain
         })) as { error: string }
 
         expect(requestResponse.error).toEqual(
-          `ERROR. Link type: ECDSA_EPHEMERAL. Invalid signer address. Expected: ${otherAccount.address.toLowerCase()}. Actual: ${mainAccount.address.toLowerCase()}.`
+          `ERROR. Link type: ECDSA_EPHEMERAL. Invalid signer address. Expected: ${otherAccount.address.toLowerCase()}. Actual: ${testIdentity.realAccount.address.toLowerCase()}.`
         )
       })
     })
 
     describe('and the auth chain does not have a parsable payload in the second link', () => {
+      let modifiedAuthChain: typeof testIdentity.authChain.authChain
+
       beforeEach(() => {
-        authChain[1].payload = 'unparsable'
+        modifiedAuthChain = [...testIdentity.authChain.authChain]
+        modifiedAuthChain[1] = {
+          ...modifiedAuthChain[1],
+          payload: 'unparsable'
+        }
       })
 
       it('should respond with an invalid response message, indicating that the final authority could not be obtained', async () => {
         const requestResponse = (await httpClient.request({
           method: 'method',
           params: [],
-          authChain
+          authChain: modifiedAuthChain
         })) as { error: string }
 
         expect(requestResponse.error).toEqual('Could not get final authority from auth chain')
@@ -216,10 +206,13 @@ test('when sending an outcome message but the request does not exist', args => {
   })
 
   it('should respond with an invalid response message', async () => {
-    const response = await httpClient.sendSuccessfulOutcome('requestId', 'sender', 'result')
+    const requestId = generateRandomIdentityId()
+    const sender = createUnsafeIdentity().address
+
+    const response = await httpClient.sendSuccessfulOutcome(requestId, sender, 'result')
 
     expect(response).toEqual({
-      error: 'Request with id "requestId" not found'
+      error: `Request with id "${requestId}" not found`
     })
   })
 })
@@ -236,7 +229,8 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending an o
       params: []
     })) as RequestResponseMessage
 
-    const outcomeResponse = await httpClient.sendSuccessfulOutcome(requestResponse.requestId, 'sender', 'result')
+    const sender = createUnsafeIdentity().address
+    const outcomeResponse = await httpClient.sendSuccessfulOutcome(requestResponse.requestId, sender, 'result')
 
     expect(outcomeResponse).toEqual({
       error: `Request with id "${requestResponse.requestId}" has expired`
@@ -245,10 +239,13 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending an o
 })
 
 test('when sending a valid outcome message with the HTTP endpoints', args => {
+  let sender: string
+
   beforeEach(async () => {
     const port = await args.components.config.requireString('HTTP_SERVER_PORT')
     httpClient = await createHttpClient(port)
     wsClient = await createAuthWsClient(port)
+    sender = createUnsafeIdentity().address
   })
 
   it('should respond with the outcome response message', async () => {
@@ -257,13 +254,13 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
       params: []
     })) as RequestResponseMessage
 
-    await httpClient.sendSuccessfulOutcome(requestResponse.requestId, 'sender', 'result')
+    await httpClient.sendSuccessfulOutcome(requestResponse.requestId, sender, 'result')
 
     const outcomeResponse = await httpClient.getOutcome(requestResponse.requestId)
 
     expect(outcomeResponse).toEqual({
       requestId: requestResponse.requestId,
-      sender: 'sender',
+      sender,
       result: 'result'
     })
   })
@@ -280,11 +277,11 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
       })
     })
 
-    await httpClient.sendSuccessfulOutcome(requestResponse.requestId, 'sender', 'result')
+    await httpClient.sendSuccessfulOutcome(requestResponse.requestId, sender, 'result')
 
     return expect(promiseOfAnOutcome).resolves.toEqual({
       requestId: requestResponse.requestId,
-      sender: 'sender',
+      sender,
       result: 'result'
     })
   })
@@ -295,7 +292,7 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
       params: []
     })) as RequestResponseMessage
 
-    await httpClient.sendFailedOutcome(requestResponse.requestId, 'sender', {
+    await httpClient.sendFailedOutcome(requestResponse.requestId, sender, {
       code: 1233,
       message: 'anErrorOccurred'
     })
@@ -304,7 +301,7 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
 
     expect(outcomeResponse).toEqual({
       requestId: requestResponse.requestId,
-      sender: 'sender',
+      sender,
       error: {
         code: 1233,
         message: 'anErrorOccurred'
@@ -318,9 +315,9 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
       params: []
     })) as RequestResponseMessage
 
-    await httpClient.sendSuccessfulOutcome(requestResponse.requestId, 'sender', 'result')
+    await httpClient.sendSuccessfulOutcome(requestResponse.requestId, sender, 'result')
 
-    const outcomeResponse = await httpClient.sendSuccessfulOutcome(requestResponse.requestId, 'sender', 'result')
+    const outcomeResponse = await httpClient.sendSuccessfulOutcome(requestResponse.requestId, sender, 'result')
 
     expect(outcomeResponse).toEqual({
       error: `Request with id "${requestResponse.requestId}" already has a response`
@@ -358,10 +355,11 @@ test('when posting that a request needs validation but the request does not exis
   })
 
   it('should respond with a 404 and a not found response message', async () => {
-    const response = await httpClient.notifyRequestValidation('requestId')
+    const requestId = generateRandomIdentityId()
+    const response = await httpClient.notifyRequestValidation(requestId)
 
     expect(response).toEqual({
-      error: 'Request with id "requestId" not found'
+      error: `Request with id "${requestId}" not found`
     })
   })
 })
