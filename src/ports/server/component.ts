@@ -5,13 +5,16 @@ import cors from 'cors'
 import express, { Request, Response } from 'express'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
-import { Authenticator, parseEmphemeralPayload } from '@dcl/crypto'
+import { Authenticator, parseEmphemeralPayload, AuthIdentity } from '@dcl/crypto'
+import { AuthChain } from '@dcl/schemas'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
-import { METHOD_DCL_PERSONAL_SIGN } from './constants'
+import { METHOD_DCL_PERSONAL_SIGN, FIVE_MINUTES_IN_MILLISECONDS, FIFTEEN_MINUTES_IN_MILLISECONDS } from './constants'
 import {
   HttpOutcomeMessage,
   IServerComponent,
+  IdentityIdResponse,
+  IdentityIdValidationResponse,
   InvalidResponseMessage,
   LiveResponseMessage,
   MessageType,
@@ -29,7 +32,8 @@ import {
   validateOutcomeMessage,
   validateRecoverMessage,
   validateRequestMessage,
-  validateRequestValidationMessage
+  validateRequestValidationMessage,
+  validateIdentityId
 } from './validations'
 
 export async function createServerComponent({
@@ -54,6 +58,7 @@ export async function createServerComponent({
   const sockets: Record<string, Socket> = {}
 
   let server: Server | null = null
+  let tokenCleanupInterval: NodeJS.Timeout | null = null
 
   const onConnection = (socket: Socket) =>
     tracer.span('websocket-connection', () => {
@@ -388,6 +393,12 @@ export async function createServerComponent({
     }
     const logger = logs.getLogger('websocket-server')
 
+    // Set up automatic token cleanup every 5 minutes
+    tokenCleanupInterval = setInterval(() => {
+      storage.deleteExpiredIdentityId()
+      logger.log('Cleaned up expired tokens')
+    }, FIVE_MINUTES_IN_MILLISECONDS) // 5 minutes
+
     logger.log('Starting socket server...')
 
     const app = express()
@@ -416,6 +427,43 @@ export async function createServerComponent({
       res.status(statusCode).json(msg)
     }
 
+    // Helper function to validate auth chain
+    const validateAuthChain = async (authChain: AuthChain): Promise<{ sender: string; finalAuthority: string }> => {
+      if (!authChain || authChain.length === 0) {
+        throw new Error('Auth chain is required')
+      }
+
+      const sender = Authenticator.ownerAddress(authChain)
+
+      let finalAuthority: string
+
+      try {
+        const ephemeralPayload = parseEmphemeralPayload(authChain[authChain.length - 1].payload)
+
+        // This is un upgrade from the previous version of this validateAuthChain function
+        // Validate that the payload has not expired
+        const currentTime = Date.now()
+        if (ephemeralPayload.expiration <= currentTime) {
+          throw new Error('Ephemeral payload has expired')
+        }
+
+        finalAuthority = ephemeralPayload.ephemeralAddress
+      } catch (e) {
+        if (e instanceof Error && e.message === 'Ephemeral payload has expired') {
+          throw e
+        }
+        throw new Error('Could not get final authority from auth chain')
+      }
+
+      const validationResult = await Authenticator.validateSignature(finalAuthority, authChain, null)
+
+      if (!validationResult.ok) {
+        throw new Error(validationResult.message ?? 'Signature validation failed')
+      }
+
+      return { sender, finalAuthority }
+    }
+
     app.post('/requests', async (req: Request, res: Response) => {
       const data = req.body
       let msg: RequestMessage
@@ -431,31 +479,12 @@ export async function createServerComponent({
       let sender: string | undefined
 
       if (msg.method !== METHOD_DCL_PERSONAL_SIGN) {
-        const authChain = msg.authChain
-
-        if (!authChain) {
-          return sendResponse<InvalidResponseMessage>(res, 400, {
-            error: 'Auth chain is required'
-          })
-        }
-
-        sender = Authenticator.ownerAddress(authChain)
-
-        let finalAuthority: string
-
         try {
-          finalAuthority = parseEmphemeralPayload(authChain[authChain.length - 1].payload).ephemeralAddress
+          const { sender: validatedSender } = await validateAuthChain(msg.authChain || [])
+          sender = validatedSender
         } catch (e) {
           return sendResponse<InvalidResponseMessage>(res, 400, {
-            error: 'Could not get final authority from auth chain'
-          })
-        }
-
-        const validationResult = await Authenticator.validateSignature(finalAuthority, authChain, null)
-
-        if (!validationResult.ok) {
-          return sendResponse<InvalidResponseMessage>(res, 400, {
-            error: validationResult.message ?? 'Signature validation failed'
+            error: (e as Error).message
           })
         }
       }
@@ -668,6 +697,91 @@ export async function createServerComponent({
       return res.sendStatus(200)
     })
 
+    // Generate identity endpoint
+    app.post('/identities', async (req: Request, res: Response) => {
+      try {
+        // Extract AuthIdentity from request body
+        const { identity }: { identity: AuthIdentity } = req.body
+
+        if (!identity) {
+          return sendResponse<InvalidResponseMessage>(res, 400, {
+            error: 'AuthIdentity is required in request body'
+          })
+        }
+
+        // Validate auth chain using the same logic as /requests endpoint
+        try {
+          await validateAuthChain(identity.authChain)
+        } catch (e) {
+          return sendResponse<InvalidResponseMessage>(res, 400, {
+            error: (e as Error).message
+          })
+        }
+
+        const identityId = uuid()
+        // Use the expiration from the identity, or default to 15 minutes
+        const expiration = identity.expiration || new Date(Date.now() + FIFTEEN_MINUTES_IN_MILLISECONDS)
+
+        storage.setIdentityId(identityId, {
+          identityId,
+          identity,
+          expiration,
+          createdAt: new Date()
+        })
+
+        sendResponse<IdentityIdResponse>(res, 201, {
+          identityId,
+          expiration
+        })
+      } catch (e) {
+        return sendResponse<InvalidResponseMessage>(res, 400, {
+          error: (e as Error).message
+        })
+      }
+    })
+
+    // identities validation endpoint - returns identity for auto-login
+    app.get('/identities/:id', async (req: Request, res: Response) => {
+      const identityId = req.params.id
+
+      if (!validateIdentityId(identityId)) {
+        return sendResponse<InvalidResponseMessage>(res, 400, {
+          error: 'Invalid identity format'
+        })
+      }
+
+      const identity = storage.getIdentityId(identityId)
+
+      if (!identity) {
+        return sendResponse<InvalidResponseMessage>(res, 404, {
+          error: 'Identity not found'
+        })
+      }
+
+      if (identity.expiration < new Date()) {
+        storage.deleteIdentityId(identityId)
+        return sendResponse<InvalidResponseMessage>(res, 410, {
+          error: 'Identity has expired'
+        })
+      }
+
+      try {
+        // Delete the identity from the storage
+        storage.deleteIdentityId(identityId)
+
+        // Return the identity for auto-login
+        sendResponse<IdentityIdValidationResponse>(res, 200, {
+          identity: identity.identity,
+          valid: true
+        })
+      } catch (error) {
+        logger.error(`Error serving identity: ${isErrorWithMessage(error) ? error.message : 'Unknown error'}`)
+        return sendResponse<InvalidResponseMessage>(res, 500, {
+          error: 'Internal server error'
+        })
+      }
+    })
+
     server = new Server(httpServer, { cors: corsOptions })
 
     server.on('connection', onConnection)
@@ -684,6 +798,11 @@ export async function createServerComponent({
     const logger = logs.getLogger('websocket-server')
 
     logger.log('Stopping socket server...')
+
+    // Clear token cleanup interval
+    if (tokenCleanupInterval) {
+      clearInterval(tokenCleanupInterval)
+    }
 
     server.off('connection', onConnection)
 

@@ -1,4 +1,5 @@
 import { IBaseComponent } from '@well-known-components/interfaces'
+import { AuthIdentity } from '@dcl/crypto'
 import { AuthChain } from '@dcl/schemas'
 
 export type IServerComponent = IBaseComponent
@@ -72,6 +73,21 @@ export type OutcomeResponseMessage = OutcomeMessage
 
 export type InvalidResponseMessage = {
   error: string
+}
+
+export type IdentityIdRequest = {
+  identity: AuthIdentity
+  expiration?: string
+}
+
+export type IdentityIdResponse = {
+  identityId: string
+  expiration: Date
+}
+
+export type IdentityIdValidationResponse = {
+  identity: AuthIdentity
+  valid: boolean
 }
 
 export type InputMessage = RequestMessage | RecoverMessage | OutcomeMessage
