@@ -1,4 +1,5 @@
 import { AuthChain, Authenticator, AuthLinkType } from '@dcl/crypto'
+import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
 import { METHOD_DCL_PERSONAL_SIGN } from '../../src/ports/server/constants'
 import { RequestMessage, OutcomeMessage } from '../../src/ports/server/types'
 import { test } from '../components'
@@ -407,11 +408,13 @@ test('when testing request endpoints', args => {
     describe('and the outcome is valid', () => {
       let successfulOutcomeData: OutcomeMessage
       let failedOutcomeData: OutcomeMessage
+      let sender: string
 
       beforeEach(() => {
+        sender = createUnsafeIdentity().address
         successfulOutcomeData = {
           requestId,
-          sender: '0x1234567890123456789012345678901234567890',
+          sender,
           result: {
             transactionHash: '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890'
           }
@@ -419,7 +422,7 @@ test('when testing request endpoints', args => {
 
         failedOutcomeData = {
           requestId,
-          sender: '0x1234567890123456789012345678901234567890',
+          sender,
           error: {
             code: 1233,
             message: 'Transaction failed'
@@ -455,12 +458,14 @@ test('when testing request endpoints', args => {
     describe('and the requestId does not exist', () => {
       let nonExistentId: string
       let outcomeData: OutcomeMessage
+      let sender: string
 
       beforeEach(() => {
         nonExistentId = generateRandomIdentityId()
+        sender = createUnsafeIdentity().address
         outcomeData = {
           requestId: nonExistentId,
-          sender: '0x1234567890123456789012345678901234567890',
+          sender,
           result: { success: true }
         }
       })
@@ -484,11 +489,13 @@ test('when testing request endpoints', args => {
 
     describe('and the outcome has invalid schema', () => {
       let invalidOutcomeData: Partial<OutcomeMessage>
+      let sender: string
 
       beforeEach(() => {
+        sender = createUnsafeIdentity().address
         invalidOutcomeData = {
           requestId,
-          sender: '0x1234567890123456789012345678901234567890'
+          sender
           // Missing required 'result' or 'error' field
         }
       })

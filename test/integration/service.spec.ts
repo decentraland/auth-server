@@ -1,12 +1,12 @@
 import { TestArguments } from '@well-known-components/test-helpers'
-import { ethers } from 'ethers'
 import { Socket } from 'socket.io-client'
-import { AuthChain, Authenticator, AuthLinkType } from '@dcl/crypto'
+import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
 import { METHOD_DCL_PERSONAL_SIGN } from '../../src/ports/server/constants'
 import { MessageType, RequestResponseMessage, RequestValidationMessage } from '../../src/ports/server/types'
 import { BaseComponents } from '../../src/types'
 import { test, testWithOverrides } from '../components'
 import { createAuthWsClient } from '../utils'
+import { createTestIdentity, generateRandomIdentityId } from '../utils/test-identity'
 
 let desktopClientSocket: Socket
 let authDappSocket: Socket
@@ -58,34 +58,8 @@ test('when sending a request message', args => {
 })
 
 test(`when sending a request message for a method that is not ${METHOD_DCL_PERSONAL_SIGN}`, args => {
-  let mainAccount: ethers.HDNodeWallet
-  let ephemeralAccount: ethers.HDNodeWallet
-  let expiration: Date
-  let ephemeralMessage: string
-  let signature: string
-  let authChain: AuthChain
-
   beforeEach(async () => {
     await connectClients(args)
-
-    mainAccount = ethers.Wallet.createRandom()
-    ephemeralAccount = ethers.Wallet.createRandom()
-    expiration = new Date(Date.now() + 60000) // 1 minute
-    ephemeralMessage = Authenticator.getEphemeralMessage(ephemeralAccount.address, expiration)
-    signature = await mainAccount.signMessage(ephemeralMessage)
-
-    authChain = [
-      {
-        type: AuthLinkType.SIGNER,
-        payload: mainAccount.address,
-        signature: ''
-      },
-      {
-        type: AuthLinkType.ECDSA_PERSONAL_EPHEMERAL,
-        payload: ephemeralMessage,
-        signature: signature
-      }
-    ]
   })
 
   describe('when an auth chain is not provided', () => {
@@ -102,11 +76,17 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
   })
 
   describe('when an auth chain is provided', () => {
+    let testIdentity: Awaited<ReturnType<typeof createTestIdentity>>
+
+    beforeEach(async () => {
+      testIdentity = await createTestIdentity()
+    })
+
     it('should respond with a request response message', async () => {
       const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
         method: 'method',
         params: [],
-        authChain
+        authChain: testIdentity.authChain.authChain
       })
 
       expect(requestResponse).toEqual({
@@ -120,48 +100,58 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
         method: 'method',
         params: [],
-        authChain
+        authChain: testIdentity.authChain.authChain
       })
 
       const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
         requestId: requestResponse.requestId
       })
 
-      expect(recoverResponse.sender).toEqual(mainAccount.address.toLowerCase())
+      expect(recoverResponse.sender).toEqual(testIdentity.realAccount.address.toLowerCase())
     })
 
     describe('when the payload on the signer link does not match the address of the ephemeral message signer', () => {
-      let otherAccount: ethers.HDNodeWallet
+      let otherAccount: ReturnType<typeof createUnsafeIdentity>
+      let modifiedAuthChain: typeof testIdentity.authChain.authChain
 
       beforeEach(() => {
-        otherAccount = ethers.Wallet.createRandom()
-
-        authChain[0].payload = otherAccount.address
+        otherAccount = createUnsafeIdentity()
+        modifiedAuthChain = [...testIdentity.authChain.authChain]
+        modifiedAuthChain[0] = {
+          ...modifiedAuthChain[0],
+          payload: otherAccount.address
+        }
       })
 
       it('should respond with an invalid response message, indicating that the expected signer address is different', async () => {
         const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
           method: 'method',
           params: [],
-          authChain
+          authChain: modifiedAuthChain
         })
 
         expect(requestResponse.error).toEqual(
-          `ERROR. Link type: ECDSA_EPHEMERAL. Invalid signer address. Expected: ${otherAccount.address.toLowerCase()}. Actual: ${mainAccount.address.toLowerCase()}.`
+          `ERROR. Link type: ECDSA_EPHEMERAL. Invalid signer address. Expected: ${otherAccount.address.toLowerCase()}. Actual: ${testIdentity.realAccount.address.toLowerCase()}.`
         )
       })
     })
 
     describe('when the auth chain does not have a parsable payload in the second link', () => {
+      let modifiedAuthChain: typeof testIdentity.authChain.authChain
+
       beforeEach(() => {
-        authChain[1].payload = 'unparsable'
+        modifiedAuthChain = [...testIdentity.authChain.authChain]
+        modifiedAuthChain[1] = {
+          ...modifiedAuthChain[1],
+          payload: 'unparsable'
+        }
       })
 
       it('should respond with an invalid response message, indicating that the final authority could not be obtained', async () => {
         const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
           method: 'method',
           params: [],
-          authChain
+          authChain: modifiedAuthChain
         })
 
         expect(requestResponse.error).toEqual('Could not get final authority from auth chain')
@@ -191,12 +181,13 @@ test('when sending a recover message but the request does not exist', args => {
   })
 
   it('should respond with an invalid response message', async () => {
+    const requestId = generateRandomIdentityId()
     const response = await authDappSocket.emitWithAck(MessageType.RECOVER, {
-      requestId: 'requestId'
+      requestId
     })
 
     expect(response).toEqual({
-      error: 'Request with id "requestId" not found'
+      error: `Request with id "${requestId}" not found`
     })
   })
 })
@@ -362,14 +353,17 @@ test('when sending an outcome message but the request does not exist', args => {
   })
 
   it('should respond with an invalid response message', async () => {
+    const requestId = generateRandomIdentityId()
+    const sender = createUnsafeIdentity().address
+
     const response = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
-      requestId: 'requestId',
-      sender: 'sender',
+      requestId,
+      sender,
       result: 'result'
     })
 
     expect(response).toEqual({
-      error: 'Request with id "requestId" not found'
+      error: `Request with id "${requestId}" not found`
     })
   })
 })
@@ -385,9 +379,10 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending an o
       params: []
     })
 
+    const sender = createUnsafeIdentity().address
     const outcomeResponse = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
       requestId: requestResponse.requestId,
-      sender: 'sender',
+      sender,
       result: 'result'
     })
 
@@ -410,9 +405,10 @@ test('when sending an outcome message but the socket that created the request di
 
     desktopClientSocket.disconnect()
 
+    const sender = createUnsafeIdentity().address
     const outcomeResponse = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
       requestId: requestResponse.requestId,
-      sender: 'sender',
+      sender,
       result: 'result'
     })
 
@@ -423,8 +419,11 @@ test('when sending an outcome message but the socket that created the request di
 })
 
 test('when the auth dapp sends an outcome message', args => {
+  let sender: string
+
   beforeEach(async () => {
     await connectClients(args)
+    sender = createUnsafeIdentity().address
   })
 
   it('should respond with an empty object as ack', async () => {
@@ -435,7 +434,7 @@ test('when the auth dapp sends an outcome message', args => {
 
     const outcomeResponse = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
       requestId: requestResponse.requestId,
-      sender: 'sender',
+      sender,
       result: 'result'
     })
 
@@ -456,7 +455,7 @@ test('when the auth dapp sends an outcome message', args => {
 
     await authDappSocket.emitWithAck(MessageType.OUTCOME, {
       requestId: requestResponse.requestId,
-      sender: 'sender',
+      sender,
       result: 'result'
     })
 
@@ -464,7 +463,7 @@ test('when the auth dapp sends an outcome message', args => {
 
     expect(outcomeResponse).toEqual({
       requestId: requestResponse.requestId,
-      sender: 'sender',
+      sender,
       result: 'result'
     })
   })
@@ -483,7 +482,7 @@ test('when the auth dapp sends an outcome message', args => {
 
     await authDappSocket.emitWithAck(MessageType.OUTCOME, {
       requestId: requestResponse.requestId,
-      sender: 'sender',
+      sender,
       error: {
         code: 1233,
         message: 'anErrorOcurred'
@@ -494,7 +493,7 @@ test('when the auth dapp sends an outcome message', args => {
 
     expect(outcomeResponse).toEqual({
       requestId: requestResponse.requestId,
-      sender: 'sender',
+      sender,
       error: {
         code: 1233,
         message: 'anErrorOcurred'
@@ -510,13 +509,13 @@ test('when the auth dapp sends an outcome message', args => {
 
     await authDappSocket.emitWithAck(MessageType.OUTCOME, {
       requestId: requestResponse.requestId,
-      sender: 'sender',
+      sender,
       result: 'result'
     })
 
     const outcomeResponse = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
       requestId: requestResponse.requestId,
-      sender: 'sender',
+      sender,
       result: 'result'
     })
 
@@ -556,12 +555,13 @@ test('when posting that a request needs validation but the request does not exis
   })
 
   it('should respond with an error indicating that the request does not exist', async () => {
+    const requestId = generateRandomIdentityId()
     const response = await authDappSocket.emitWithAck(MessageType.REQUEST_VALIDATION_STATUS, {
-      requestId: 'requestId'
+      requestId
     })
 
     expect(response).toEqual({
-      error: 'Request with id "requestId" not found'
+      error: `Request with id "${requestId}" not found`
     })
   })
 })
