@@ -28,14 +28,14 @@ describe('when testing storage component', () => {
       })
 
       it('should store the identity successfully', () => {
-        storage.setIdentityId(identityId, {
+        storage.setIdentity(identityId, {
           identityId,
           identity: validAuthIdentity,
           expiration,
           createdAt
         })
 
-        const storedIdentity = storage.getIdentityId(identityId)
+        const storedIdentity = storage.getIdentity(identityId)
         expect(storedIdentity).not.toBeNull()
         expect(storedIdentity?.identityId).toBe(identityId)
         expect(storedIdentity?.identity).toEqual(validAuthIdentity)
@@ -52,7 +52,7 @@ describe('when testing storage component', () => {
       })
 
       it('should return undefined when getting non-existent identity', () => {
-        const result = storage.getIdentityId(nonExistentId)
+        const result = storage.getIdentity(nonExistentId)
         expect(result).toBeNull()
       })
     })
@@ -70,7 +70,7 @@ describe('when testing storage component', () => {
 
       it('should delete the identity successfully', () => {
         // First store the identity
-        storage.setIdentityId(identityId, {
+        storage.setIdentity(identityId, {
           identityId,
           identity: validAuthIdentity,
           expiration,
@@ -78,13 +78,13 @@ describe('when testing storage component', () => {
         })
 
         // Verify it exists
-        expect(storage.getIdentityId(identityId)).toBeDefined()
+        expect(storage.getIdentity(identityId)).toBeDefined()
 
         // Delete it
-        storage.deleteIdentityId(identityId)
+        storage.deleteIdentity(identityId)
 
         // Verify it's gone
-        expect(storage.getIdentityId(identityId)).toBeNull()
+        expect(storage.getIdentity(identityId)).toBeNull()
       })
     })
 
@@ -97,85 +97,7 @@ describe('when testing storage component', () => {
 
       it('should handle deletion gracefully', () => {
         // Should not throw an error
-        expect(() => storage.deleteIdentityId(nonExistentId)).not.toThrow()
-      })
-    })
-  })
-
-  describe('when cleaning up expired identity IDs', () => {
-    describe('and there are expired identities', () => {
-      let expiredIdentityId: string
-      let validIdentityId: string
-      let expiredExpiration: Date
-      let validExpiration: Date
-      let createdAt: Date
-
-      beforeEach(() => {
-        expiredIdentityId = generateRandomIdentityId()
-        validIdentityId = generateRandomIdentityId()
-        expiredExpiration = new Date(Date.now() - 60000) // 1 minute ago
-        validExpiration = new Date(Date.now() + 60000) // 1 minute from now
-        createdAt = new Date()
-      })
-
-      it('should remove expired identities', () => {
-        // Store expired identity
-        storage.setIdentityId(expiredIdentityId, {
-          identityId: expiredIdentityId,
-          identity: validAuthIdentity,
-          expiration: expiredExpiration,
-          createdAt
-        })
-
-        // Store valid identity
-        storage.setIdentityId(validIdentityId, {
-          identityId: validIdentityId,
-          identity: validAuthIdentity,
-          expiration: validExpiration,
-          createdAt
-        })
-
-        // Verify both exist
-        expect(storage.getIdentityId(expiredIdentityId)).toBeDefined()
-        expect(storage.getIdentityId(validIdentityId)).toBeDefined()
-
-        // Clean up expired identities
-        storage.deleteExpiredIdentityId()
-
-        // Verify expired identity is gone, valid identity remains
-        expect(storage.getIdentityId(expiredIdentityId)).toBeNull()
-        expect(storage.getIdentityId(validIdentityId)).toBeDefined()
-      })
-    })
-
-    describe('and there are no expired identities', () => {
-      let validIdentityId: string
-      let validExpiration: Date
-      let createdAt: Date
-
-      beforeEach(() => {
-        validIdentityId = generateRandomIdentityId()
-        validExpiration = new Date(Date.now() + 60000) // 1 minute from now
-        createdAt = new Date()
-      })
-
-      it('should not remove any identities', () => {
-        // Store valid identity
-        storage.setIdentityId(validIdentityId, {
-          identityId: validIdentityId,
-          identity: validAuthIdentity,
-          expiration: validExpiration,
-          createdAt
-        })
-
-        // Verify it exists
-        expect(storage.getIdentityId(validIdentityId)).toBeDefined()
-
-        // Clean up expired identities
-        storage.deleteExpiredIdentityId()
-
-        // Verify it still exists
-        expect(storage.getIdentityId(validIdentityId)).toBeDefined()
+        expect(() => storage.deleteIdentity(nonExistentId)).not.toThrow()
       })
     })
   })
@@ -202,21 +124,21 @@ describe('when testing storage component', () => {
 
       it('should store and retrieve each identity independently', () => {
         // Store multiple identities
-        storage.setIdentityId(identityId1, {
+        storage.setIdentity(identityId1, {
           identityId: identityId1,
           identity: validAuthIdentity,
           expiration: expiration1,
           createdAt
         })
 
-        storage.setIdentityId(identityId2, {
+        storage.setIdentity(identityId2, {
           identityId: identityId2,
           identity: validAuthIdentity,
           expiration: expiration2,
           createdAt
         })
 
-        storage.setIdentityId(identityId3, {
+        storage.setIdentity(identityId3, {
           identityId: identityId3,
           identity: validAuthIdentity,
           expiration: expiration3,
@@ -224,14 +146,14 @@ describe('when testing storage component', () => {
         })
 
         // Verify all exist
-        expect(storage.getIdentityId(identityId1)).toBeDefined()
-        expect(storage.getIdentityId(identityId2)).toBeDefined()
-        expect(storage.getIdentityId(identityId3)).toBeDefined()
+        expect(storage.getIdentity(identityId1)).toBeDefined()
+        expect(storage.getIdentity(identityId2)).toBeDefined()
+        expect(storage.getIdentity(identityId3)).toBeDefined()
 
         // Verify they have correct expirations
-        expect(storage.getIdentityId(identityId1)?.expiration).toEqual(expiration1)
-        expect(storage.getIdentityId(identityId2)?.expiration).toEqual(expiration2)
-        expect(storage.getIdentityId(identityId3)?.expiration).toEqual(expiration3)
+        expect(storage.getIdentity(identityId1)?.expiration).toEqual(expiration1)
+        expect(storage.getIdentity(identityId2)?.expiration).toEqual(expiration2)
+        expect(storage.getIdentity(identityId3)?.expiration).toEqual(expiration3)
       })
     })
 
@@ -250,14 +172,14 @@ describe('when testing storage component', () => {
 
       it('should not affect other identities', () => {
         // Store multiple identities
-        storage.setIdentityId(identityId1, {
+        storage.setIdentity(identityId1, {
           identityId: identityId1,
           identity: validAuthIdentity,
           expiration,
           createdAt
         })
 
-        storage.setIdentityId(identityId2, {
+        storage.setIdentity(identityId2, {
           identityId: identityId2,
           identity: validAuthIdentity,
           expiration,
@@ -265,15 +187,15 @@ describe('when testing storage component', () => {
         })
 
         // Verify both exist
-        expect(storage.getIdentityId(identityId1)).toBeDefined()
-        expect(storage.getIdentityId(identityId2)).toBeDefined()
+        expect(storage.getIdentity(identityId1)).toBeDefined()
+        expect(storage.getIdentity(identityId2)).toBeDefined()
 
         // Delete one
-        storage.deleteIdentityId(identityId1)
+        storage.deleteIdentity(identityId1)
 
         // Verify one is gone, other remains
-        expect(storage.getIdentityId(identityId1)).toBeNull()
-        expect(storage.getIdentityId(identityId2)).toBeDefined()
+        expect(storage.getIdentity(identityId1)).toBeNull()
+        expect(storage.getIdentity(identityId2)).toBeDefined()
       })
     })
   })

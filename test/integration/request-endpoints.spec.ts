@@ -159,7 +159,7 @@ test('when testing request endpoints', args => {
 
         const responseBody = await response.json()
         expect(responseBody).toHaveProperty('error')
-        expect(responseBody.error).toBe('Ephemeral payload has expired')
+        expect(responseBody.error).toContain('Ephemeral key expired')
       })
     })
   })

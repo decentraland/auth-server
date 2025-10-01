@@ -732,7 +732,7 @@ export async function createServerComponent({
 
           // Verify that the user making the request is the same as the one who signed the identity
           const requestSender = (req as Request & DecentralandSignatureContext<unknown>).verification?.auth
-          if (!requestSender || requestSender !== identitySender) {
+          if (!requestSender || requestSender.toLowerCase() !== identitySender.toLowerCase()) {
             return sendResponse<InvalidResponseMessage>(res, 403, {
               error: 'Request sender does not match identity owner'
             })

@@ -1,5 +1,6 @@
 import { AuthIdentity } from '@dcl/crypto'
 import { test } from '../components'
+import { createSignedFetchRequest } from '../utils/signed-request'
 import { createTestIdentity, generateRandomIdentityId } from '../utils/test-identity'
 
 test('when testing identity endpoints', args => {
@@ -15,21 +16,29 @@ test('when testing identity endpoints', args => {
     describe('and the request body is valid', () => {
       let validRequestData: { identity: AuthIdentity }
       let validAuthIdentity: AuthIdentity
+      let testIdentity: { authChain: AuthIdentity; realAccount: any; ephemeralIdentity: any }
 
       beforeEach(async () => {
         // Create valid auth identity using test utility
-        const testIdentity = await createTestIdentity()
+        testIdentity = await createTestIdentity()
         validAuthIdentity = testIdentity.authChain
         validRequestData = { identity: validAuthIdentity }
       })
 
       it('should respond with 201 status and return identityId and expiration', async () => {
-        const response = await fetch(`${baseUrl}/identities`, {
+        const signedRequest = await createSignedFetchRequest(baseUrl, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(validRequestData)
+          path: '/identities',
+          body: validRequestData,
+          identity: validAuthIdentity,
+          realAccount: testIdentity.realAccount,
+          ephemeralIdentity: testIdentity.ephemeralIdentity
+        })
+
+        const response = await fetch(signedRequest.url, {
+          method: signedRequest.method,
+          headers: signedRequest.headers,
+          body: signedRequest.body
         })
 
         expect(response.status).toBe(201)
@@ -50,19 +59,24 @@ test('when testing identity endpoints', args => {
       })
 
       it('should respond with 400 status and error message', async () => {
-        const response = await fetch(`${baseUrl}/identities`, {
+        const signedRequest = await createSignedFetchRequest(baseUrl, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(emptyRequestData)
+          path: '/identities',
+          body: emptyRequestData
+        })
+
+        const response = await fetch(signedRequest.url, {
+          method: signedRequest.method,
+          headers: signedRequest.headers,
+          body: signedRequest.body
         })
 
         expect(response.status).toBe(400)
 
         const responseBody = await response.json()
-        expect(responseBody).toHaveProperty('error')
-        expect(responseBody.error).toBe('AuthIdentity is required in request body')
+        expect(responseBody).toEqual({
+          error: 'AuthIdentity is required in request body'
+        })
       })
     })
 
@@ -86,46 +100,59 @@ test('when testing identity endpoints', args => {
       })
 
       it('should respond with 400 status and validation error', async () => {
-        const response = await fetch(`${baseUrl}/identities`, {
+        const signedRequest = await createSignedFetchRequest(baseUrl, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(invalidRequestData)
+          path: '/identities',
+          body: invalidRequestData
+        })
+
+        const response = await fetch(signedRequest.url, {
+          method: signedRequest.method,
+          headers: signedRequest.headers,
+          body: signedRequest.body
         })
 
         expect(response.status).toBe(400)
 
         const responseBody = await response.json()
         expect(responseBody).toHaveProperty('error')
+        expect(typeof responseBody.error).toBe('string')
+        expect(responseBody.error.length).toBeGreaterThan(0)
       })
     })
 
     describe('and the identity has expired', () => {
       let expiredRequestData: { identity: AuthIdentity }
       let expiredAuthIdentity: AuthIdentity
+      let expiredTestIdentity: any
 
       beforeEach(async () => {
         // Create expired auth identity using test utility with negative expiration
-        const testIdentity = await createTestIdentity(-1) // -1 minute (expired)
-        expiredAuthIdentity = testIdentity.authChain
+        expiredTestIdentity = await createTestIdentity(-1) // -1 minute (expired)
+        expiredAuthIdentity = expiredTestIdentity.authChain
         expiredRequestData = { identity: expiredAuthIdentity }
       })
 
       it('should respond with 400 status and expiration error', async () => {
-        const response = await fetch(`${baseUrl}/identities`, {
+        const signedRequest = await createSignedFetchRequest(baseUrl, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(expiredRequestData)
+          path: '/identities',
+          body: expiredRequestData,
+          identity: expiredAuthIdentity,
+          realAccount: expiredTestIdentity.realAccount,
+          ephemeralIdentity: expiredTestIdentity.ephemeralIdentity
         })
 
-        expect(response.status).toBe(400)
+        const response = await fetch(signedRequest.url, {
+          method: signedRequest.method,
+          headers: signedRequest.headers,
+          body: signedRequest.body
+        })
+
+        expect(response.status).toBe(401)
 
         const responseBody = await response.json()
-        expect(responseBody).toHaveProperty('error')
-        expect(responseBody.error).toBe('Ephemeral payload has expired')
+        expect(responseBody.error).toContain('Ephemeral key expired')
       })
     })
   })
@@ -142,12 +169,17 @@ test('when testing identity endpoints', args => {
 
       // Create a valid identity first
       requestData = { identity: validAuthIdentity }
-      const response = await fetch(`${baseUrl}/identities`, {
+      const signedRequest = await createSignedFetchRequest(baseUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestData)
+        path: '/identities',
+        body: requestData,
+        identity: validAuthIdentity
+      })
+
+      const response = await fetch(signedRequest.url, {
+        method: signedRequest.method,
+        headers: signedRequest.headers,
+        body: signedRequest.body
       })
 
       const responseBody = await response.json()
@@ -164,8 +196,6 @@ test('when testing identity endpoints', args => {
 
         const responseBody = await response.json()
         expect(responseBody).toHaveProperty('identity')
-        expect(responseBody).toHaveProperty('valid')
-        expect(responseBody.valid).toBe(true)
 
         // Convert expiration to string for comparison since API returns it as string
         const expectedIdentity = {
@@ -191,8 +221,9 @@ test('when testing identity endpoints', args => {
         expect(response.status).toBe(400)
 
         const responseBody = await response.json()
-        expect(responseBody).toHaveProperty('error')
-        expect(responseBody.error).toBe('Invalid identity format')
+        expect(responseBody).toEqual({
+          error: 'Invalid identity format'
+        })
       })
     })
 
@@ -211,8 +242,9 @@ test('when testing identity endpoints', args => {
         expect(response.status).toBe(404)
 
         const responseBody = await response.json()
-        expect(responseBody).toHaveProperty('error')
-        expect(responseBody.error).toBe('Identity not found')
+        expect(responseBody).toEqual({
+          error: 'Identity not found'
+        })
       })
     })
 
@@ -231,8 +263,9 @@ test('when testing identity endpoints', args => {
         expect(secondResponse.status).toBe(404)
 
         const responseBody = await secondResponse.json()
-        expect(responseBody).toHaveProperty('error')
-        expect(responseBody.error).toBe('Identity not found')
+        expect(responseBody).toEqual({
+          error: 'Identity not found'
+        })
       })
     })
   })

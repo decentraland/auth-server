@@ -1,22 +1,14 @@
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
-import {
-  RequestMessage,
-  RecoverMessage,
-  OutcomeMessage,
-  RequestValidationMessage,
-  IdentityIdRequest,
-  HttpOutcomeMessage
-} from '../../src/ports/server/types'
+import { RequestMessage, RecoverMessage, OutcomeMessage, RequestValidationMessage, HttpOutcomeMessage } from '../../src/ports/server/types'
 import {
   validateRequestMessage,
   validateRecoverMessage,
   validateOutcomeMessage,
   validateRequestValidationMessage,
-  validateIdentityIdRequest,
   validateIdentityId,
   validateHttpOutcomeMessage
 } from '../../src/ports/server/validations'
-import { createTestIdentity, generateRandomIdentityId } from '../utils/test-identity'
+import { generateRandomIdentityId } from '../utils/test-identity'
 
 describe('when testing validation functions', () => {
   describe('when validating request messages', () => {
@@ -163,46 +155,6 @@ describe('when testing validation functions', () => {
     describe('and the message is invalid', () => {
       it('should throw validation error', () => {
         expect(() => validateRequestValidationMessage(invalidRequestValidationMessage)).toThrow()
-      })
-    })
-  })
-
-  describe('when validating identity ID requests', () => {
-    let validIdentityIdRequest: IdentityIdRequest
-    let invalidIdentityIdRequest: Partial<IdentityIdRequest>
-
-    beforeEach(async () => {
-      const testIdentity = await createTestIdentity()
-
-      validIdentityIdRequest = {
-        identity: testIdentity.authChain
-      }
-
-      invalidIdentityIdRequest = {
-        // Missing required 'identity' field
-      }
-    })
-
-    describe('and the request is valid', () => {
-      it('should return the validated request', () => {
-        // Convert Date to ISO string for validation
-        const validationInput = {
-          identity: {
-            ...validIdentityIdRequest.identity,
-            expiration: validIdentityIdRequest.identity.expiration.toISOString()
-          }
-        }
-        const result = validateIdentityIdRequest(validationInput)
-        expect(result).toEqual(validationInput)
-        expect(result.identity).toHaveProperty('expiration')
-        expect(result.identity).toHaveProperty('ephemeralIdentity')
-        expect(result.identity).toHaveProperty('authChain')
-      })
-    })
-
-    describe('and the request is invalid', () => {
-      it('should throw validation error', () => {
-        expect(() => validateIdentityIdRequest(invalidIdentityIdRequest)).toThrow()
       })
     })
   })
