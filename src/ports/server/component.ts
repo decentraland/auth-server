@@ -1,15 +1,16 @@
 import { createServer } from 'http'
-import { IBaseComponent } from '@well-known-components/interfaces'
+import { IBaseComponent, IFetchComponent } from '@well-known-components/interfaces'
 import bodyParser from 'body-parser'
 import cors from 'cors'
 import express, { Request, Response } from 'express'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
 import { Authenticator, parseEmphemeralPayload, AuthIdentity } from '@dcl/crypto'
+import { verify, DecentralandSignatureContext } from '@dcl/platform-crypto-middleware'
 import { AuthChain } from '@dcl/schemas'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
-import { METHOD_DCL_PERSONAL_SIGN, FIVE_MINUTES_IN_MILLISECONDS, FIFTEEN_MINUTES_IN_MILLISECONDS } from './constants'
+import { METHOD_DCL_PERSONAL_SIGN, FIFTEEN_MINUTES_IN_MILLISECONDS } from './constants'
 import {
   HttpOutcomeMessage,
   IServerComponent,
@@ -47,6 +48,34 @@ export async function createServerComponent({
   requestExpirationInSeconds: number
   dclPersonalSignExpirationInSeconds: number
 }): Promise<IServerComponent> {
+  // Wraps the callback function on messages to type the message that is being sent
+  const sendResponse = <T>(res: Response, statusCode: number, msg: T) => {
+    res.status(statusCode).json(msg)
+  }
+
+  // Create signed fetch middleware for Express
+  const signedFetchMiddleware =
+    ({ optional = false }: { optional?: boolean } = {}) =>
+    async (req: Request, res: Response, next: () => void) => {
+      try {
+        const verification = await verify(req.method, req.path, req.headers, {
+          fetcher: { fetch } as unknown as IFetchComponent,
+          metadataValidator: (metadata: Record<string, unknown>) => metadata?.signer !== 'decentraland-kernel-scene'
+        })
+
+        // Add verification data to request
+        ;(req as Request & DecentralandSignatureContext<unknown>).verification = verification
+        next()
+      } catch (err: unknown) {
+        if (optional) {
+          next()
+        } else {
+          return sendResponse<InvalidResponseMessage>(res, 401, {
+            error: (err as Error).message || 'Authentication failed'
+          })
+        }
+      }
+    }
   const port = await config.requireNumber('HTTP_SERVER_PORT')
   const logger = logs.getLogger('websocket-server')
 
@@ -58,7 +87,6 @@ export async function createServerComponent({
   const sockets: Record<string, Socket> = {}
 
   let server: Server | null = null
-  let tokenCleanupInterval: NodeJS.Timeout | null = null
 
   const onConnection = (socket: Socket) =>
     tracer.span('websocket-connection', () => {
@@ -114,7 +142,7 @@ export async function createServerComponent({
               msg = validateRequestMessage(data)
             } catch (e) {
               ack<InvalidResponseMessage>(cb, {
-                error: (e as Error).message
+                error: isErrorWithMessage(e) ? e.message : 'Unknown error'
               })
               logger.log('Received a request with invalid message')
 
@@ -202,7 +230,7 @@ export async function createServerComponent({
               msg = validateRecoverMessage(data)
             } catch (e) {
               ack<InvalidResponseMessage>(cb, {
-                error: (e as Error).message
+                error: isErrorWithMessage(e) ? e.message : 'Unknown error'
               })
 
               logger.log('Received a recover request with invalid message')
@@ -260,7 +288,7 @@ export async function createServerComponent({
               msg = validateOutcomeMessage(data)
             } catch (e) {
               ack<InvalidResponseMessage>(cb, {
-                error: (e as Error).message
+                error: isErrorWithMessage(e) ? e.message : 'Unknown error'
               })
 
               logger.log('Received an outcome message with invalid message')
@@ -348,7 +376,7 @@ export async function createServerComponent({
             } catch (e) {
               logger.log('Received an outcome message with invalid message')
               return ack<InvalidResponseMessage>(cb, {
-                error: (e as Error).message
+                error: isErrorWithMessage(e) ? e.message : 'Unknown error'
               })
             }
 
@@ -393,12 +421,6 @@ export async function createServerComponent({
     }
     const logger = logs.getLogger('websocket-server')
 
-    // Set up automatic token cleanup every 5 minutes
-    tokenCleanupInterval = setInterval(() => {
-      storage.deleteExpiredIdentityId()
-      logger.log('Cleaned up expired tokens')
-    }, FIVE_MINUTES_IN_MILLISECONDS) // 5 minutes
-
     logger.log('Starting socket server...')
 
     const app = express()
@@ -422,14 +444,9 @@ export async function createServerComponent({
       })
     })
 
-    // Wraps the callback function on messages to type the message that is being sent
-    const sendResponse = <T>(res: Response, statusCode: number, msg: T) => {
-      res.status(statusCode).json(msg)
-    }
-
     // Helper function to validate auth chain
     const validateAuthChain = async (authChain: AuthChain): Promise<{ sender: string; finalAuthority: string }> => {
-      if (!authChain || authChain.length === 0) {
+      if (!authChain.length) {
         throw new Error('Auth chain is required')
       }
 
@@ -439,13 +456,6 @@ export async function createServerComponent({
 
       try {
         const ephemeralPayload = parseEmphemeralPayload(authChain[authChain.length - 1].payload)
-
-        // This is un upgrade from the previous version of this validateAuthChain function
-        // Validate that the payload has not expired
-        const currentTime = Date.now()
-        if (ephemeralPayload.expiration <= currentTime) {
-          throw new Error('Ephemeral payload has expired')
-        }
 
         finalAuthority = ephemeralPayload.ephemeralAddress
       } catch (e) {
@@ -472,7 +482,7 @@ export async function createServerComponent({
         msg = validateRequestMessage(data)
       } catch (e) {
         return sendResponse<InvalidResponseMessage>(res, 400, {
-          error: (e as Error).message
+          error: isErrorWithMessage(e) ? e.message : 'Unknown error'
         })
       }
 
@@ -484,7 +494,7 @@ export async function createServerComponent({
           sender = validatedSender
         } catch (e) {
           return sendResponse<InvalidResponseMessage>(res, 400, {
-            error: (e as Error).message
+            error: isErrorWithMessage(e) ? e.message : 'Unknown error'
           })
         }
       }
@@ -640,7 +650,7 @@ export async function createServerComponent({
         msg = validateHttpOutcomeMessage(data)
       } catch (e) {
         return sendResponse<InvalidResponseMessage>(res, 400, {
-          error: (e as Error).message
+          error: isErrorWithMessage(e) ? e.message : 'Unknown error'
         })
       }
 
@@ -697,8 +707,8 @@ export async function createServerComponent({
       return res.sendStatus(200)
     })
 
-    // Generate identity endpoint
-    app.post('/identities', async (req: Request, res: Response) => {
+    // Store identity endpoint with signed fetch middleware validation
+    app.post('/identities', signedFetchMiddleware({ optional: false }), async (req: Request, res: Response) => {
       try {
         // Extract AuthIdentity from request body
         const { identity }: { identity: AuthIdentity } = req.body
@@ -711,10 +721,25 @@ export async function createServerComponent({
 
         // Validate auth chain using the same logic as /requests endpoint
         try {
-          await validateAuthChain(identity.authChain)
+          const { sender: identitySender, finalAuthority } = await validateAuthChain(identity.authChain)
+
+          // Verify that the ephemeral wallet address matches the finalAuthority from auth chain
+          if (identity.ephemeralIdentity.address.toLowerCase() !== finalAuthority.toLowerCase()) {
+            return sendResponse<InvalidResponseMessage>(res, 403, {
+              error: 'Ephemeral wallet address does not match auth chain final authority'
+            })
+          }
+
+          // Verify that the user making the request is the same as the one who signed the identity
+          const requestSender = (req as Request & DecentralandSignatureContext<unknown>).verification?.auth
+          if (!requestSender || requestSender !== identitySender) {
+            return sendResponse<InvalidResponseMessage>(res, 403, {
+              error: 'Request sender does not match identity owner'
+            })
+          }
         } catch (e) {
           return sendResponse<InvalidResponseMessage>(res, 400, {
-            error: (e as Error).message
+            error: isErrorWithMessage(e) ? e.message : 'Unknown error'
           })
         }
 
@@ -722,7 +747,7 @@ export async function createServerComponent({
         // Use the expiration from the identity, or default to 15 minutes
         const expiration = identity.expiration || new Date(Date.now() + FIFTEEN_MINUTES_IN_MILLISECONDS)
 
-        storage.setIdentityId(identityId, {
+        storage.setIdentity(identityId, {
           identityId,
           identity,
           expiration,
@@ -735,7 +760,7 @@ export async function createServerComponent({
         })
       } catch (e) {
         return sendResponse<InvalidResponseMessage>(res, 400, {
-          error: (e as Error).message
+          error: isErrorWithMessage(e) ? e.message : 'Unknown error'
         })
       }
     })
@@ -750,7 +775,7 @@ export async function createServerComponent({
         })
       }
 
-      const identity = storage.getIdentityId(identityId)
+      const identity = storage.getIdentity(identityId)
 
       if (!identity) {
         return sendResponse<InvalidResponseMessage>(res, 404, {
@@ -759,7 +784,7 @@ export async function createServerComponent({
       }
 
       if (identity.expiration < new Date()) {
-        storage.deleteIdentityId(identityId)
+        storage.deleteIdentity(identityId)
         return sendResponse<InvalidResponseMessage>(res, 410, {
           error: 'Identity has expired'
         })
@@ -767,12 +792,11 @@ export async function createServerComponent({
 
       try {
         // Delete the identity from the storage
-        storage.deleteIdentityId(identityId)
+        storage.deleteIdentity(identityId)
 
         // Return the identity for auto-login
         sendResponse<IdentityIdValidationResponse>(res, 200, {
-          identity: identity.identity,
-          valid: true
+          identity: identity.identity
         })
       } catch (error) {
         logger.error(`Error serving identity: ${isErrorWithMessage(error) ? error.message : 'Unknown error'}`)
@@ -798,11 +822,6 @@ export async function createServerComponent({
     const logger = logs.getLogger('websocket-server')
 
     logger.log('Stopping socket server...')
-
-    // Clear token cleanup interval
-    if (tokenCleanupInterval) {
-      clearInterval(tokenCleanupInterval)
-    }
 
     server.off('connection', onConnection)
 

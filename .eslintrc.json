@@ -4,7 +4,8 @@
     "project": ["tsconfig.json", "test/tsconfig.json"]
   },
   "rules": {
-    "@typescript-eslint/no-non-null-assertion": "error"
+    "@typescript-eslint/no-non-null-assertion": "error",
+    "@typescript-eslint/no-explicit-any": "warn"
   },
   "overrides": [
     {

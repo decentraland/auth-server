@@ -1,7 +1,7 @@
 import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
 import { AuthChain } from '@dcl/schemas'
-import { HttpOutcomeMessage, OutcomeMessage, RecoverMessage, RequestMessage, RequestValidationMessage, IdentityIdRequest } from './types'
+import { HttpOutcomeMessage, OutcomeMessage, RecoverMessage, RequestMessage, RequestValidationMessage } from './types'
 
 const ajv = new Ajv({ allowUnionTypes: true })
 addFormats(ajv)
@@ -82,49 +82,11 @@ const requestValidationMessageSchema = {
   required: ['requestId']
 }
 
-const identityIdRequestSchema = {
-  type: 'object',
-  properties: {
-    identity: {
-      type: 'object',
-      properties: {
-        expiration: { type: 'string', format: 'date-time' },
-        ephemeralIdentity: {
-          type: 'object',
-          properties: {
-            address: { type: 'string' },
-            privateKey: { type: 'string' },
-            publicKey: { type: 'string' }
-          },
-          required: ['address', 'privateKey', 'publicKey']
-        },
-        authChain: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              type: { type: 'string' },
-              payload: { type: 'string' },
-              signature: { type: 'string' }
-            },
-            required: ['type', 'payload', 'signature']
-          }
-        }
-      },
-      required: ['expiration', 'ephemeralIdentity', 'authChain']
-    },
-    expiration: { type: 'string', format: 'date-time' }
-  },
-  required: ['identity'],
-  additionalProperties: false
-}
-
 const requestMessageValidator = ajv.compile(requestMessageSchema)
 const recoverMessageValidator = ajv.compile(recoverMessageSchema)
 const outcomeMessageValidator = ajv.compile(outcomeMessageSchema)
 const httpOutcomeMessageValidator = ajv.compile(httpOutcomeMessageSchema)
 const requestValidationMessageValidator = ajv.compile(requestValidationMessageSchema)
-const identityIdRequestValidator = ajv.compile(identityIdRequestSchema)
 
 export function validateRequestMessage(msg: unknown) {
   if (!requestMessageValidator(msg)) {
@@ -156,14 +118,6 @@ export function validateRequestValidationMessage(msg: unknown) {
   }
 
   return msg as RequestValidationMessage
-}
-
-export function validateIdentityIdRequest(msg: unknown) {
-  if (!identityIdRequestValidator(msg)) {
-    throw new Error(JSON.stringify(identityIdRequestValidator.errors))
-  }
-
-  return msg as IdentityIdRequest
 }
 
 export function validateIdentityId(identityId: string): boolean {

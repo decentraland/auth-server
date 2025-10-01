@@ -5,10 +5,9 @@ export type IStorageComponent = {
   getRequest(requestId: string): StorageRequest | null
   setRequest(requestId: string, request: StorageRequest | null): void
   getRequestIdForSocketId(socketId: string): string | null
-  getIdentityId(identityId: string): StorageIdentityId | null
-  setIdentityId(identityId: string, identityData: StorageIdentityId | null): void
-  deleteIdentityId(identityId: string): void
-  deleteExpiredIdentityId(): void
+  getIdentity(identityId: string): StorageIdentity | null
+  setIdentity(identityId: string, identityData: StorageIdentity | null): void
+  deleteIdentity(identityId: string): void
 }
 
 export type StorageRequest = Request & {
@@ -21,7 +20,7 @@ export type StorageRequest = Request & {
   requiresValidation: boolean
 }
 
-export type StorageIdentityId = {
+export type StorageIdentity = {
   identityId: string
   identity: AuthIdentity
   expiration: Date

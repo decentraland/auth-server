@@ -76,11 +76,6 @@ export type InvalidResponseMessage = {
   error: string
 }
 
-export type IdentityIdRequest = {
-  identity: AuthIdentity
-  expiration?: string
-}
-
 export type IdentityIdResponse = {
   identityId: string
   expiration: Date
@@ -88,7 +83,6 @@ export type IdentityIdResponse = {
 
 export type IdentityIdValidationResponse = {
   identity: AuthIdentity
-  valid: boolean
 }
 
 export type InputMessage = RequestMessage | RecoverMessage | OutcomeMessage
