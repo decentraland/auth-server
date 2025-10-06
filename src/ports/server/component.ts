@@ -1,13 +1,14 @@
 import { createServer } from 'http'
-import { IBaseComponent, IFetchComponent } from '@well-known-components/interfaces'
+import { IBaseComponent } from '@well-known-components/interfaces'
 import bodyParser from 'body-parser'
 import cors from 'cors'
 import express, { Request, Response } from 'express'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
 import { Authenticator, parseEmphemeralPayload, AuthIdentity } from '@dcl/crypto'
-import { verify, DecentralandSignatureContext } from '@dcl/platform-crypto-middleware'
+import { DecentralandSignatureContext } from '@dcl/platform-crypto-middleware'
 import { AuthChain } from '@dcl/schemas'
+import { express as authMiddleware } from 'decentraland-crypto-middleware'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
 import { METHOD_DCL_PERSONAL_SIGN, FIFTEEN_MINUTES_IN_MILLISECONDS } from './constants'
@@ -53,29 +54,6 @@ export async function createServerComponent({
     res.status(statusCode).json(msg)
   }
 
-  // Create signed fetch middleware for Express
-  const signedFetchMiddleware =
-    ({ optional = false }: { optional?: boolean } = {}) =>
-    async (req: Request, res: Response, next: () => void) => {
-      try {
-        const verification = await verify(req.method, req.path, req.headers, {
-          fetcher: { fetch } as unknown as IFetchComponent,
-          metadataValidator: (metadata: Record<string, unknown>) => metadata?.signer !== 'decentraland-kernel-scene'
-        })
-
-        // Add verification data to request
-        ;(req as Request & DecentralandSignatureContext<unknown>).verification = verification
-        next()
-      } catch (err: unknown) {
-        if (optional) {
-          next()
-        } else {
-          return sendResponse<InvalidResponseMessage>(res, 401, {
-            error: (err as Error).message || 'Authentication failed'
-          })
-        }
-      }
-    }
   const port = await config.requireNumber('HTTP_SERVER_PORT')
   const logger = logs.getLogger('websocket-server')
 
@@ -708,62 +686,73 @@ export async function createServerComponent({
     })
 
     // Store identity endpoint with signed fetch middleware validation
-    app.post('/identities', signedFetchMiddleware({ optional: false }), async (req: Request, res: Response) => {
-      try {
-        // Extract AuthIdentity from request body
-        const { identity }: { identity: AuthIdentity } = req.body
-
-        if (!identity) {
-          return sendResponse<InvalidResponseMessage>(res, 400, {
-            error: 'AuthIdentity is required in request body'
-          })
-        }
-
-        // Validate auth chain using the same logic as /requests endpoint
+    app.post(
+      '/identities',
+      authMiddleware({
+        optional: false,
+        onError: err => ({
+          error: err.message,
+          message: 'This endpoint requires a signed fetch request. See ADR-44.'
+        }),
+        verifyMetadataContent: metadata => metadata?.signer !== 'decentraland-kernel-scene' // prevent requests from scenes
+      }),
+      async (req: Request, res: Response) => {
         try {
-          const { sender: identitySender, finalAuthority } = await validateAuthChain(identity.authChain)
+          // Extract AuthIdentity from request body
+          const { identity }: { identity: AuthIdentity } = req.body
 
-          // Verify that the ephemeral wallet address matches the finalAuthority from auth chain
-          if (identity.ephemeralIdentity.address.toLowerCase() !== finalAuthority.toLowerCase()) {
-            return sendResponse<InvalidResponseMessage>(res, 403, {
-              error: 'Ephemeral wallet address does not match auth chain final authority'
+          if (!identity) {
+            return sendResponse<InvalidResponseMessage>(res, 400, {
+              error: 'AuthIdentity is required in request body'
             })
           }
 
-          // Verify that the user making the request is the same as the one who signed the identity
-          const requestSender = (req as Request & DecentralandSignatureContext<unknown>).verification?.auth
-          if (!requestSender || requestSender.toLowerCase() !== identitySender.toLowerCase()) {
-            return sendResponse<InvalidResponseMessage>(res, 403, {
-              error: 'Request sender does not match identity owner'
+          // Validate auth chain using the same logic as /requests endpoint
+          try {
+            const { sender: identitySender, finalAuthority } = await validateAuthChain(identity.authChain)
+
+            // Verify that the ephemeral wallet address matches the finalAuthority from auth chain
+            if (identity.ephemeralIdentity.address.toLowerCase() !== finalAuthority.toLowerCase()) {
+              return sendResponse<InvalidResponseMessage>(res, 403, {
+                error: 'Ephemeral wallet address does not match auth chain final authority'
+              })
+            }
+
+            // Verify that the user making the request is the same as the one who signed the identity
+            const requestSender = (req as Request & DecentralandSignatureContext<unknown>).verification?.auth
+            if (!requestSender || requestSender.toLowerCase() !== identitySender.toLowerCase()) {
+              return sendResponse<InvalidResponseMessage>(res, 403, {
+                error: 'Request sender does not match identity owner'
+              })
+            }
+          } catch (e) {
+            return sendResponse<InvalidResponseMessage>(res, 400, {
+              error: isErrorWithMessage(e) ? e.message : 'Unknown error'
             })
           }
+
+          const identityId = uuid()
+          // Use the expiration from the identity, or default to 15 minutes
+          const expiration = identity.expiration || new Date(Date.now() + FIFTEEN_MINUTES_IN_MILLISECONDS)
+
+          storage.setIdentity(identityId, {
+            identityId,
+            identity,
+            expiration,
+            createdAt: new Date()
+          })
+
+          sendResponse<IdentityIdResponse>(res, 201, {
+            identityId,
+            expiration
+          })
         } catch (e) {
           return sendResponse<InvalidResponseMessage>(res, 400, {
             error: isErrorWithMessage(e) ? e.message : 'Unknown error'
           })
         }
-
-        const identityId = uuid()
-        // Use the expiration from the identity, or default to 15 minutes
-        const expiration = identity.expiration || new Date(Date.now() + FIFTEEN_MINUTES_IN_MILLISECONDS)
-
-        storage.setIdentity(identityId, {
-          identityId,
-          identity,
-          expiration,
-          createdAt: new Date()
-        })
-
-        sendResponse<IdentityIdResponse>(res, 201, {
-          identityId,
-          expiration
-        })
-      } catch (e) {
-        return sendResponse<InvalidResponseMessage>(res, 400, {
-          error: isErrorWithMessage(e) ? e.message : 'Unknown error'
-        })
       }
-    })
+    )
 
     // identities validation endpoint - returns identity for auto-login
     app.get('/identities/:id', async (req: Request, res: Response) => {
