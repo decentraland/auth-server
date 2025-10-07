@@ -13,7 +13,7 @@ beforeEach(async () => {
   identityId = generateRandomIdentityId()
 
   const testIdentity = await createTestIdentity()
-  validAuthIdentity = testIdentity.authChain
+  validAuthIdentity = testIdentity.authIdentity
 })
 
 describe('when storing an identity', () => {

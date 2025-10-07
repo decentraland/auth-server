@@ -63,7 +63,7 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       const requestResponse = await httpClient.request({
         method: 'method',
         params: [],
-        authChain: testIdentity.authChain.authChain
+        authChain: testIdentity.authIdentity.authChain
       })
 
       expect(requestResponse).toEqual({
@@ -77,7 +77,7 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       const requestResponse = (await httpClient.request({
         method: 'method',
         params: [],
-        authChain: testIdentity.authChain.authChain
+        authChain: testIdentity.authIdentity.authChain
       })) as RequestResponseMessage
 
       const recoverResponse = await httpClient.recover(requestResponse.requestId)
@@ -87,11 +87,11 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
 
     describe('and the payload on the signer link does not match the address of the ephemeral message signer', () => {
       let otherAccount: ReturnType<typeof createUnsafeIdentity>
-      let modifiedAuthChain: typeof testIdentity.authChain.authChain
+      let modifiedAuthChain: typeof testIdentity.authIdentity.authChain
 
       beforeEach(() => {
         otherAccount = createUnsafeIdentity()
-        modifiedAuthChain = [...testIdentity.authChain.authChain]
+        modifiedAuthChain = [...testIdentity.authIdentity.authChain]
         modifiedAuthChain[0] = {
           ...modifiedAuthChain[0],
           payload: otherAccount.address
@@ -112,10 +112,10 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
     })
 
     describe('and the auth chain does not have a parsable payload in the second link', () => {
-      let modifiedAuthChain: typeof testIdentity.authChain.authChain
+      let modifiedAuthChain: typeof testIdentity.authIdentity.authChain
 
       beforeEach(() => {
-        modifiedAuthChain = [...testIdentity.authChain.authChain]
+        modifiedAuthChain = [...testIdentity.authIdentity.authChain]
         modifiedAuthChain[1] = {
           ...modifiedAuthChain[1],
           payload: 'unparsable'
