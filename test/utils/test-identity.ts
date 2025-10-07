@@ -1,14 +1,8 @@
 import { v4 as uuidv4 } from 'uuid'
-import { Authenticator, AuthIdentity, IdentityType } from '@dcl/crypto'
+import { Authenticator, AuthIdentity } from '@dcl/crypto'
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
 
-export type TestIdentity = {
-  authIdentity: AuthIdentity
-  realAccount: IdentityType
-  ephemeralIdentity: IdentityType
-}
-
-export async function createTestIdentity(expirationMinutes = 10): Promise<TestIdentity> {
+export async function createTestIdentity(expirationMinutes = 10): Promise<AuthIdentity> {
   const ephemeralIdentity = createUnsafeIdentity()
   const realAccount = createUnsafeIdentity()
 
@@ -16,7 +10,7 @@ export async function createTestIdentity(expirationMinutes = 10): Promise<TestId
     Authenticator.createSignature(realAccount, message)
   )
 
-  return { authIdentity, realAccount, ephemeralIdentity }
+  return authIdentity
 }
 
 export function generateRandomIdentityId(): string {
