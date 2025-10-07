@@ -6,9 +6,8 @@ import express, { Request, Response } from 'express'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
 import { Authenticator, parseEmphemeralPayload, AuthIdentity } from '@dcl/crypto'
-import { DecentralandSignatureContext } from '@dcl/platform-crypto-middleware'
 import { AuthChain } from '@dcl/schemas'
-import { express as authMiddleware } from 'decentraland-crypto-middleware'
+import { express as authMiddleware, DecentralandSignatureData } from 'decentraland-crypto-middleware'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
 import { METHOD_DCL_PERSONAL_SIGN, FIFTEEN_MINUTES_IN_MILLISECONDS } from './constants'
@@ -696,7 +695,8 @@ export async function createServerComponent({
         }),
         verifyMetadataContent: metadata => metadata?.signer !== 'decentraland-kernel-scene' // prevent requests from scenes
       }),
-      async (req: Request, res: Response) => {
+      async (req: Request & DecentralandSignatureData) => {
+        const res = req.res as Response
         try {
           // Extract AuthIdentity from request body
           const { identity }: { identity: AuthIdentity } = req.body
@@ -719,7 +719,7 @@ export async function createServerComponent({
             }
 
             // Verify that the user making the request is the same as the one who signed the identity
-            const requestSender = (req as Request & DecentralandSignatureContext<unknown>).verification?.auth
+            const requestSender = req.auth
             if (!requestSender || requestSender.toLowerCase() !== identitySender.toLowerCase()) {
               return sendResponse<InvalidResponseMessage>(res, 403, {
                 error: 'Request sender does not match identity owner'
