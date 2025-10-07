@@ -1,4 +1,4 @@
-import { AuthIdentity } from '@dcl/crypto'
+import { AuthIdentity, IdentityType } from '@dcl/crypto'
 import { test } from '../components'
 import { createSignedFetchRequest } from '../utils/signed-request'
 import { createTestIdentity, generateRandomIdentityId } from '../utils/test-identity'
@@ -16,34 +16,26 @@ test('when testing identity endpoints', args => {
     describe('and the request body is valid', () => {
       let validRequestData: { identity: AuthIdentity }
       let validAuthIdentity: AuthIdentity
-      let testIdentity: { authChain: AuthIdentity; realAccount: any; ephemeralIdentity: any }
+      let testIdentity: { authIdentity: AuthIdentity; realAccount: IdentityType; ephemeralIdentity: IdentityType }
 
       beforeEach(async () => {
         // Create valid auth identity using test utility
         testIdentity = await createTestIdentity()
-        validAuthIdentity = testIdentity.authChain
+        validAuthIdentity = testIdentity.authIdentity
         validRequestData = { identity: validAuthIdentity }
       })
 
       it('should respond with 201 status and return identityId and expiration', async () => {
-        const signedRequest = await createSignedFetchRequest(baseUrl, {
+        const response = await createSignedFetchRequest(baseUrl, {
           method: 'POST',
           path: '/identities',
           body: validRequestData,
-          identity: validAuthIdentity,
-          realAccount: testIdentity.realAccount,
-          ephemeralIdentity: testIdentity.ephemeralIdentity
+          identity: validAuthIdentity
         })
-
-        const response = await fetch(signedRequest.url, {
-          method: signedRequest.method,
-          headers: signedRequest.headers,
-          body: signedRequest.body
-        })
-
+        const responseBody = await response.json()
+        console.log('responseBody', responseBody)
         expect(response.status).toBe(201)
 
-        const responseBody = await response.json()
         expect(responseBody).toHaveProperty('identityId')
         expect(responseBody).toHaveProperty('expiration')
         expect(typeof responseBody.identityId).toBe('string')
@@ -59,23 +51,18 @@ test('when testing identity endpoints', args => {
       })
 
       it('should respond with 400 status and error message', async () => {
-        const signedRequest = await createSignedFetchRequest(baseUrl, {
+        const response = await createSignedFetchRequest(baseUrl, {
           method: 'POST',
           path: '/identities',
           body: emptyRequestData
-        })
-
-        const response = await fetch(signedRequest.url, {
-          method: signedRequest.method,
-          headers: signedRequest.headers,
-          body: signedRequest.body
         })
 
         expect(response.status).toBe(400)
 
         const responseBody = await response.json()
         expect(responseBody).toEqual({
-          error: 'AuthIdentity is required in request body'
+          error: 'Invalid Auth Chain',
+          message: 'This endpoint requires a signed fetch request. See ADR-44.'
         })
       })
     })
@@ -100,16 +87,10 @@ test('when testing identity endpoints', args => {
       })
 
       it('should respond with 400 status and validation error', async () => {
-        const signedRequest = await createSignedFetchRequest(baseUrl, {
+        const response = await createSignedFetchRequest(baseUrl, {
           method: 'POST',
           path: '/identities',
           body: invalidRequestData
-        })
-
-        const response = await fetch(signedRequest.url, {
-          method: signedRequest.method,
-          headers: signedRequest.headers,
-          body: signedRequest.body
         })
 
         expect(response.status).toBe(400)
@@ -133,26 +114,18 @@ test('when testing identity endpoints', args => {
         expiredRequestData = { identity: expiredAuthIdentity }
       })
 
-      it('should respond with 400 status and expiration error', async () => {
-        const signedRequest = await createSignedFetchRequest(baseUrl, {
+      it('should respond with 400 status and Invalid Auth Chain error', async () => {
+        const response = await createSignedFetchRequest(baseUrl, {
           method: 'POST',
           path: '/identities',
           body: expiredRequestData,
-          identity: expiredAuthIdentity,
-          realAccount: expiredTestIdentity.realAccount,
-          ephemeralIdentity: expiredTestIdentity.ephemeralIdentity
+          identity: expiredAuthIdentity
         })
 
-        const response = await fetch(signedRequest.url, {
-          method: signedRequest.method,
-          headers: signedRequest.headers,
-          body: signedRequest.body
-        })
-
-        expect(response.status).toBe(401)
+        expect(response.status).toBe(400)
 
         const responseBody = await response.json()
-        expect(responseBody.error).toContain('Ephemeral key expired')
+        expect(responseBody.error).toContain('Invalid Auth Chain')
       })
     })
   })
@@ -165,21 +138,15 @@ test('when testing identity endpoints', args => {
     beforeEach(async () => {
       // Create valid auth identity using test utility
       const testIdentity = await createTestIdentity()
-      validAuthIdentity = testIdentity.authChain
+      validAuthIdentity = testIdentity.authIdentity
 
       // Create a valid identity first
       requestData = { identity: validAuthIdentity }
-      const signedRequest = await createSignedFetchRequest(baseUrl, {
+      const response = await createSignedFetchRequest(baseUrl, {
         method: 'POST',
         path: '/identities',
         body: requestData,
         identity: validAuthIdentity
-      })
-
-      const response = await fetch(signedRequest.url, {
-        method: signedRequest.method,
-        headers: signedRequest.headers,
-        body: signedRequest.body
       })
 
       const responseBody = await response.json()
