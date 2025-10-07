@@ -76,7 +76,11 @@ export type InvalidResponseMessage = {
   error: string
 }
 
-export type IdentityIdResponse = {
+export type IdentityRequest = {
+  identity: AuthIdentity
+}
+
+export type IdentityResponse = {
   identityId: string
   expiration: Date
 }
@@ -85,6 +89,6 @@ export type IdentityIdValidationResponse = {
   identity: AuthIdentity
 }
 
-export type InputMessage = RequestMessage | RecoverMessage | OutcomeMessage
+export type InputMessage = RequestMessage | RecoverMessage | OutcomeMessage | IdentityRequest
 
 export type ResponseMessage = RequestResponseMessage | RecoverResponseMessage | OutcomeResponseMessage | InvalidResponseMessage

@@ -5,7 +5,7 @@ import cors from 'cors'
 import express, { Request, Response } from 'express'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
-import { Authenticator, parseEmphemeralPayload, AuthIdentity } from '@dcl/crypto'
+import { Authenticator, parseEmphemeralPayload } from '@dcl/crypto'
 import { AuthChain } from '@dcl/schemas'
 import { express as authMiddleware, DecentralandSignatureData } from 'decentraland-crypto-middleware'
 import { isErrorWithMessage } from '../../logic/error-handling'
@@ -14,7 +14,7 @@ import { METHOD_DCL_PERSONAL_SIGN, FIFTEEN_MINUTES_IN_MILLISECONDS } from './con
 import {
   HttpOutcomeMessage,
   IServerComponent,
-  IdentityIdResponse,
+  IdentityResponse,
   IdentityIdValidationResponse,
   InvalidResponseMessage,
   LiveResponseMessage,
@@ -34,7 +34,8 @@ import {
   validateRecoverMessage,
   validateRequestMessage,
   validateRequestValidationMessage,
-  validateIdentityId
+  validateIdentityId,
+  validateIdentityRequest
 } from './validations'
 
 export async function createServerComponent({
@@ -698,8 +699,7 @@ export async function createServerComponent({
       async (req: Request & DecentralandSignatureData) => {
         const res = req.res as Response
         try {
-          // Extract AuthIdentity from request body
-          const { identity }: { identity: AuthIdentity } = req.body
+          const { identity } = validateIdentityRequest(req.body)
 
           if (!identity) {
             return sendResponse<InvalidResponseMessage>(res, 400, {
@@ -742,7 +742,7 @@ export async function createServerComponent({
             createdAt: new Date()
           })
 
-          sendResponse<IdentityIdResponse>(res, 201, {
+          sendResponse<IdentityResponse>(res, 201, {
             identityId,
             expiration
           })
