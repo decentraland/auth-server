@@ -1,5 +1,6 @@
 import { DefaultEventsMap } from 'socket.io/dist/typed-events'
 import { Socket } from 'socket.io-client'
+import { AuthIdentity } from '@dcl/crypto'
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
 import { METHOD_DCL_PERSONAL_SIGN } from '../../src/ports/server/constants'
 import { MessageType, OutcomeResponseMessage, RequestResponseMessage, RequestValidationMessage } from '../../src/ports/server/types'
@@ -53,7 +54,7 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
   })
 
   describe('and an auth chain is provided', () => {
-    let testIdentity: Awaited<ReturnType<typeof createTestIdentity>>
+    let testIdentity: AuthIdentity
 
     beforeEach(async () => {
       testIdentity = await createTestIdentity()
@@ -63,7 +64,7 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       const requestResponse = await httpClient.request({
         method: 'method',
         params: [],
-        authChain: testIdentity.authIdentity.authChain
+        authChain: testIdentity.authChain
       })
 
       expect(requestResponse).toEqual({
@@ -77,21 +78,21 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       const requestResponse = (await httpClient.request({
         method: 'method',
         params: [],
-        authChain: testIdentity.authIdentity.authChain
+        authChain: testIdentity.authChain
       })) as RequestResponseMessage
 
       const recoverResponse = await httpClient.recover(requestResponse.requestId)
 
-      expect(recoverResponse.sender).toEqual(testIdentity.realAccount.address.toLowerCase())
+      expect(recoverResponse.sender).toEqual(testIdentity.authChain[0].payload.toLowerCase())
     })
 
     describe('and the payload on the signer link does not match the address of the ephemeral message signer', () => {
       let otherAccount: ReturnType<typeof createUnsafeIdentity>
-      let modifiedAuthChain: typeof testIdentity.authIdentity.authChain
+      let modifiedAuthChain: typeof testIdentity.authChain
 
       beforeEach(() => {
         otherAccount = createUnsafeIdentity()
-        modifiedAuthChain = [...testIdentity.authIdentity.authChain]
+        modifiedAuthChain = [...testIdentity.authChain]
         modifiedAuthChain[0] = {
           ...modifiedAuthChain[0],
           payload: otherAccount.address
@@ -106,16 +107,16 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
         })) as { error: string }
 
         expect(requestResponse.error).toEqual(
-          `ERROR. Link type: ECDSA_EPHEMERAL. Invalid signer address. Expected: ${otherAccount.address.toLowerCase()}. Actual: ${testIdentity.realAccount.address.toLowerCase()}.`
+          `ERROR. Link type: ECDSA_EPHEMERAL. Invalid signer address. Expected: ${otherAccount.address.toLowerCase()}. Actual: ${testIdentity.authChain[0].payload.toLowerCase()}.`
         )
       })
     })
 
     describe('and the auth chain does not have a parsable payload in the second link', () => {
-      let modifiedAuthChain: typeof testIdentity.authIdentity.authChain
+      let modifiedAuthChain: typeof testIdentity.authChain
 
       beforeEach(() => {
-        modifiedAuthChain = [...testIdentity.authIdentity.authChain]
+        modifiedAuthChain = [...testIdentity.authChain]
         modifiedAuthChain[1] = {
           ...modifiedAuthChain[1],
           payload: 'unparsable'

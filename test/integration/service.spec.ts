@@ -86,7 +86,7 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
         method: 'method',
         params: [],
-        authChain: testIdentity.authIdentity.authChain
+        authChain: testIdentity.authChain
       })
 
       expect(requestResponse).toEqual({
@@ -100,23 +100,23 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
         method: 'method',
         params: [],
-        authChain: testIdentity.authIdentity.authChain
+        authChain: testIdentity.authChain
       })
 
       const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
         requestId: requestResponse.requestId
       })
 
-      expect(recoverResponse.sender).toEqual(testIdentity.realAccount.address.toLowerCase())
+      expect(recoverResponse.sender).toEqual(testIdentity.authChain[0].payload.toLowerCase())
     })
 
     describe('when the payload on the signer link does not match the address of the ephemeral message signer', () => {
       let otherAccount: ReturnType<typeof createUnsafeIdentity>
-      let modifiedAuthChain: typeof testIdentity.authIdentity.authChain
+      let modifiedAuthChain: typeof testIdentity.authChain
 
       beforeEach(() => {
         otherAccount = createUnsafeIdentity()
-        modifiedAuthChain = [...testIdentity.authIdentity.authChain]
+        modifiedAuthChain = [...testIdentity.authChain]
         modifiedAuthChain[0] = {
           ...modifiedAuthChain[0],
           payload: otherAccount.address
@@ -131,16 +131,16 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
         })
 
         expect(requestResponse.error).toEqual(
-          `ERROR. Link type: ECDSA_EPHEMERAL. Invalid signer address. Expected: ${otherAccount.address.toLowerCase()}. Actual: ${testIdentity.realAccount.address.toLowerCase()}.`
+          `ERROR. Link type: ECDSA_EPHEMERAL. Invalid signer address. Expected: ${otherAccount.address.toLowerCase()}. Actual: ${testIdentity.authChain[0].payload.toLowerCase()}.`
         )
       })
     })
 
     describe('when the auth chain does not have a parsable payload in the second link', () => {
-      let modifiedAuthChain: typeof testIdentity.authIdentity.authChain
+      let modifiedAuthChain: typeof testIdentity.authChain
 
       beforeEach(() => {
-        modifiedAuthChain = [...testIdentity.authIdentity.authChain]
+        modifiedAuthChain = [...testIdentity.authChain]
         modifiedAuthChain[1] = {
           ...modifiedAuthChain[1],
           payload: 'unparsable'

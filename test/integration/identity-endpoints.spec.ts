@@ -1,4 +1,4 @@
-import { AuthIdentity, IdentityType } from '@dcl/crypto'
+import { AuthIdentity } from '@dcl/crypto'
 import { test } from '../components'
 import { createSignedFetchRequest } from '../utils/signed-request'
 import { createTestIdentity, generateRandomIdentityId } from '../utils/test-identity'
@@ -15,14 +15,12 @@ test('when testing identity endpoints', args => {
   describe('when creating an identity', () => {
     describe('and the request body is valid', () => {
       let validRequestData: { identity: AuthIdentity }
-      let validAuthIdentity: AuthIdentity
-      let testIdentity: { authIdentity: AuthIdentity; realAccount: IdentityType; ephemeralIdentity: IdentityType }
+      let testIdentity: AuthIdentity
 
       beforeEach(async () => {
         // Create valid auth identity using test utility
         testIdentity = await createTestIdentity()
-        validAuthIdentity = testIdentity.authIdentity
-        validRequestData = { identity: validAuthIdentity }
+        validRequestData = { identity: testIdentity }
       })
 
       it('should respond with 201 status and return identityId and expiration', async () => {
@@ -30,7 +28,7 @@ test('when testing identity endpoints', args => {
           method: 'POST',
           path: '/identities',
           body: validRequestData,
-          identity: validAuthIdentity
+          identity: testIdentity
         })
         const responseBody = await response.json()
         console.log('responseBody', responseBody)
@@ -104,28 +102,26 @@ test('when testing identity endpoints', args => {
 
     describe('and the identity has expired', () => {
       let expiredRequestData: { identity: AuthIdentity }
-      let expiredAuthIdentity: AuthIdentity
-      let expiredTestIdentity: any
+      let expiredTestIdentity: AuthIdentity
 
       beforeEach(async () => {
         // Create expired auth identity using test utility with negative expiration
         expiredTestIdentity = await createTestIdentity(-1) // -1 minute (expired)
-        expiredAuthIdentity = expiredTestIdentity.authChain
-        expiredRequestData = { identity: expiredAuthIdentity }
+        expiredRequestData = { identity: expiredTestIdentity }
       })
 
-      it('should respond with 400 status and Invalid Auth Chain error', async () => {
+      it('should respond with 401 status and Ephemeral key expired error', async () => {
         const response = await createSignedFetchRequest(baseUrl, {
           method: 'POST',
           path: '/identities',
           body: expiredRequestData,
-          identity: expiredAuthIdentity
+          identity: expiredTestIdentity
         })
 
-        expect(response.status).toBe(400)
+        expect(response.status).toBe(401)
 
         const responseBody = await response.json()
-        expect(responseBody.error).toContain('Invalid Auth Chain')
+        expect(responseBody.error).toContain('Ephemeral key expired')
       })
     })
   })
@@ -133,20 +129,19 @@ test('when testing identity endpoints', args => {
   describe('when retrieving an identity', () => {
     let identityId: string
     let requestData: { identity: AuthIdentity }
-    let validAuthIdentity: AuthIdentity
+    let testIdentity: AuthIdentity
 
     beforeEach(async () => {
       // Create valid auth identity using test utility
-      const testIdentity = await createTestIdentity()
-      validAuthIdentity = testIdentity.authIdentity
+      testIdentity = await createTestIdentity()
 
       // Create a valid identity first
-      requestData = { identity: validAuthIdentity }
+      requestData = { identity: testIdentity }
       const response = await createSignedFetchRequest(baseUrl, {
         method: 'POST',
         path: '/identities',
         body: requestData,
-        identity: validAuthIdentity
+        identity: testIdentity
       })
 
       const responseBody = await response.json()
@@ -166,8 +161,8 @@ test('when testing identity endpoints', args => {
 
         // Convert expiration to string for comparison since API returns it as string
         const expectedIdentity = {
-          ...validAuthIdentity,
-          expiration: validAuthIdentity.expiration.toISOString()
+          ...testIdentity,
+          expiration: testIdentity.expiration.toISOString()
         }
         expect(responseBody.identity).toEqual(expectedIdentity)
       })

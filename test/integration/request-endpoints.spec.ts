@@ -22,7 +22,7 @@ test('when testing request endpoints', args => {
       beforeEach(async () => {
         // Create valid auth chain using test utility
         const testIdentity = await createTestIdentity()
-        validAuthChain = testIdentity.authIdentity.authChain
+        validAuthChain = testIdentity.authChain
 
         validRequestData = {
           method: METHOD_DCL_PERSONAL_SIGN,
@@ -126,16 +126,16 @@ test('when testing request endpoints', args => {
         expiredAuthChain = [
           {
             type: AuthLinkType.SIGNER,
-            payload: testIdentity.authIdentity.authChain[0].payload,
+            payload: testIdentity.authChain[0].payload,
             signature: ''
           },
           {
             type: AuthLinkType.ECDSA_PERSONAL_EPHEMERAL,
             payload: Authenticator.getEphemeralMessage(
-              testIdentity.authIdentity.ephemeralIdentity.address,
+              testIdentity.ephemeralIdentity.address,
               new Date(Date.now() - 60000) // 1 minute ago
             ),
-            signature: testIdentity.authIdentity.authChain[1].signature
+            signature: testIdentity.authChain[1].signature
           }
         ]
 
@@ -172,7 +172,7 @@ test('when testing request endpoints', args => {
     beforeEach(async () => {
       // Create valid auth chain using test utility
       const testIdentity = await createTestIdentity()
-      validAuthChain = testIdentity.authIdentity.authChain
+      validAuthChain = testIdentity.authChain
 
       // Create a valid request first
       requestData = {
@@ -240,7 +240,7 @@ test('when testing request endpoints', args => {
     beforeEach(async () => {
       // Create valid auth chain using test utility
       const testIdentity = await createTestIdentity()
-      validAuthChain = testIdentity.authIdentity.authChain
+      validAuthChain = testIdentity.authChain
 
       // Create a valid request first
       requestData = {
@@ -320,7 +320,7 @@ test('when testing request endpoints', args => {
     beforeEach(async () => {
       // Create valid auth chain using test utility
       const testIdentity = await createTestIdentity()
-      validAuthChain = testIdentity.authIdentity.authChain
+      validAuthChain = testIdentity.authChain
 
       // Create a valid request first
       requestData = {
@@ -384,7 +384,7 @@ test('when testing request endpoints', args => {
     beforeEach(async () => {
       // Create valid auth chain using test utility
       const testIdentity = await createTestIdentity()
-      validAuthChain = testIdentity.authIdentity.authChain
+      validAuthChain = testIdentity.authChain
 
       // Create a valid request first
       requestData = {
