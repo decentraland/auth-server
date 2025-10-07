@@ -1,14 +1,22 @@
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
-import { RequestMessage, RecoverMessage, OutcomeMessage, RequestValidationMessage, HttpOutcomeMessage } from '../../src/ports/server/types'
+import {
+  RequestMessage,
+  RecoverMessage,
+  OutcomeMessage,
+  RequestValidationMessage,
+  HttpOutcomeMessage,
+  IdentityRequest
+} from '../../src/ports/server/types'
 import {
   validateRequestMessage,
   validateRecoverMessage,
   validateOutcomeMessage,
   validateRequestValidationMessage,
   validateIdentityId,
-  validateHttpOutcomeMessage
+  validateHttpOutcomeMessage,
+  validateIdentityRequest
 } from '../../src/ports/server/validations'
-import { generateRandomIdentityId } from '../utils/test-identity'
+import { generateRandomIdentityId, createTestIdentity } from '../utils/test-identity'
 
 describe('when testing validation functions', () => {
   describe('when validating request messages', () => {
@@ -237,6 +245,85 @@ describe('when testing validation functions', () => {
     describe('and the message is invalid', () => {
       it('should throw validation error', () => {
         expect(() => validateHttpOutcomeMessage(invalidHttpOutcomeMessage)).toThrow()
+      })
+    })
+  })
+
+  describe('when validating identity requests', () => {
+    let validIdentityRequest: unknown
+
+    beforeEach(async () => {
+      const testIdentity = await createTestIdentity()
+
+      // Convert Date to ISO string as expected by the schema
+      const identityWithStringExpiration = {
+        ...testIdentity,
+        expiration: testIdentity.expiration.toISOString()
+      }
+
+      validIdentityRequest = {
+        identity: identityWithStringExpiration
+      }
+    })
+
+    it('should return the validated message', () => {
+      const result = validateIdentityRequest(validIdentityRequest)
+      expect(result).toEqual(validIdentityRequest)
+      expect(result.identity).toBeDefined()
+      expect(result.identity.expiration).toBeDefined()
+      expect(result.identity.ephemeralIdentity).toBeDefined()
+      expect(result.identity.authChain).toBeDefined()
+    })
+
+    describe('and the message is missing identity field', () => {
+      let invalidIdentityRequest: unknown
+
+      beforeEach(() => {
+        invalidIdentityRequest = {
+          // Missing required 'identity' field
+          expiration: new Date().toISOString()
+        }
+      })
+
+      it('should throw validation error', () => {
+        expect(() => validateIdentityRequest(invalidIdentityRequest)).toThrow()
+      })
+    })
+
+    describe('and the message has invalid identity structure', () => {
+      let invalidIdentityRequestInvalidIdentity: unknown
+
+      beforeEach(() => {
+        invalidIdentityRequestInvalidIdentity = {
+          identity: {
+            // Invalid identity structure
+            expiration: 'invalid-date',
+            ephemeralIdentity: {
+              address: 'invalid-address',
+              privateKey: 'invalid-key',
+              publicKey: 'invalid-public-key'
+            },
+            authChain: []
+          } as unknown as IdentityRequest['identity']
+        }
+      })
+
+      it('should throw validation error', () => {
+        expect(() => validateIdentityRequest(invalidIdentityRequestInvalidIdentity)).toThrow()
+      })
+    })
+
+    describe('and the message is undefined', () => {
+      it('should throw validation error', () => {
+        expect(() => validateIdentityRequest(undefined)).toThrow()
+      })
+    })
+
+    describe('and the message is not an object', () => {
+      it('should throw validation error', () => {
+        expect(() => validateIdentityRequest('invalid-string')).toThrow()
+        expect(() => validateIdentityRequest(123)).toThrow()
+        expect(() => validateIdentityRequest([])).toThrow()
       })
     })
   })
