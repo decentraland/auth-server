@@ -2,16 +2,21 @@ import { createServer } from 'http'
 import { IBaseComponent } from '@well-known-components/interfaces'
 import bodyParser from 'body-parser'
 import cors from 'cors'
+import { ethers } from 'ethers'
 import express, { Request, Response } from 'express'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
 import { Authenticator, parseEmphemeralPayload } from '@dcl/crypto'
+import { AuthChain } from '@dcl/schemas'
+import { express as authMiddleware, DecentralandSignatureData } from 'decentraland-crypto-middleware'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
-import { METHOD_DCL_PERSONAL_SIGN } from './constants'
+import { METHOD_DCL_PERSONAL_SIGN, FIFTEEN_MINUTES_IN_MILLISECONDS } from './constants'
 import {
   HttpOutcomeMessage,
   IServerComponent,
+  IdentityResponse,
+  IdentityIdValidationResponse,
   InvalidResponseMessage,
   LiveResponseMessage,
   MessageType,
@@ -29,7 +34,9 @@ import {
   validateOutcomeMessage,
   validateRecoverMessage,
   validateRequestMessage,
-  validateRequestValidationMessage
+  validateRequestValidationMessage,
+  validateIdentityId,
+  validateIdentityRequest
 } from './validations'
 
 export async function createServerComponent({
@@ -43,6 +50,11 @@ export async function createServerComponent({
   requestExpirationInSeconds: number
   dclPersonalSignExpirationInSeconds: number
 }): Promise<IServerComponent> {
+  // Wraps the callback function on messages to type the message that is being sent
+  const sendResponse = <T>(res: Response, statusCode: number, msg: T) => {
+    res.status(statusCode).json(msg)
+  }
+
   const port = await config.requireNumber('HTTP_SERVER_PORT')
   const logger = logs.getLogger('websocket-server')
 
@@ -109,7 +121,7 @@ export async function createServerComponent({
               msg = validateRequestMessage(data)
             } catch (e) {
               ack<InvalidResponseMessage>(cb, {
-                error: (e as Error).message
+                error: isErrorWithMessage(e) ? e.message : 'Unknown error'
               })
               logger.log('Received a request with invalid message')
 
@@ -197,7 +209,7 @@ export async function createServerComponent({
               msg = validateRecoverMessage(data)
             } catch (e) {
               ack<InvalidResponseMessage>(cb, {
-                error: (e as Error).message
+                error: isErrorWithMessage(e) ? e.message : 'Unknown error'
               })
 
               logger.log('Received a recover request with invalid message')
@@ -255,7 +267,7 @@ export async function createServerComponent({
               msg = validateOutcomeMessage(data)
             } catch (e) {
               ack<InvalidResponseMessage>(cb, {
-                error: (e as Error).message
+                error: isErrorWithMessage(e) ? e.message : 'Unknown error'
               })
 
               logger.log('Received an outcome message with invalid message')
@@ -343,7 +355,7 @@ export async function createServerComponent({
             } catch (e) {
               logger.log('Received an outcome message with invalid message')
               return ack<InvalidResponseMessage>(cb, {
-                error: (e as Error).message
+                error: isErrorWithMessage(e) ? e.message : 'Unknown error'
               })
             }
 
@@ -411,9 +423,34 @@ export async function createServerComponent({
       })
     })
 
-    // Wraps the callback function on messages to type the message that is being sent
-    const sendResponse = <T>(res: Response, statusCode: number, msg: T) => {
-      res.status(statusCode).json(msg)
+    // Helper function to validate auth chain
+    const validateAuthChain = async (authChain: AuthChain): Promise<{ sender: string; finalAuthority: string }> => {
+      if (!authChain.length) {
+        throw new Error('Auth chain is required')
+      }
+
+      const sender = Authenticator.ownerAddress(authChain)
+
+      let finalAuthority: string
+
+      try {
+        const ephemeralPayload = parseEmphemeralPayload(authChain[authChain.length - 1].payload)
+
+        finalAuthority = ephemeralPayload.ephemeralAddress
+      } catch (e) {
+        if (e instanceof Error && e.message === 'Ephemeral payload has expired') {
+          throw e
+        }
+        throw new Error('Could not get final authority from auth chain')
+      }
+
+      const validationResult = await Authenticator.validateSignature(finalAuthority, authChain, null)
+
+      if (!validationResult.ok) {
+        throw new Error(validationResult.message ?? 'Signature validation failed')
+      }
+
+      return { sender, finalAuthority }
     }
 
     app.post('/requests', async (req: Request, res: Response) => {
@@ -424,38 +461,19 @@ export async function createServerComponent({
         msg = validateRequestMessage(data)
       } catch (e) {
         return sendResponse<InvalidResponseMessage>(res, 400, {
-          error: (e as Error).message
+          error: isErrorWithMessage(e) ? e.message : 'Unknown error'
         })
       }
 
       let sender: string | undefined
 
       if (msg.method !== METHOD_DCL_PERSONAL_SIGN) {
-        const authChain = msg.authChain
-
-        if (!authChain) {
-          return sendResponse<InvalidResponseMessage>(res, 400, {
-            error: 'Auth chain is required'
-          })
-        }
-
-        sender = Authenticator.ownerAddress(authChain)
-
-        let finalAuthority: string
-
         try {
-          finalAuthority = parseEmphemeralPayload(authChain[authChain.length - 1].payload).ephemeralAddress
+          const { sender: validatedSender } = await validateAuthChain(msg.authChain || [])
+          sender = validatedSender
         } catch (e) {
           return sendResponse<InvalidResponseMessage>(res, 400, {
-            error: 'Could not get final authority from auth chain'
-          })
-        }
-
-        const validationResult = await Authenticator.validateSignature(finalAuthority, authChain, null)
-
-        if (!validationResult.ok) {
-          return sendResponse<InvalidResponseMessage>(res, 400, {
-            error: validationResult.message ?? 'Signature validation failed'
+            error: isErrorWithMessage(e) ? e.message : 'Unknown error'
           })
         }
       }
@@ -611,7 +629,7 @@ export async function createServerComponent({
         msg = validateHttpOutcomeMessage(data)
       } catch (e) {
         return sendResponse<InvalidResponseMessage>(res, 400, {
-          error: (e as Error).message
+          error: isErrorWithMessage(e) ? e.message : 'Unknown error'
         })
       }
 
@@ -666,6 +684,124 @@ export async function createServerComponent({
       }
 
       return res.sendStatus(200)
+    })
+
+    // Store identity endpoint with signed fetch middleware validation
+    app.post(
+      '/identities',
+      authMiddleware({
+        optional: false,
+        onError: err => ({
+          error: err.message,
+          message: 'This endpoint requires a signed fetch request. See ADR-44.'
+        }),
+        verifyMetadataContent: metadata => metadata?.signer !== 'decentraland-kernel-scene' // prevent requests from scenes
+      }),
+      async (req: Request & DecentralandSignatureData) => {
+        const res = req.res as Response
+        try {
+          const { identity } = validateIdentityRequest(req.body)
+
+          if (!identity) {
+            return sendResponse<InvalidResponseMessage>(res, 400, {
+              error: 'AuthIdentity is required in request body'
+            })
+          }
+
+          // Validate auth chain using the same logic as /requests endpoint
+          try {
+            const { sender: identitySender, finalAuthority } = await validateAuthChain(identity.authChain)
+
+            // Verify that the ephemeral wallet address matches the finalAuthority from auth chain
+            if (identity.ephemeralIdentity.address.toLowerCase() !== finalAuthority.toLowerCase()) {
+              return sendResponse<InvalidResponseMessage>(res, 403, {
+                error: 'Ephemeral wallet address does not match auth chain final authority'
+              })
+            }
+
+            // Verify that the user making the request is the same as the one who signed the identity
+            const requestSender = req.auth
+            if (!requestSender || requestSender.toLowerCase() !== identitySender.toLowerCase()) {
+              return sendResponse<InvalidResponseMessage>(res, 403, {
+                error: 'Request sender does not match identity owner'
+              })
+            }
+
+            const wallet = new ethers.Wallet(identity.ephemeralIdentity.privateKey)
+
+            if (wallet.address.toLowerCase() !== identity.ephemeralIdentity.address.toLowerCase()) {
+              return sendResponse<InvalidResponseMessage>(res, 403, {
+                error: 'Ephemeral private key does not match the provided address'
+              })
+            }
+          } catch (e) {
+            return sendResponse<InvalidResponseMessage>(res, 400, {
+              error: isErrorWithMessage(e) ? e.message : 'Unknown error'
+            })
+          }
+
+          const identityId = uuid()
+          // Use the expiration from the identity, or default to 15 minutes
+          const expiration = identity.expiration || new Date(Date.now() + FIFTEEN_MINUTES_IN_MILLISECONDS)
+
+          storage.setIdentity(identityId, {
+            identityId,
+            identity,
+            expiration,
+            createdAt: new Date()
+          })
+
+          sendResponse<IdentityResponse>(res, 201, {
+            identityId,
+            expiration
+          })
+        } catch (e) {
+          return sendResponse<InvalidResponseMessage>(res, 400, {
+            error: isErrorWithMessage(e) ? e.message : 'Unknown error'
+          })
+        }
+      }
+    )
+
+    // identities validation endpoint - returns identity for auto-login
+    app.get('/identities/:id', async (req: Request, res: Response) => {
+      const identityId = req.params.id
+
+      if (!validateIdentityId(identityId)) {
+        return sendResponse<InvalidResponseMessage>(res, 400, {
+          error: 'Invalid identity format'
+        })
+      }
+
+      const identity = storage.getIdentity(identityId)
+
+      if (!identity) {
+        return sendResponse<InvalidResponseMessage>(res, 404, {
+          error: 'Identity not found'
+        })
+      }
+
+      if (identity.expiration < new Date()) {
+        storage.deleteIdentity(identityId)
+        return sendResponse<InvalidResponseMessage>(res, 410, {
+          error: 'Identity has expired'
+        })
+      }
+
+      try {
+        // Delete the identity from the storage
+        storage.deleteIdentity(identityId)
+
+        // Return the identity for auto-login
+        sendResponse<IdentityIdValidationResponse>(res, 200, {
+          identity: identity.identity
+        })
+      } catch (error) {
+        logger.error(`Error serving identity: ${isErrorWithMessage(error) ? error.message : 'Unknown error'}`)
+        return sendResponse<InvalidResponseMessage>(res, 500, {
+          error: 'Internal server error'
+        })
+      }
     })
 
     server = new Server(httpServer, { cors: corsOptions })

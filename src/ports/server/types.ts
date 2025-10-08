@@ -1,4 +1,5 @@
 import { IBaseComponent } from '@well-known-components/interfaces'
+import { AuthIdentity } from '@dcl/crypto'
 import { AuthChain } from '@dcl/schemas'
 
 export type IServerComponent = IBaseComponent
@@ -44,6 +45,7 @@ export type RecoverResponseMessage = Request & {
 export type OutcomeError = {
   code: number
   message: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   data?: any
 }
 
@@ -74,6 +76,19 @@ export type InvalidResponseMessage = {
   error: string
 }
 
-export type InputMessage = RequestMessage | RecoverMessage | OutcomeMessage
+export type IdentityRequest = {
+  identity: AuthIdentity
+}
+
+export type IdentityResponse = {
+  identityId: string
+  expiration: Date
+}
+
+export type IdentityIdValidationResponse = {
+  identity: AuthIdentity
+}
+
+export type InputMessage = RequestMessage | RecoverMessage | OutcomeMessage | IdentityRequest
 
 export type ResponseMessage = RequestResponseMessage | RecoverResponseMessage | OutcomeResponseMessage | InvalidResponseMessage

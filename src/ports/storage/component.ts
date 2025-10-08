@@ -1,8 +1,9 @@
-import { IStorageComponent, StorageRequest } from './types'
+import { IStorageComponent, StorageRequest, StorageIdentity } from './types'
 
 export function createStorageComponent(): IStorageComponent {
   const requests: Record<string, StorageRequest> = {}
   const requestIdsBySocketId: Record<string, string> = {}
+  const identitiesById: Record<string, StorageIdentity> = {}
 
   const getRequest = (requestId: string) => {
     return requests[requestId] ?? null
@@ -37,9 +38,26 @@ export function createStorageComponent(): IStorageComponent {
     return requestIdsBySocketId[socketId] ?? null
   }
 
+  const getIdentity = (identityId: string) => {
+    return identitiesById[identityId] ?? null
+  }
+
+  const setIdentity = (identityId: string, identityData: StorageIdentity | null) => {
+    if (identityData) {
+      identitiesById[identityId] = identityData
+    }
+  }
+
+  const deleteIdentity = (identityId: string) => {
+    delete identitiesById[identityId]
+  }
+
   return {
     getRequest,
     setRequest,
-    getRequestIdForSocketId
+    getRequestIdForSocketId,
+    getIdentity,
+    setIdentity,
+    deleteIdentity
   }
 }

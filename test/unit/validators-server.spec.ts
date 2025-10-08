@@ -1,15 +1,20 @@
+import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
 import { OutcomeResponseMessage } from '../../src/ports/server/types'
 import { validateOutcomeMessage } from '../../src/ports/server/validations'
+import { generateRandomIdentityId } from '../utils/test-identity'
 
 describe('when validating the outcome', () => {
   let outcome: OutcomeResponseMessage
 
   describe('and the outcome does not contain a sender', () => {
+    let requestId: string
+
     beforeEach(() => {
+      requestId = generateRandomIdentityId()
       outcome = {
-        requestId: 'requestId',
+        requestId,
         result: 'result'
-      } as any
+      } as OutcomeResponseMessage
     })
 
     it('should throw an error', () => {
@@ -18,11 +23,14 @@ describe('when validating the outcome', () => {
   })
 
   describe('and the outcome does not contain a requestId', () => {
+    let sender: string
+
     beforeEach(() => {
+      sender = createUnsafeIdentity().address
       outcome = {
-        sender: 'sender',
+        sender,
         result: 'result'
-      } as any
+      } as OutcomeResponseMessage
     })
 
     it('should throw an error', () => {
@@ -31,12 +39,17 @@ describe('when validating the outcome', () => {
   })
 
   describe('and the outcome contains a result', () => {
+    let requestId: string
+    let sender: string
+
     beforeEach(() => {
+      requestId = generateRandomIdentityId()
+      sender = createUnsafeIdentity().address
       outcome = {
-        requestId: 'requestId',
-        sender: 'sender',
+        requestId,
+        sender,
         result: 'result'
-      } as any
+      } as OutcomeResponseMessage
     })
 
     it('should return the outcome', () => {
@@ -45,19 +58,25 @@ describe('when validating the outcome', () => {
   })
 
   describe('and the outcome contains an error', () => {
+    let requestId: string
+    let sender: string
+
     beforeEach(() => {
+      requestId = generateRandomIdentityId()
+      sender = createUnsafeIdentity().address
       outcome = {
-        requestId: 'requestId',
-        sender: 'sender',
+        requestId,
+        sender,
         error: {}
-      } as any
+      } as OutcomeResponseMessage
     })
 
     describe('and the error is missing a code', () => {
       beforeEach(() => {
-        outcome.error = {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(outcome as any).error = {
           message: 'message'
-        } as any
+        } as any // eslint-disable-line @typescript-eslint/no-explicit-any
       })
 
       it('should throw an error', () => {
@@ -67,9 +86,10 @@ describe('when validating the outcome', () => {
 
     describe('and the error is missing a message', () => {
       beforeEach(() => {
-        outcome.error = {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(outcome as any).error = {
           code: 123
-        } as any
+        } as any // eslint-disable-line @typescript-eslint/no-explicit-any
       })
 
       it('should throw an error', () => {
@@ -92,16 +112,21 @@ describe('when validating the outcome', () => {
   })
 
   describe('and the outcome contains both a result and an error', () => {
+    let requestId: string
+    let sender: string
+
     beforeEach(() => {
+      requestId = generateRandomIdentityId()
+      sender = createUnsafeIdentity().address
       outcome = {
-        requestId: 'requestId',
-        sender: 'sender',
+        requestId,
+        sender,
         result: 'result',
         error: {
           code: 1,
           message: 'message'
         }
-      } as any
+      } as OutcomeResponseMessage
     })
 
     it('should throw an error', () => {
