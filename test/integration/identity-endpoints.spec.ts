@@ -124,6 +124,46 @@ test('when testing identity endpoints', args => {
         expect(responseBody.error).toContain('Ephemeral key expired')
       })
     })
+
+    describe('and the ephemeral private key does not match the address', () => {
+      let invalidPrivateKeyRequestData: { identity: AuthIdentity }
+      let testIdentityWithInvalidPrivateKey: AuthIdentity
+      let validTestIdentity: AuthIdentity
+
+      beforeEach(async () => {
+        validTestIdentity = await createTestIdentity()
+
+        const { ethers } = await import('ethers')
+        const newWallet = ethers.Wallet.createRandom()
+
+        // Modify the identity to have a different private key but keep the same address
+        testIdentityWithInvalidPrivateKey = {
+          ...validTestIdentity,
+          ephemeralIdentity: {
+            ...validTestIdentity.ephemeralIdentity,
+            privateKey: newWallet.privateKey
+          }
+        }
+
+        invalidPrivateKeyRequestData = { identity: testIdentityWithInvalidPrivateKey }
+      })
+
+      it('should respond with 403 status and private key mismatch error', async () => {
+        const response = await createSignedFetchRequest(baseUrl, {
+          method: 'POST',
+          path: '/identities',
+          body: invalidPrivateKeyRequestData,
+          identity: validTestIdentity
+        })
+
+        expect(response.status).toBe(403)
+
+        const responseBody = await response.json()
+        expect(responseBody).toEqual({
+          error: 'Ephemeral private key does not match the provided address'
+        })
+      })
+    })
   })
 
   describe('when retrieving an identity', () => {
