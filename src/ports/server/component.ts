@@ -2,6 +2,7 @@ import { createServer } from 'http'
 import { IBaseComponent } from '@well-known-components/interfaces'
 import bodyParser from 'body-parser'
 import cors from 'cors'
+import { ethers } from 'ethers'
 import express, { Request, Response } from 'express'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
@@ -723,6 +724,14 @@ export async function createServerComponent({
             if (!requestSender || requestSender.toLowerCase() !== identitySender.toLowerCase()) {
               return sendResponse<InvalidResponseMessage>(res, 403, {
                 error: 'Request sender does not match identity owner'
+              })
+            }
+
+            const wallet = new ethers.Wallet(identity.ephemeralIdentity.privateKey)
+
+            if (wallet.address.toLowerCase() !== identity.ephemeralIdentity.address.toLowerCase()) {
+              return sendResponse<InvalidResponseMessage>(res, 403, {
+                error: 'Ephemeral private key does not match the provided address'
               })
             }
           } catch (e) {
