@@ -7,11 +7,11 @@ import { createLogComponent } from '@well-known-components/logger'
 import { createMetricsComponent } from '@well-known-components/metrics'
 import { createRunner } from '@well-known-components/test-helpers'
 import { createTracerComponent } from '@well-known-components/tracer-component'
+import { metricDeclarations } from '../src/metrics'
 import { createServerComponent } from '../src/ports/server/component'
 import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
 import { TestComponents } from '../src/types'
-import { metricDeclarations } from '../src/metrics'
 
 type TestOverrides = {
   requestExpirationInSeconds?: number

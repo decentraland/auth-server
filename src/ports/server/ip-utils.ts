@@ -27,7 +27,7 @@ export const extractClientIp = (req: Request | Socket): string => {
       ].filter((ip): ip is string => Boolean(ip))
     }
   }
-  
+
   // Return first valid IP following consistent priority order
   const sources = getIpSources()
   return sources.find(ip => ip && ip !== '127.0.0.1' && ip !== '::1') || 'unknown'
@@ -36,10 +36,7 @@ export const extractClientIp = (req: Request | Socket): string => {
 /**
  * Validate IP addresses - bulletproof simple comparison
  */
-export const validateIpAddress = (
-  originalIp: string, 
-  currentIp: string
-): { valid: boolean; reason?: string } => {
+export const validateIpAddress = (originalIp: string, currentIp: string): { valid: boolean; reason?: string } => {
   // Allow if original was unknown (first time setup) or both are unknown (fallback)
   if (originalIp === 'unknown') {
     return { valid: true }
@@ -51,7 +48,7 @@ export const validateIpAddress = (
   }
 
   // Allow if IPs match, deny if different
-  return originalIp === currentIp 
+  return originalIp === currentIp
     ? { valid: true }
     : { valid: false, reason: `IP address mismatch. Original: ${originalIp}, Current: ${currentIp}` }
 }

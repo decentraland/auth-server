@@ -2,10 +2,10 @@ import { createDotEnvConfigComponent } from '@well-known-components/env-config-p
 import { createLogComponent } from '@well-known-components/logger'
 import { createMetricsComponent } from '@well-known-components/metrics'
 import { createTracerComponent } from '@well-known-components/tracer-component'
+import { metricDeclarations } from './metrics'
 import { createServerComponent } from './ports/server/component'
 import { createStorageComponent } from './ports/storage/component'
 import { AppComponents } from './types'
-import { metricDeclarations } from './metrics'
 
 // Initialize all the components of the app
 export async function initComponents(): Promise<AppComponents> {

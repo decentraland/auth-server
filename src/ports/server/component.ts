@@ -178,7 +178,7 @@ export async function createServerComponent({
 
             // Extract IP information
             const originalIp = extractClientIp(socket)
-            
+
             // Track metrics
             metrics.increment('ip_extraction_total', { method: 'websocket', result: originalIp === 'unknown' ? 'failed' : 'success' })
 
@@ -254,7 +254,7 @@ export async function createServerComponent({
             const ipValidation = validateIpAddress(request.originalIp, currentIp)
 
             // Track validation metrics
-            metrics.increment('ip_validation_total', { 
+            metrics.increment('ip_validation_total', {
               result: ipValidation.valid ? 'success' : 'failed',
               reason: ipValidation.reason || 'valid'
             })
@@ -515,7 +515,7 @@ export async function createServerComponent({
 
       // Extract IP information
       const originalIp = extractClientIp(req)
-      
+
       // Track metrics
       metrics.increment('ip_extraction_total', { method: 'http', result: originalIp === 'unknown' ? 'failed' : 'success' })
 
@@ -561,7 +561,7 @@ export async function createServerComponent({
       const ipValidation = validateIpAddress(request.originalIp, currentIp)
 
       // Track validation metrics
-      metrics.increment('ip_validation_total', { 
+      metrics.increment('ip_validation_total', {
         result: ipValidation.valid ? 'success' : 'failed',
         reason: ipValidation.reason || 'valid'
       })
