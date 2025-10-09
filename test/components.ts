@@ -4,12 +4,14 @@ import net from 'net'
 import path from 'node:path'
 import { createDotEnvConfigComponent } from '@well-known-components/env-config-provider'
 import { createLogComponent } from '@well-known-components/logger'
+import { createMetricsComponent } from '@well-known-components/metrics'
 import { createRunner } from '@well-known-components/test-helpers'
 import { createTracerComponent } from '@well-known-components/tracer-component'
 import { createServerComponent } from '../src/ports/server/component'
 import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
 import { TestComponents } from '../src/types'
+import { metricDeclarations } from '../src/metrics'
 
 type TestOverrides = {
   requestExpirationInSeconds?: number
@@ -66,11 +68,13 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
 
   const tracer = await createTracerComponent()
   const logs = await createLogComponent({ tracer })
+  const metrics = await createMetricsComponent(metricDeclarations, { config })
   const storage = createStorageComponent()
   const server = await createServerComponent({
     config,
     logs,
     tracer,
+    metrics,
     storage,
     requestExpirationInSeconds: overrides.requestExpirationInSeconds ?? 5 * 60, // 5 Minutes
     dclPersonalSignExpirationInSeconds: overrides.dclPersonalSignExpirationInSeconds ?? 5 * 60 // 5 Minutes
@@ -81,6 +85,7 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     tracer,
     logs,
     server,
-    storage
+    storage,
+    metrics
   }
 }
