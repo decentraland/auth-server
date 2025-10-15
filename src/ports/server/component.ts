@@ -256,7 +256,7 @@ export async function createServerComponent({
             // Track validation metrics
             metrics.increment('ip_validation_total', {
               result: ipValidation.valid ? 'success' : 'failed',
-              reason: ipValidation.reason || 'valid'
+              reason: ipValidation.metricReason || 'valid'
             })
 
             if (!ipValidation.valid) {
@@ -563,7 +563,7 @@ export async function createServerComponent({
       // Track validation metrics
       metrics.increment('ip_validation_total', {
         result: ipValidation.valid ? 'success' : 'failed',
-        reason: ipValidation.reason || 'valid'
+        reason: ipValidation.metricReason || 'valid'
       })
 
       if (!ipValidation.valid) {

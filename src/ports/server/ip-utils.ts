@@ -36,7 +36,7 @@ export const extractClientIp = (req: Request | Socket): string => {
 /**
  * Validate IP addresses - bulletproof simple comparison
  */
-export const validateIpAddress = (originalIp: string, currentIp: string): { valid: boolean; reason?: string } => {
+export const validateIpAddress = (originalIp: string, currentIp: string): { valid: boolean; reason?: string; metricReason?: string } => {
   // Allow if original was unknown (first time setup) or both are unknown (fallback)
   if (originalIp === 'unknown') {
     return { valid: true }
@@ -44,11 +44,19 @@ export const validateIpAddress = (originalIp: string, currentIp: string): { vali
 
   // Deny if current IP is unknown (security risk)
   if (currentIp === 'unknown') {
-    return { valid: false, reason: 'Unable to verify IP address' }
+    return {
+      valid: false,
+      reason: 'Unable to verify IP address',
+      metricReason: 'current_ip_unknown'
+    }
   }
 
   // Allow if IPs match, deny if different
   return originalIp === currentIp
     ? { valid: true }
-    : { valid: false, reason: `IP address mismatch. Original: ${originalIp}, Current: ${currentIp}` }
+    : {
+        valid: false,
+        reason: `IP address mismatch. Original: ${originalIp}, Current: ${currentIp}`,
+        metricReason: 'ip_mismatch'
+      }
 }
