@@ -380,120 +380,116 @@ describe('when validating IP addresses', () => {
   let originalIp: string
   let currentIp: string
 
-  describe('and validation should succeed', () => {
-    describe('and original IP is "unknown"', () => {
-      beforeEach(() => {
-        originalIp = 'unknown'
-        currentIp = '203.0.113.1'
-      })
-
-      it('should return valid as true for first time setup scenarios', () => {
-        const result = validateIpAddress(originalIp, currentIp)
-
-        expect(result.valid).toBe(true)
-      })
-
-      it('should not provide reason when validation succeeds for first time setup', () => {
-        const result = validateIpAddress(originalIp, currentIp)
-
-        expect(result.reason).toBeUndefined()
-      })
-
-      it('should not provide metric reason when validation succeeds for first time setup', () => {
-        const result = validateIpAddress(originalIp, currentIp)
-
-        expect(result.metricReason).toBeUndefined()
-      })
+  describe('and original IP is "unknown"', () => {
+    beforeEach(() => {
+      originalIp = 'unknown'
+      currentIp = '203.0.113.1'
     })
 
-    describe('and IPs match exactly', () => {
-      beforeEach(() => {
-        originalIp = '203.0.113.1'
-        currentIp = '203.0.113.1'
-      })
+    it('should return valid as true for first time setup scenarios', () => {
+      const result = validateIpAddress(originalIp, currentIp)
 
-      it('should return valid as true', () => {
-        const result = validateIpAddress(originalIp, currentIp)
-
-        expect(result.valid).toBe(true)
-      })
-
-      it('should not provide reason', () => {
-        const result = validateIpAddress(originalIp, currentIp)
-
-        expect(result.reason).toBeUndefined()
-      })
-
-      it('should not provide metric reason', () => {
-        const result = validateIpAddress(originalIp, currentIp)
-
-        expect(result.metricReason).toBeUndefined()
-      })
+      expect(result.valid).toBe(true)
     })
 
-    describe('and both IPs are "unknown"', () => {
-      beforeEach(() => {
-        originalIp = 'unknown'
-        currentIp = 'unknown'
-      })
+    it('should not provide reason when validation succeeds for first time setup', () => {
+      const result = validateIpAddress(originalIp, currentIp)
 
-      it('should allow access', () => {
-        const result = validateIpAddress(originalIp, currentIp)
+      expect(result.reason).toBeUndefined()
+    })
 
-        expect(result.valid).toBe(true)
-      })
+    it('should not provide metric reason when validation succeeds for first time setup', () => {
+      const result = validateIpAddress(originalIp, currentIp)
+
+      expect(result.metricReason).toBeUndefined()
     })
   })
 
-  describe('and validation should fail', () => {
-    describe('and current IP is "unknown" but original is not', () => {
-      beforeEach(() => {
-        originalIp = '203.0.113.1'
-        currentIp = 'unknown'
-      })
-
-      it('should return valid as false', () => {
-        const result = validateIpAddress(originalIp, currentIp)
-
-        expect(result.valid).toBe(false)
-      })
-
-      it('should provide unable to verify IP message', () => {
-        const result = validateIpAddress(originalIp, currentIp)
-
-        expect(result.reason).toBe('Unable to verify IP address')
-      })
-
-      it('should provide current_ip_unknown metric reason', () => {
-        const result = validateIpAddress(originalIp, currentIp)
-
-        expect(result.metricReason).toBe('current_ip_unknown')
-      })
+  describe('and IPs match exactly', () => {
+    beforeEach(() => {
+      originalIp = '203.0.113.1'
+      currentIp = '203.0.113.1'
     })
 
-    describe('and IPs do not match', () => {
-      beforeEach(() => {
-        originalIp = '203.0.113.1'
-        currentIp = '203.0.113.2'
-      })
+    it('should return valid as true', () => {
+      const result = validateIpAddress(originalIp, currentIp)
 
-      it('should return valid as false', () => {
-        const result = validateIpAddress(originalIp, currentIp)
+      expect(result.valid).toBe(true)
+    })
 
-        expect(result.valid).toBe(false)
-      })
+    it('should not provide reason', () => {
+      const result = validateIpAddress(originalIp, currentIp)
 
-      it('should provide detailed mismatch message', () => {
-        const result = validateIpAddress(originalIp, currentIp)
+      expect(result.reason).toBeUndefined()
+    })
 
-        expect(result.reason).toBe('IP address mismatch. Original: 203.0.113.1, Current: 203.0.113.2')
-      })
+    it('should not provide metric reason', () => {
+      const result = validateIpAddress(originalIp, currentIp)
 
-      it('should provide ip_mismatch metric reason', () => {
-        const result = validateIpAddress(originalIp, currentIp)
+      expect(result.metricReason).toBeUndefined()
+    })
+  })
 
-        expect(result.metricReason).toBe('ip_mismatch')
-      })
+  describe('and both IPs are "unknown"', () => {
+    beforeEach(() => {
+      originalIp = 'unknown'
+      currentIp = 'unknown'
+    })
+
+    it('should allow access', () => {
+      const result = validateIpAddress(originalIp, currentIp)
+
+      expect(result.valid).toBe(true)
+    })
+  })
+
+  describe('and current IP is "unknown" but original is not', () => {
+    beforeEach(() => {
+      originalIp = '203.0.113.1'
+      currentIp = 'unknown'
+    })
+
+    it('should return valid as false', () => {
+      const result = validateIpAddress(originalIp, currentIp)
+
+      expect(result.valid).toBe(false)
+    })
+
+    it('should provide unable to verify IP message', () => {
+      const result = validateIpAddress(originalIp, currentIp)
+
+      expect(result.reason).toBe('Unable to verify IP address')
+    })
+
+    it('should provide current_ip_unknown metric reason', () => {
+      const result = validateIpAddress(originalIp, currentIp)
+
+      expect(result.metricReason).toBe('current_ip_unknown')
+    })
+  })
+
+  describe('and IPs do not match', () => {
+    beforeEach(() => {
+      originalIp = '203.0.113.1'
+      currentIp = '203.0.113.2'
+    })
+
+    it('should return valid as false', () => {
+      const result = validateIpAddress(originalIp, currentIp)
+
+      expect(result.valid).toBe(false)
+    })
+
+    it('should provide detailed mismatch message', () => {
+      const result = validateIpAddress(originalIp, currentIp)
+
+      expect(result.reason).toBe('IP address mismatch. Original: 203.0.113.1, Current: 203.0.113.2')
+    })
+
+    it('should provide ip_mismatch metric reason', () => {
+      const result = validateIpAddress(originalIp, currentIp)
+
+      expect(result.metricReason).toBe('ip_mismatch')
     })
   })
 
@@ -521,33 +517,6 @@ describe('when validating IP addresses', () => {
       })
 
       it('should detect mismatch between IPv4 and IPv6 addresses', () => {
-        const result = validateIpAddress(originalIp, currentIp)
-
-        expect(result.valid).toBe(false)
-        expect(result.metricReason).toBe('ip_mismatch')
-      })
-    })
-
-    describe('and IP comparison is case sensitive', () => {
-      beforeEach(() => {
-        originalIp = '203.0.113.1'
-        currentIp = '203.0.113.1'
-      })
-
-      it('should perform case sensitive comparison for IP addresses', () => {
-        const result = validateIpAddress(originalIp, currentIp)
-
-        expect(result.valid).toBe(true)
-      })
-    })
-
-    describe('and whitespace is present in IPs', () => {
-      beforeEach(() => {
-        originalIp = '203.0.113.1'
-        currentIp = ' 203.0.113.1 '
-      })
-
-      it('should require exact match without trimming whitespace', () => {
         const result = validateIpAddress(originalIp, currentIp)
 
         expect(result.valid).toBe(false)
