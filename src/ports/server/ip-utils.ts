@@ -12,15 +12,17 @@ export const extractClientIp = (req: Request | Socket): string => {
     if ('handshake' in req) {
       // WebSocket connection - consistent priority order
       return [
-        req.handshake.headers['x-forwarded-for']?.toString().split(',')[0]?.trim(),
-        req.handshake.headers['x-real-ip']?.toString(),
+        req.handshake.headers['cf-connecting-ip']?.toString()?.trim(),
+        req.handshake.headers['x-forwarded-for']?.toString()?.split(',')[0]?.trim(),
+        req.handshake.headers['x-real-ip']?.toString()?.trim(),
         req.handshake.address
       ].filter((ip): ip is string => Boolean(ip))
     } else {
       // HTTP request - consistent priority order
       return [
-        req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim(),
-        req.headers['x-real-ip']?.toString(),
+        req.headers['cf-connecting-ip']?.toString()?.trim(),
+        req.headers['x-forwarded-for']?.toString()?.split(',')[0]?.trim(),
+        req.headers['x-real-ip']?.toString()?.trim(),
         req.ip,
         req.connection.remoteAddress,
         req.socket.remoteAddress
@@ -37,7 +39,7 @@ export const extractClientIp = (req: Request | Socket): string => {
  * Validate IP addresses - bulletproof simple comparison
  */
 export const validateIpAddress = (originalIp: string, currentIp: string): { valid: boolean; reason?: string; metricReason?: string } => {
-  // Allow if original was unknown (first time setup) or both are unknown (fallback)
+  // Allow if original was unknown (first time setup)
   if (originalIp === 'unknown') {
     return { valid: true }
   }
@@ -52,7 +54,8 @@ export const validateIpAddress = (originalIp: string, currentIp: string): { vali
   }
 
   // Allow if IPs match, deny if different
-  return originalIp === currentIp
+  const isMatch = originalIp === currentIp
+  return isMatch
     ? { valid: true }
     : {
         valid: false,
