@@ -18,6 +18,8 @@ export type StorageRequest = Request & {
   sender?: string
   response?: OutcomeResponseMessage
   requiresValidation: boolean
+  // IP validation field
+  originalIp: string
 }
 
 export type StorageIdentity = {
