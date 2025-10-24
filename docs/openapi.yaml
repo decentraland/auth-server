@@ -1,0 +1,263 @@
+openapi: 3.1.0
+info:
+  title: Auth Server API
+  description: API for authentication server with HTTP endpoints and Socket.IO WebSocket protocol
+  version: 1.0.0
+  contact:
+    name: Decentraland
+    url: https://decentraland.org
+  x-api-id: auth-server-api
+servers:
+  - url: /
+    description: Service root
+paths:
+  /health/ready:
+    get:
+      summary: Readiness probe
+      description: Returns 200 when service is ready
+      operationId: getReadiness
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ready
+  /health/startup:
+    get:
+      summary: Startup probe
+      description: Returns 200 when service has started
+      operationId: getStartup
+      responses:
+        '200':
+          description: Service has started
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: started
+  /health/live:
+    get:
+      summary: Liveness probe
+      description: Returns 200 when service is alive
+      operationId: getLiveness
+      responses:
+        '200':
+          description: Service is alive
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: alive
+  /requests:
+    post:
+      summary: Create authentication request
+      description: Creates a new authentication request
+      operationId: createRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestMessage'
+      responses:
+        '201':
+          description: Request created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestResponseMessage'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+  /requests/{requestId}:
+    get:
+      summary: Poll for request outcome
+      description: Polls for the outcome of an authentication request
+      operationId: pollRequest
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Request ID
+      responses:
+        '200':
+          description: Request completed with outcome
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutcomeResponseMessage'
+        '204':
+          description: Request not yet completed
+        '404':
+          description: Request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: Request expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  schemas:
+    RequestMessage:
+      type: object
+      properties:
+        method:
+          type: string
+          description: Authentication method
+        params:
+          type: array
+          items: {}
+          description: Method parameters (any type)
+        authChain:
+          $ref: '#/components/schemas/AuthChain'
+          description: Optional authentication chain
+      required:
+        - method
+        - params
+    AuthChain:
+      type: array
+      items:
+        type: object
+        properties:
+          type:
+            type: string
+          payload:
+            type: string
+          signature:
+            type: string
+      description: Authentication chain for signature validation
+    RequestResponseMessage:
+      type: object
+      properties:
+        requestId:
+          type: string
+          description: Unique request identifier
+        expiration:
+          type: string
+          format: date-time
+          description: Request expiration time
+        code:
+          type: number
+          description: Request code
+      required:
+        - requestId
+        - expiration
+        - code
+    InvalidResponseMessage:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+        code:
+          type: number
+          description: Error code
+      required:
+        - error
+    OutcomeResponseMessage:
+      type: object
+      properties:
+        requestId:
+          type: string
+          description: Request identifier
+        outcome:
+          type: object
+          description: Request outcome data
+      required:
+        - requestId
+        - outcome
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+        code:
+          type: string
+          description: Error code
+      required:
+        - error
+x-websocket:
+  description: Socket.IO WebSocket protocol for real-time authentication
+  protocol: socket.io
+  events:
+    REQUEST:
+      description: Create authentication request (client→server)
+      message:
+        $ref: '#/components/schemas/RequestMessage'
+      response:
+        $ref: '#/components/schemas/RequestResponseMessage'
+      validation:
+        description: Validates authChain if method !== 'dcl_personal_sign'
+    RECOVER:
+      description: Recover existing request (client→server)
+      message:
+        type: object
+        properties:
+          requestId:
+            type: string
+            description: Request ID to recover
+        required:
+          - requestId
+      response:
+        type: object
+        properties:
+          expiration:
+            type: string
+            format: date-time
+            description: Request expiration
+          code:
+            type: number
+            description: Request code
+          method:
+            type: string
+            description: Original method
+          params:
+            type: array
+            items: {}
+            description: Original parameters (any type)
+          sender:
+            type: string
+            description: Original sender address
+        required:
+          - expiration
+          - code
+          - method
+          - params
+    OUTCOME:
+      description: Submit request outcome (client→server)
+      message:
+        type: object
+        properties:
+          requestId:
+            type: string
+            description: Request ID
+          outcome:
+            type: object
+            description: Outcome data
+        required:
+          - requestId
+          - outcome
+      triggers:
+        - description: Triggers OutcomeResponseMessage to original requester
+          event: OUTCOME_RESPONSE
+          message:
+            $ref: '#/components/schemas/OutcomeResponseMessage'
+  authentication:
+    type: ethereum-signature
+    description: Ethereum signature validation via @dcl/crypto Authenticator
+  cors:
+    description: CORS configuration via CORS_ORIGIN and CORS_METHODS environment variables
+  expiration:
+    description: Request expiration configurable via requestExpirationInSeconds
