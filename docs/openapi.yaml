@@ -6,16 +6,21 @@ info:
   contact:
     name: Decentraland
     url: https://decentraland.org
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
   x-api-id: auth-server-api
 servers:
   - url: /
     description: Service root
+security: []
 paths:
   /health/ready:
     get:
       summary: Readiness probe
       description: Returns 200 when service is ready
       operationId: getReadiness
+      security: []
       responses:
         '200':
           description: Service is ready
@@ -24,11 +29,24 @@ paths:
               schema:
                 type: string
                 example: ready
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /health/startup:
     get:
       summary: Startup probe
       description: Returns 200 when service has started
       operationId: getStartup
+      security: []
       responses:
         '200':
           description: Service has started
@@ -37,11 +55,24 @@ paths:
               schema:
                 type: string
                 example: started
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /health/live:
     get:
       summary: Liveness probe
       description: Returns 200 when service is alive
       operationId: getLiveness
+      security: []
       responses:
         '200':
           description: Service is alive
@@ -50,11 +81,24 @@ paths:
               schema:
                 type: string
                 example: alive
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /requests:
     post:
       summary: Create authentication request
       description: Creates a new authentication request
       operationId: createRequest
+      security: []
       requestBody:
         required: true
         content:
@@ -79,6 +123,7 @@ paths:
       summary: Poll for request outcome
       description: Polls for the outcome of an authentication request
       operationId: pollRequest
+      security: []
       parameters:
         - name: requestId
           in: path
