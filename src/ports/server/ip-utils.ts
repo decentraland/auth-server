@@ -23,7 +23,7 @@ export const extractAllClientIps = (req: Request | Socket): string[] => {
           .split(',')
           .map(ip => ip.trim())
           .filter(ip => Boolean(ip))
-        sources.push(...forwardedIps)
+        sources.push(forwardedIps[0]) // only the first IP should belong to the client
       }
 
       return sources
@@ -44,7 +44,7 @@ export const extractAllClientIps = (req: Request | Socket): string[] => {
           .split(',')
           .map(ip => ip.trim())
           .filter(ip => Boolean(ip))
-        sources.push(...forwardedIps)
+        sources.push(forwardedIps[0]) // only the first IP should belong to the client
       }
 
       return sources
