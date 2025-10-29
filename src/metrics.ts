@@ -5,21 +5,10 @@ import { getDefaultHttpMetrics, validateMetricsDeclaration } from '@well-known-c
 export const metricDeclarations = {
   ...getDefaultHttpMetrics(),
   ...logsMetricsDeclarations,
-  ip_extraction_total: {
-    help: 'Total IP extraction attempts',
+  test_ping_counter: {
+    help: 'Count calls to ping',
     type: IMetricsComponent.CounterType,
-    labelNames: ['method', 'result']
-    // Cardinality: 2 (method) × 2 (result) = 4 time series
-    // method: 'http' | 'websocket'
-    // result: 'success' | 'failed'
-  },
-  ip_validation_total: {
-    help: 'Total IP validation attempts',
-    type: IMetricsComponent.CounterType,
-    labelNames: ['result', 'reason']
-    // Cardinality: 2 (result) × 3 (reason) = 6 time series
-    // result: 'success' | 'failed'
-    // reason: 'valid' | 'ip_mismatch' | 'current_ip_unknown'
+    labelNames: ['pathname']
   }
 }
 

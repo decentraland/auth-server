@@ -12,7 +12,6 @@ import { express as authMiddleware, DecentralandSignatureData } from 'decentrala
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
 import { METHOD_DCL_PERSONAL_SIGN, FIFTEEN_MINUTES_IN_MILLISECONDS } from './constants'
-import { extractClientIp, validateIpAddress } from './ip-utils'
 import {
   HttpOutcomeMessage,
   IServerComponent,
@@ -45,10 +44,9 @@ export async function createServerComponent({
   logs,
   storage,
   tracer,
-  metrics,
   requestExpirationInSeconds,
   dclPersonalSignExpirationInSeconds
-}: Pick<AppComponents, 'config' | 'logs' | 'storage' | 'tracer' | 'metrics'> & {
+}: Pick<AppComponents, 'config' | 'logs' | 'storage' | 'tracer'> & {
   requestExpirationInSeconds: number
   dclPersonalSignExpirationInSeconds: number
 }): Promise<IServerComponent> {
@@ -176,12 +174,6 @@ export async function createServerComponent({
             )
             const code = Math.floor(Math.random() * 100)
 
-            // Extract IP information
-            const originalIp = extractClientIp(socket)
-
-            // Track metrics
-            metrics.increment('ip_extraction_total', { method: 'websocket', result: originalIp === 'unknown' ? 'failed' : 'success' })
-
             storage.setRequest(requestId, {
               requestId: requestId,
               socketId: socket.id,
@@ -190,8 +182,7 @@ export async function createServerComponent({
               code,
               method: msg.method,
               params: msg.params,
-              sender: sender?.toLowerCase(),
-              originalIp
+              sender: sender?.toLowerCase()
             })
 
             ack<RequestResponseMessage>(cb, {
@@ -245,26 +236,6 @@ export async function createServerComponent({
               })
 
               logger.log(`[RID:${msg.requestId}] Received a recover request for an expired request`)
-
-              return
-            }
-
-            // IP validation for WebSocket
-            const currentIp = extractClientIp(socket)
-            const ipValidation = validateIpAddress(request.originalIp, currentIp)
-
-            // Track validation metrics
-            metrics.increment('ip_validation_total', {
-              result: ipValidation.valid ? 'success' : 'failed',
-              reason: ipValidation.metricReason || 'valid'
-            })
-
-            if (!ipValidation.valid) {
-              ack<InvalidResponseMessage>(cb, {
-                error: ipValidation.reason || 'IP validation failed'
-              })
-
-              logger.log(`[RID:${msg.requestId}] IP validation failed: ${ipValidation.reason}`)
 
               return
             }
@@ -513,12 +484,6 @@ export async function createServerComponent({
       )
       const code = Math.floor(Math.random() * 100)
 
-      // Extract IP information
-      const originalIp = extractClientIp(req)
-
-      // Track metrics
-      metrics.increment('ip_extraction_total', { method: 'http', result: originalIp === 'unknown' ? 'failed' : 'success' })
-
       storage.setRequest(requestId, {
         requestId: requestId,
         expiration,
@@ -526,8 +491,7 @@ export async function createServerComponent({
         method: msg.method,
         params: msg.params,
         sender: sender?.toLowerCase(),
-        requiresValidation: false,
-        originalIp
+        requiresValidation: false
       })
 
       sendResponse<RequestResponseMessage>(res, 201, {
@@ -553,22 +517,6 @@ export async function createServerComponent({
 
         return sendResponse<InvalidResponseMessage>(res, 410, {
           error: `Request with id "${requestId}" has expired`
-        })
-      }
-
-      // IP validation
-      const currentIp = extractClientIp(req)
-      const ipValidation = validateIpAddress(request.originalIp, currentIp)
-
-      // Track validation metrics
-      metrics.increment('ip_validation_total', {
-        result: ipValidation.valid ? 'success' : 'failed',
-        reason: ipValidation.metricReason || 'valid'
-      })
-
-      if (!ipValidation.valid) {
-        return sendResponse<InvalidResponseMessage>(res, 403, {
-          error: ipValidation.reason || 'IP validation failed'
         })
       }
 
