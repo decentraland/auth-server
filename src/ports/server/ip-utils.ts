@@ -1,3 +1,4 @@
+import { ILoggerComponent } from '@well-known-components/interfaces'
 import { Request } from 'express'
 import { Socket } from 'socket.io'
 
@@ -6,24 +7,28 @@ import { Socket } from 'socket.io'
  * Uses deterministic priority order for consistency between HTTP and WebSocket
  * Returns 'unknown' if extraction fails - bulletproof approach
  */
-export const extractClientIp = (req: Request | Socket): string => {
+export const extractClientIp = (req: Request | Socket, logger?: ILoggerComponent.ILogger): string => {
   // Define consistent priority order for IP extraction
   const getIpSources = (): string[] => {
     if ('handshake' in req) {
       // WebSocket connection - consistent priority order
-      return [
+      const ips = [
         req.handshake.headers['cf-connecting-ip']?.toString()?.trim(),
         req.handshake.headers['x-real-ip']?.toString()?.trim(),
         req.handshake.address
       ].filter((ip): ip is string => Boolean(ip))
+      logger?.log(`[WebSocket] IP sources: ${ips.join(', ')}`)
+      return ips
     } else {
       // HTTP request - consistent priority order
-      return [
+      const ips = [
         req.headers['cf-connecting-ip']?.toString()?.trim(),
         req.headers['x-real-ip']?.toString()?.trim(),
         req.ip,
         req.socket.remoteAddress
       ].filter((ip): ip is string => Boolean(ip))
+      logger?.log(`[HTTP] IP sources: ${ips.join(', ')}`)
+      return ips
     }
   }
 
