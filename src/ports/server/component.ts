@@ -177,7 +177,7 @@ export async function createServerComponent({
             const code = Math.floor(Math.random() * 100)
 
             // Extract IP information
-            const originalIp = extractClientIp(socket, logger)
+            const originalIp = extractClientIp(socket)
 
             // Track metrics
             metrics.increment('ip_extraction_total', { method: 'websocket', result: originalIp === 'unknown' ? 'failed' : 'success' })
@@ -250,7 +250,7 @@ export async function createServerComponent({
             }
 
             // IP validation for WebSocket
-            const currentIp = extractClientIp(socket, logger)
+            const currentIp = extractClientIp(socket)
             const ipValidation = validateIpAddress(request.originalIp, currentIp)
 
             // Track validation metrics
@@ -514,7 +514,7 @@ export async function createServerComponent({
       const code = Math.floor(Math.random() * 100)
 
       // Extract IP information
-      const originalIp = extractClientIp(req, logger)
+      const originalIp = extractClientIp(req)
 
       // Track metrics
       metrics.increment('ip_extraction_total', { method: 'http', result: originalIp === 'unknown' ? 'failed' : 'success' })
@@ -557,7 +557,7 @@ export async function createServerComponent({
       }
 
       // IP validation
-      const currentIp = extractClientIp(req, logger)
+      const currentIp = extractClientIp(req)
       const ipValidation = validateIpAddress(request.originalIp, currentIp)
 
       // Track validation metrics

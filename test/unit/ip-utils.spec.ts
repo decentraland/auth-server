@@ -55,57 +55,59 @@ describe('when extracting client IP addresses', () => {
       })
     })
 
-    describe('and X-Forwarded-For headers are present but ignored', () => {
+    describe('and X-Forwarded-For headers are present', () => {
       describe('and cf-connecting-ip is not available', () => {
-        let xRealIp: string
+        let xForwardedForIp: string
 
         beforeEach(() => {
+          xForwardedForIp = '203.0.113.1'
           mockRequest.headers = {
-            'x-forwarded-for': '203.0.113.1, 203.0.113.2',
+            'x-forwarded-for': `${xForwardedForIp}, 203.0.113.2`,
             'x-real-ip': '203.0.113.3'
           }
           mockRequest.ip = '203.0.113.4'
-          xRealIp = '203.0.113.3'
         })
 
-        it('should return x-real-ip instead of x-forwarded-for', () => {
+        it('should return the first IP from header', () => {
           const result = extractClientIp(mockRequest as Request)
 
-          expect(result).toBe(xRealIp)
+          expect(result).toBe(xForwardedForIp)
         })
       })
 
       describe('and X-Forwarded-For contains a single IP', () => {
-        let socketIp: string
+        let singleIp: string
 
         beforeEach(() => {
+          singleIp = '203.0.113.1'
           mockRequest.headers = {
-            'x-forwarded-for': '203.0.113.1'
+            'x-forwarded-for': singleIp
           }
-          socketIp = '192.168.1.200'
         })
 
-        it('should return socket.remoteAddress instead of x-forwarded-for', () => {
+        it('should return the single IP from header', () => {
           const result = extractClientIp(mockRequest as Request)
 
-          expect(result).toBe(socketIp)
+          expect(result).toBe(singleIp)
         })
       })
 
       describe('and X-Forwarded-For contains multiple IPs with whitespace', () => {
-        let socketIp: string
+        let firstIpWithWhitespace: string
+        let expectedFirstIp: string
 
         beforeEach(() => {
+          firstIpWithWhitespace = ' 203.0.113.1 '
+          expectedFirstIp = '203.0.113.1'
           mockRequest.headers = {
-            'x-forwarded-for': ' 203.0.113.1 , 203.0.113.2 , 203.0.113.3 '
+            'x-forwarded-for': `${firstIpWithWhitespace}, 203.0.113.2 , 203.0.113.3 `
           }
-          socketIp = '192.168.1.200'
         })
 
-        it('should return socket.remoteAddress instead of x-forwarded-for', () => {
+        it('should return the first trimmed IP from header', () => {
           const result = extractClientIp(mockRequest as Request)
 
-          expect(result).toBe(socketIp)
+          expect(result).toBe(expectedFirstIp)
         })
       })
 
@@ -119,7 +121,7 @@ describe('when extracting client IP addresses', () => {
           mockRequest.socket = { remoteAddress: '::1' } as any
         })
 
-        it('should return "unknown" because all sources are localhost', () => {
+        it('should return "unknown" because first IP is localhost', () => {
           const result = extractClientIp(mockRequest as Request)
 
           expect(result).toBe('unknown')
@@ -127,19 +129,22 @@ describe('when extracting client IP addresses', () => {
       })
 
       describe('and X-Forwarded-For starts with valid IP', () => {
+        let validIp: string
+
         beforeEach(() => {
+          validIp = '203.0.113.1'
           mockRequest.headers = {
-            'x-forwarded-for': '203.0.113.1, 127.0.0.1'
+            'x-forwarded-for': `${validIp}, 127.0.0.1`
           }
           // Override connection to be localhost so it uses the header
           mockRequest.connection = { remoteAddress: '127.0.0.1' } as any
           mockRequest.socket = { remoteAddress: '::1' } as any
         })
 
-        it('should return "unknown" because all sources are localhost', () => {
+        it('should return the valid IP from header', () => {
           const result = extractClientIp(mockRequest as Request)
 
-          expect(result).toBe('unknown')
+          expect(result).toBe(validIp)
         })
       })
     })
@@ -184,20 +189,19 @@ describe('when extracting client IP addresses', () => {
 
     describe('and connection fallbacks are needed', () => {
       describe('and req.ip is not available', () => {
-        let socketRemoteAddress: string
+        let connectionRemoteAddress: string
 
         beforeEach(() => {
-          socketRemoteAddress = '192.168.1.200'
+          connectionRemoteAddress = '192.168.1.100'
           mockRequest.headers = {}
           mockRequest.ip = undefined
-          mockRequest.connection = { remoteAddress: '192.168.1.100' } as any
-          mockRequest.socket = { remoteAddress: socketRemoteAddress } as any
+          mockRequest.connection = { remoteAddress: connectionRemoteAddress } as any
         })
 
-        it('should return the socket.remoteAddress value', () => {
+        it('should return the connection.remoteAddress value', () => {
           const result = extractClientIp(mockRequest as Request)
 
-          expect(result).toBe(socketRemoteAddress)
+          expect(result).toBe(connectionRemoteAddress)
         })
       })
 
@@ -243,14 +247,14 @@ describe('when extracting client IP addresses', () => {
         let expectedFallbackIp: string
 
         beforeEach(() => {
-          expectedFallbackIp = '192.168.1.200'
+          expectedFallbackIp = '192.168.1.100'
           mockRequest.headers = {
             'cf-connecting-ip': undefined as any,
-            'x-real-ip': undefined as any
+            'x-forwarded-for': undefined as any
           }
         })
 
-        it('should fallback to socket.remoteAddress', () => {
+        it('should fallback to connection.remoteAddress', () => {
           const result = extractClientIp(mockRequest as Request)
 
           expect(result).toBe(expectedFallbackIp)
@@ -261,14 +265,15 @@ describe('when extracting client IP addresses', () => {
         let expectedFallbackIp: string
 
         beforeEach(() => {
-          expectedFallbackIp = '192.168.1.200'
+          expectedFallbackIp = '192.168.1.100'
           mockRequest.headers = {
             'cf-connecting-ip': '',
+            'x-forwarded-for': '',
             'x-real-ip': ''
           }
         })
 
-        it('should fallback to socket.remoteAddress', () => {
+        it('should fallback to connection.remoteAddress', () => {
           const result = extractClientIp(mockRequest as Request)
 
           expect(result).toBe(expectedFallbackIp)

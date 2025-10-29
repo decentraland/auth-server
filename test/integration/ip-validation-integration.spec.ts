@@ -98,7 +98,7 @@ test('when validating IP addresses during request processing with X-Forwarded-Fo
     expect(response.status).toBe(201)
   })
 
-  it('should store request with X-Real-IP instead of X-Forwarded-For', async () => {
+  it('should store request with first X-Forwarded-For IP', async () => {
     const serverPort = await args.components.config.requireString('HTTP_SERVER_PORT')
 
     const response = await fetch(`http://localhost:${serverPort}/requests`, {
@@ -110,7 +110,7 @@ test('when validating IP addresses during request processing with X-Forwarded-Fo
     const responseData = await response.json()
     const storedRequest = args.components.storage.getRequest(responseData.requestId)
 
-    expect(storedRequest?.originalIp).toBe(xRealIp)
+    expect(storedRequest?.originalIp).toBe(firstForwardedIp)
   })
 })
 
