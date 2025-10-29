@@ -13,7 +13,6 @@ export const extractClientIp = (req: Request | Socket): string => {
       // WebSocket connection - consistent priority order
       return [
         req.handshake.headers['cf-connecting-ip']?.toString()?.trim(),
-        req.handshake.headers['x-forwarded-for']?.toString()?.split(',')[0]?.trim(),
         req.handshake.headers['x-real-ip']?.toString()?.trim(),
         req.handshake.address
       ].filter((ip): ip is string => Boolean(ip))
@@ -21,10 +20,8 @@ export const extractClientIp = (req: Request | Socket): string => {
       // HTTP request - consistent priority order
       return [
         req.headers['cf-connecting-ip']?.toString()?.trim(),
-        req.headers['x-forwarded-for']?.toString()?.split(',')[0]?.trim(),
         req.headers['x-real-ip']?.toString()?.trim(),
         req.ip,
-        req.connection.remoteAddress,
         req.socket.remoteAddress
       ].filter((ip): ip is string => Boolean(ip))
     }
