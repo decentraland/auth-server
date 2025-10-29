@@ -12,7 +12,7 @@ import { express as authMiddleware, DecentralandSignatureData } from 'decentrala
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
 import { METHOD_DCL_PERSONAL_SIGN, FIFTEEN_MINUTES_IN_MILLISECONDS } from './constants'
-import { extractClientIp, validateIpAddress } from './ip-utils'
+import { extractAllClientIps, extractClientIp, validateIpAddress } from './ip-utils'
 import {
   HttpOutcomeMessage,
   IServerComponent,
@@ -180,7 +180,10 @@ export async function createServerComponent({
             const originalIp = extractClientIp(socket)
 
             // Track metrics
-            metrics.increment('ip_extraction_total', { method: 'websocket', result: originalIp === 'unknown' ? 'failed' : 'success' })
+            metrics.increment('ip_extraction_total', {
+              method: 'websocket',
+              result: originalIp === 'unknown' ? 'failed' : 'success'
+            })
 
             storage.setRequest(requestId, {
               requestId: requestId,
@@ -249,9 +252,9 @@ export async function createServerComponent({
               return
             }
 
-            // IP validation for WebSocket
-            const currentIp = extractClientIp(socket)
-            const ipValidation = validateIpAddress(request.originalIp, currentIp)
+            // IP validation for WebSocket - check stored IP against all current IPs
+            const currentIps = extractAllClientIps(socket)
+            const ipValidation = validateIpAddress(request.originalIp, currentIps)
 
             // Track validation metrics
             metrics.increment('ip_validation_total', {
@@ -517,7 +520,10 @@ export async function createServerComponent({
       const originalIp = extractClientIp(req)
 
       // Track metrics
-      metrics.increment('ip_extraction_total', { method: 'http', result: originalIp === 'unknown' ? 'failed' : 'success' })
+      metrics.increment('ip_extraction_total', {
+        method: 'http',
+        result: originalIp === 'unknown' ? 'failed' : 'success'
+      })
 
       storage.setRequest(requestId, {
         requestId: requestId,
@@ -556,9 +562,9 @@ export async function createServerComponent({
         })
       }
 
-      // IP validation
-      const currentIp = extractClientIp(req)
-      const ipValidation = validateIpAddress(request.originalIp, currentIp)
+      // IP validation - check stored IP against all current IPs
+      const currentIps = extractAllClientIps(req)
+      const ipValidation = validateIpAddress(request.originalIp, currentIps)
 
       // Track validation metrics
       metrics.increment('ip_validation_total', {
