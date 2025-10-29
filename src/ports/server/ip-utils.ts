@@ -59,8 +59,7 @@ export const validateIpAddress = (originalIp: string, currentIp: string): { vali
     ? { valid: true }
     : {
         valid: false,
-        reason:
-          'We detected a sign-in from a different network. Please connect using the same Wi-Fi or mobile network you used before and try again.',
+        reason: `IP address mismatch. Original: ${originalIp}, Current: ${currentIp}`,
         metricReason: 'ip_mismatch'
       }
 }

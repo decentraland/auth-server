@@ -483,9 +483,7 @@ describe('when validating IP addresses', () => {
     it('should provide detailed mismatch message', () => {
       const result = validateIpAddress(originalIp, currentIp)
 
-      expect(result.reason).toBe(
-        'We detected a sign-in from a different network. Please connect using the same Wi-Fi or mobile network you used before and try again.'
-      )
+      expect(result.reason).toBe('IP address mismatch. Original: 203.0.113.1, Current: 203.0.113.2')
     })
 
     it('should provide ip_mismatch metric reason', () => {
