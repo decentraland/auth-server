@@ -16,36 +16,14 @@ export const extractAllClientIps = (req: Request | Socket): string[] => {
         req.handshake.address
       ].filter((ip): ip is string => Boolean(ip))
 
-      // Add all IPs from X-Forwarded-For header
-      const xForwardedFor = req.handshake.headers['x-forwarded-for']?.toString()
-      if (xForwardedFor) {
-        const forwardedIps = xForwardedFor
-          .split(',')
-          .map(ip => ip.trim())
-          .filter(ip => Boolean(ip))
-        sources.push(forwardedIps[0]) // only the first IP should belong to the client
-      }
-
       return sources
     } else {
       // HTTP request - consistent priority order
       const sources = [
         req.headers['cf-connecting-ip']?.toString()?.trim(),
         req.headers['x-real-ip']?.toString()?.trim(),
-        req.ip,
-        req.connection.remoteAddress,
         req.socket.remoteAddress
       ].filter((ip): ip is string => Boolean(ip))
-
-      // Add all IPs from X-Forwarded-For header
-      const xForwardedFor = req.headers['x-forwarded-for']?.toString()
-      if (xForwardedFor) {
-        const forwardedIps = xForwardedFor
-          .split(',')
-          .map(ip => ip.trim())
-          .filter(ip => Boolean(ip))
-        sources.push(forwardedIps[0]) // only the first IP should belong to the client
-      }
 
       return sources
     }
