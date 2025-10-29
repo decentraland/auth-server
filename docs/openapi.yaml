@@ -41,8 +41,12 @@ servers:
     description: Production server
   - url: https://auth-api.decentraland.zone
     description: Development server
-  - url: http://localhost:3000
-    description: Local development server
+  - url: http://localhost:{port}
+    description: Local development server (replace {port} with your local port, typically 3000)
+    variables:
+      port:
+        default: '3000'
+        description: Local development server port
 security: []
 tags:
   - name: Health
@@ -239,6 +243,66 @@ paths:
                 $ref: '#/components/schemas/InvalidResponseMessage'
               example:
                 error: "Request with id \"550e8400-e29b-41d4-a716-446655440000\" has not been completed"
+        '404':
+          description: Request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+              example:
+                error: "Request with id \"550e8400-e29b-41d4-a716-446655440000\" not found"
+        '410':
+          description: Request expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+              example:
+                error: "Request with id \"550e8400-e29b-41d4-a716-446655440000\" has expired"
+  /v2/requests/{requestId}:
+    get:
+      tags:
+        - Requests
+      summary: Get request details
+      description: |
+        Retrieves the details of an authentication request for execution.
+        
+        This endpoint is used by the auth dapp to recover request information before executing it.
+        The request must exist, not be expired, and pass IP address validation (if applicable).
+      operationId: getRequestDetails
+      security: []
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Request ID to retrieve
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Request details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecoverResponseMessage'
+              example:
+                expiration: "2024-01-01T12:10:00.000Z"
+                code: 42
+                method: "personal_sign"
+                params:
+                  - "Message to sign"
+                  - "0x1234567890123456789012345678901234567890"
+                sender: "0x1234567890123456789012345678901234567890"
+        '403':
+          description: IP validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+              example:
+                error: "IP validation failed"
         '404':
           description: Request not found
           content:
