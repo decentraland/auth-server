@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Auth Server API
   description: |
-    API for authentication server with HTTP endpoints and Socket.IO WebSocket protocol.
+    API for Auth server with HTTP endpoints and Socket.IO WebSocket protocol.
     
     This server facilitates communication between the Decentraland clients and the auth dapp on the browser.
     It allows the desktop client to execute wallet methods (eth_sendTransaction, personal_sign, etc.) using the wallet 
