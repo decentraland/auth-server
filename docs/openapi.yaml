@@ -1,0 +1,515 @@
+openapi: 3.1.0
+info:
+  title: Auth Server API
+  description: |
+    API for authentication server with HTTP endpoints and Socket.IO WebSocket protocol.
+    
+    This server facilitates communication between the Decentraland clients and the auth dapp on the browser.
+    It allows the desktop client to execute wallet methods (eth_sendTransaction, personal_sign, etc.) using the wallet 
+    the user has on their browser.
+    
+    Request Lifecycle
+    
+    1. A request is created with a method and parameters
+    2. The server returns a request ID, expiration time, and verification code
+    3. The auth dapp recovers the request using the request ID
+    4. The request is executed on the auth dapp with the user's wallet
+    5. The outcome (result or error) is submitted back to the server
+    6. The original client receives the outcome via WebSocket or polling
+    
+    Request Characteristics
+    
+    - Only one request can exist at a time per connected socket. A new request will invalidate a previous one if it existed.
+    - Requests have an expiration (default: 5 minutes), and cannot be consumed after it.
+    - If the socket disconnects, any request made by that socket will be deleted.
+    
+    Authentication
+    
+    - For methods other than `dcl_personal_sign`, an `authChain` is required and will be validated.
+    - For `dcl_personal_sign`, no `authChain` is required initially.
+    - Signature validation is performed using `@dcl/crypto` Authenticator.
+  version: 1.0.0
+  contact:
+    name: Decentraland
+    url: https://decentraland.org
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+  x-api-id: auth-server-api
+servers:
+  - url: https://auth-api.decentraland.org
+    description: Production server
+  - url: https://auth-api.decentraland.zone
+    description: Development server
+  - url: http://localhost:3000
+    description: Local development server
+security: []
+tags:
+  - name: Health
+    description: Health check endpoints for monitoring and orchestration
+  - name: Requests
+    description: Authentication request management endpoints
+  - name: WebSocket
+    description: Socket.IO WebSocket events for real-time communication
+paths:
+  /health/ready:
+    get:
+      tags:
+        - Health
+      summary: Readiness probe
+      description: Returns 200 when service is ready to accept traffic
+      operationId: getReadiness
+      security: []
+      responses:
+        '200':
+          description: Service is ready
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+  /health/startup:
+    get:
+      tags:
+        - Health
+      summary: Startup probe
+      description: Returns 200 when service has started
+      operationId: getStartup
+      security: []
+      responses:
+        '200':
+          description: Service has started
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+  /health/live:
+    get:
+      tags:
+        - Health
+      summary: Liveness probe
+      description: Returns 200 when service is alive
+      operationId: getLiveness
+      security: []
+      responses:
+        '200':
+          description: Service is alive
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+  /requests:
+    post:
+      tags:
+        - Requests
+      summary: Create authentication request
+      description: |
+        Creates a new authentication request that can be executed by the auth dapp.
+        
+        **Important:**
+        - For methods other than `dcl_personal_sign`, the `authChain` field is **required** and will be validated.
+        - For `dcl_personal_sign`, the `authChain` field is **optional**.
+        - Signature validation is performed using `@dcl/crypto` Authenticator.
+        - The request will expire after the configured expiration time (default: 5 minutes).
+      operationId: createRequest
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestMessage'
+            examples:
+              personalSign:
+                summary: Personal sign request
+                value:
+                  method: personal_sign
+                  params:
+                    - "Message to sign"
+                    - "0x1234567890123456789012345678901234567890"
+                  authChain:
+                    - type: SIGNER
+                      payload: "0x1234567890123456789012345678901234567890"
+                      signature: ""
+                    - type: ECDSA_EPHEMERAL
+                      payload: "..."
+                      signature: "..."
+              dclPersonalSign:
+                summary: DCL personal sign request (no authChain required)
+                value:
+                  method: dcl_personal_sign
+                  params:
+                    - "DCL Signed Message:\nEphemeral address: 0x...\nExpiration: ..."
+      responses:
+        '201':
+          description: Request created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestResponseMessage'
+              example:
+                requestId: "550e8400-e29b-41d4-a716-446655440000"
+                expiration: "2024-01-01T12:10:00.000Z"
+                code: 42
+        '400':
+          description: Invalid request (missing required fields, invalid authChain, signature validation failed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+              examples:
+                missingAuthChain:
+                  summary: Missing auth chain for non-dcl_personal_sign method
+                  value:
+                    error: "Auth chain is required"
+                invalidSignature:
+                  summary: Signature validation failed
+                  value:
+                    error: "Signature validation failed"
+                invalidPayload:
+                  summary: Invalid request payload
+                  value:
+                    error: "[{\"instancePath\":\"/method\",\"schemaPath\":\"#/required\",\"keyword\":\"required\",\"params\":{\"missingProperty\":\"method\"},\"message\":\"must have required property 'method'\"}]"
+  /requests/{requestId}:
+    get:
+      tags:
+        - Requests
+      summary: Poll for request outcome
+      description: |
+        Polls for the outcome of an authentication request. 
+        
+        This endpoint can be used as an alternative to WebSocket for receiving request outcomes.
+        The client should poll this endpoint periodically until a result is returned.
+        
+        **Status Codes:**
+        - `200`: Request completed, outcome returned
+        - `204`: Request not yet completed, continue polling
+        - `404`: Request not found
+        - `410`: Request expired
+      operationId: pollRequest
+      security: []
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Request ID to poll for
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Request completed with outcome
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutcomeResponseMessage'
+              example:
+                requestId: "550e8400-e29b-41d4-a716-446655440000"
+                sender: "0x1234567890123456789012345678901234567890"
+                result: "0xabcdef1234567890..."
+        '204':
+          description: Request not yet completed (continue polling)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+              example:
+                error: "Request with id \"550e8400-e29b-41d4-a716-446655440000\" has not been completed"
+        '404':
+          description: Request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+              example:
+                error: "Request with id \"550e8400-e29b-41d4-a716-446655440000\" not found"
+        '410':
+          description: Request expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+              example:
+                error: "Request with id \"550e8400-e29b-41d4-a716-446655440000\" has expired"
+components:
+  schemas:
+    RequestMessage:
+      type: object
+      properties:
+        method:
+          type: string
+          description: Wallet method to execute (e.g., 'eth_sendTransaction', 'personal_sign', 'dcl_personal_sign')
+          example: "personal_sign"
+        params:
+          type: array
+          items: {}
+          description: Method parameters (any JSON-serializable type)
+          example: ["Message to sign", "0x1234567890123456789012345678901234567890"]
+        authChain:
+          $ref: '#/components/schemas/AuthChain'
+          description: |
+            Optional authentication chain. 
+            **Required** for methods other than `dcl_personal_sign`.
+            **Optional** for `dcl_personal_sign` method.
+      required:
+        - method
+        - params
+      additionalProperties: false
+    AuthChain:
+      type: array
+      items:
+        type: object
+        properties:
+          type:
+            type: string
+            description: Auth link type (e.g., SIGNER, ECDSA_EPHEMERAL)
+          payload:
+            type: string
+            description: Link payload
+          signature:
+            type: string
+            description: Link signature
+        required:
+          - type
+          - payload
+          - signature
+      description: Authentication chain for signature validation (from @dcl/schemas)
+      minItems: 1
+    RequestResponseMessage:
+      type: object
+      properties:
+        requestId:
+          type: string
+          format: uuid
+          description: Unique request identifier
+        expiration:
+          type: string
+          format: date-time
+          description: Request expiration time (ISO 8601). Request must be consumed before this time.
+        code:
+          type: number
+          minimum: 0
+          maximum: 99
+          description: Random verification code (0-99) for visual confirmation on both client and auth dapp
+      required:
+        - requestId
+        - expiration
+        - code
+    RecoverResponseMessage:
+      type: object
+      properties:
+        expiration:
+          type: string
+          format: date-time
+          description: Request expiration time
+        code:
+          type: number
+          description: Request verification code
+        method:
+          type: string
+          description: Original method that was requested
+        params:
+          type: array
+          items: {}
+          description: Original parameters for the method
+        sender:
+          type: string
+          description: Sender address derived from auth chain (if applicable)
+          example: "0x1234567890123456789012345678901234567890"
+      required:
+        - expiration
+        - code
+        - method
+        - params
+    OutcomeError:
+      type: object
+      properties:
+        code:
+          type: number
+          description: Error code
+        message:
+          type: string
+          description: Error message
+        data:
+          description: Additional error data (any type)
+      required:
+        - code
+        - message
+    OutcomeResponseMessage:
+      type: object
+      properties:
+        requestId:
+          type: string
+          format: uuid
+          description: Request identifier
+        sender:
+          type: string
+          description: Address that executed the request
+          example: "0x1234567890123456789012345678901234567890"
+        result:
+          description: Success result (any JSON-serializable type). Present when request succeeded.
+        error:
+          $ref: '#/components/schemas/OutcomeError'
+          description: Error details. Present when request failed.
+      required:
+        - requestId
+        - sender
+      oneOf:
+        - required: [result]
+        - required: [error]
+    InvalidResponseMessage:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message describing what went wrong
+      required:
+        - error
+x-websocket:
+  tag: WebSocket
+  description: |
+    Socket.IO WebSocket protocol for real-time authentication.
+    
+    Clients connect using Socket.IO and can send/receive messages in real-time.
+    The server uses acknowledgment callbacks for request/response patterns.
+    
+    **Connection:**
+    - Connect to the server URL using Socket.IO client
+    - Example: `const socket = io('https://auth-api.decentraland.org')`
+    
+    **Important Notes:**
+    - Only one request can exist per socket at a time. A new request invalidates previous ones.
+    - If a socket disconnects, all requests made by that socket are deleted.
+    - Requests expire after the configured time (default: 5 minutes).
+  protocol: socket.io
+  events:
+    request:
+      description: |
+        Create authentication request (client→server).
+        
+        Used by the desktop client to request execution of a wallet method.
+        The server validates the request and returns a request ID with expiration.
+        
+        **Response Handling:**
+        Use `socket.emitWithAck()` to send and receive the response:
+        ```typescript
+        const response = await socket.emitWithAck('request', {
+          method: 'personal_sign',
+          params: ['message', 'address'],
+          authChain: [...]
+        })
+        ```
+      message:
+        $ref: '#/components/schemas/RequestMessage'
+      response:
+        oneOf:
+          - $ref: '#/components/schemas/RequestResponseMessage'
+          - $ref: '#/components/schemas/InvalidResponseMessage'
+      validation:
+        description: |
+          Validates request structure and auth chain:
+          - Validates JSON schema using Ajv
+          - For methods other than `dcl_personal_sign`, validates that authChain is present
+          - Validates authChain signature using @dcl/crypto Authenticator
+          - Checks that ephemeral address can be extracted from authChain
+    recover:
+      description: |
+        Recover existing request (client→server).
+        
+        Used by the auth dapp to retrieve request details for execution.
+        The request must exist and not be expired.
+      message:
+        type: object
+        properties:
+          requestId:
+            type: string
+            format: uuid
+            description: Request ID to recover
+        required:
+          - requestId
+      response:
+        oneOf:
+          - $ref: '#/components/schemas/RecoverResponseMessage'
+          - $ref: '#/components/schemas/InvalidResponseMessage'
+    outcome:
+      description: |
+        Submit request outcome (client→server) and receive response (server→client).
+        
+        **Sending Outcome (auth dapp → server):**
+        The auth dapp sends the outcome after executing the request.
+        The message should include either `result` (success) or `error` (failure).
+        
+        **Receiving Outcome (server → desktop client):**
+        After receiving an outcome, if the original request was made via WebSocket, 
+        the server emits an `outcome` event to the original requester with the complete outcome message.
+        
+        If the original request was made via HTTP, the outcome is stored and retrieved via polling.
+      message:
+        type: object
+        properties:
+          requestId:
+            type: string
+            format: uuid
+            description: Request ID
+          sender:
+            type: string
+            description: Address that executed the request
+          result:
+            description: Success result (any JSON-serializable type). Required if error is not present.
+          error:
+            $ref: '#/components/schemas/OutcomeError'
+            description: Error details. Required if result is not present.
+        required:
+          - requestId
+          - sender
+        oneOf:
+          - required: [result]
+          - required: [error]
+      response:
+        type: object
+        description: Empty acknowledgment object
+        properties: {}
+      emits:
+        - description: Emitted to original requester (if request was made via WebSocket)
+          event: outcome
+          message:
+            $ref: '#/components/schemas/OutcomeResponseMessage'
+  authentication:
+    type: ethereum-signature
+    description: |
+      Ethereum signature validation via @dcl/crypto Authenticator.
+      - For non-dcl_personal_sign methods, authChain is validated on request creation
+      - Signature validation ensures the request is authorized by the wallet owner
+  cors:
+    description: |
+      CORS configuration via environment variables:
+      - CORS_ORIGIN: Comma-separated list of allowed origins (supports regex patterns)
+      - CORS_METHODS: Allowed HTTP methods
+  expiration:
+    description: |
+      Request expiration configurable via `requestExpirationInSeconds` (default: 300 seconds / 5 minutes).
+      Requests cannot be consumed after expiration.
