@@ -466,17 +466,17 @@ export async function createServerComponent({
     // Helper function to get client IP address from request
     // Prioritizes trusted headers (Cloudflare's CF-Connecting-IP, then X-Real-IP) over X-Forwarded-For
     const getClientIp = (req: Request): string => {
-      // Check CF-Connecting-IP header first (Cloudflare's trusted header, cannot be spoofed)
-      const cfConnectingIp = req.headers['cf-connecting-ip']
-      if (cfConnectingIp) {
-        const ip = Array.isArray(cfConnectingIp) ? cfConnectingIp[0] : cfConnectingIp
-        return normalizeIp(ip)
-      }
-
       // Check X-Real-IP header (set by proxies when configured, more trustworthy than X-Forwarded-For)
       const xRealIp = req.headers['x-real-ip']
       if (xRealIp) {
         const ip = Array.isArray(xRealIp) ? xRealIp[0] : xRealIp
+        return normalizeIp(ip)
+      }
+
+      // Check CF-Connecting-IP header first (Cloudflare's trusted header, cannot be spoofed)
+      const cfConnectingIp = req.headers['cf-connecting-ip']
+      if (cfConnectingIp) {
+        const ip = Array.isArray(cfConnectingIp) ? cfConnectingIp[0] : cfConnectingIp
         return normalizeIp(ip)
       }
 
