@@ -270,5 +270,115 @@ test('when testing identity endpoints', args => {
         })
       })
     })
+
+    describe('and the IP address does not match', () => {
+      describe('and the IP is from a completely different subnet', () => {
+        it('should respond with 403 status and delete the identity', async () => {
+          const response = await fetch(`${baseUrl}/identities/${identityId}`, {
+            method: 'GET',
+            headers: {
+              'CF-Connecting-IP': '192.168.1.100'
+            }
+          })
+
+          expect(response.status).toBe(403)
+
+          const responseBody = await response.json()
+          expect(responseBody).toEqual({
+            error: 'IP address mismatch'
+          })
+        })
+
+        it('should delete the identity from storage', async () => {
+          await fetch(`${baseUrl}/identities/${identityId}`, {
+            method: 'GET',
+            headers: {
+              'CF-Connecting-IP': '192.168.1.100'
+            }
+          })
+
+          const secondResponse = await fetch(`${baseUrl}/identities/${identityId}`, {
+            method: 'GET'
+          })
+
+          expect(secondResponse.status).toBe(404)
+
+          const secondResponseBody = await secondResponse.json()
+          expect(secondResponseBody).toEqual({
+            error: 'Identity not found'
+          })
+        })
+      })
+    })
+
+    describe('and the IP is in the same /24 subnet', () => {
+      let subnetTestIdentity: AuthIdentity
+      let subnetIdentityId: string
+
+      beforeEach(async () => {
+        subnetTestIdentity = await createTestIdentity()
+        const requestData = { identity: subnetTestIdentity }
+        const createResponse = await createSignedFetchRequest(baseUrl, {
+          method: 'POST',
+          path: '/identities',
+          body: requestData,
+          identity: subnetTestIdentity,
+          headers: {
+            'X-Real-IP': '127.0.0.1'
+          }
+        })
+        const createResponseBody = await createResponse.json()
+        subnetIdentityId = createResponseBody.identityId
+      })
+
+      it('should respond with 200 status and return the identity', async () => {
+        const response = await fetch(`${baseUrl}/identities/${subnetIdentityId}`, {
+          method: 'GET',
+          headers: {
+            'X-Real-IP': '127.0.0.2'
+          }
+        })
+
+        expect(response.status).toBe(200)
+
+        const responseBody = await response.json()
+        expect(responseBody).toHaveProperty('identity')
+      })
+    })
+
+    describe('and the IP is in IPv6-mapped IPv4 format', () => {
+      let ipv6TestIdentity: AuthIdentity
+      let ipv6IdentityId: string
+
+      beforeEach(async () => {
+        ipv6TestIdentity = await createTestIdentity()
+        const requestData = { identity: ipv6TestIdentity }
+        const createResponse = await createSignedFetchRequest(baseUrl, {
+          method: 'POST',
+          path: '/identities',
+          body: requestData,
+          identity: ipv6TestIdentity,
+          headers: {
+            'X-Real-IP': '127.0.0.1'
+          }
+        })
+        const createResponseBody = await createResponse.json()
+        ipv6IdentityId = createResponseBody.identityId
+      })
+
+      it('should normalize to IPv4 and match the stored IP', async () => {
+        const response = await fetch(`${baseUrl}/identities/${ipv6IdentityId}`, {
+          method: 'GET',
+          headers: {
+            'X-Real-IP': '::ffff:127.0.0.1'
+          }
+        })
+
+        expect(response.status).toBe(200)
+
+        const responseBody = await response.json()
+        expect(responseBody).toHaveProperty('identity')
+      })
+    })
   })
 })

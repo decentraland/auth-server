@@ -454,6 +454,82 @@ export async function createServerComponent({
       return { sender, finalAuthority }
     }
 
+    // Helper function to normalize IP address (convert IPv6-mapped IPv4 to IPv4)
+    const normalizeIp = (ip: string): string => {
+      // Convert IPv6-mapped IPv4 (::ffff:xxx.xxx.xxx.xxx) to IPv4
+      if (ip.startsWith('::ffff:')) {
+        return ip.substring(7)
+      }
+      return ip.trim()
+    }
+
+    // Helper function to get client IP address from request
+    // Prioritizes trusted headers (Cloudflare's CF-Connecting-IP, then X-Real-IP) over X-Forwarded-For
+    const getClientIp = (req: Request): string => {
+      // Check X-Real-IP header (set by proxies when configured, more trustworthy than X-Forwarded-For)
+      const xRealIp = req.headers['x-real-ip']
+      if (xRealIp) {
+        const ip = Array.isArray(xRealIp) ? xRealIp[0] : xRealIp
+        return normalizeIp(ip)
+      }
+
+      // Check CF-Connecting-IP header first (Cloudflare's trusted header, cannot be spoofed)
+      const cfConnectingIp = req.headers['cf-connecting-ip']
+      if (cfConnectingIp) {
+        const ip = Array.isArray(cfConnectingIp) ? cfConnectingIp[0] : cfConnectingIp
+        return normalizeIp(ip)
+      }
+
+      // Check X-Forwarded-For header (can be spoofed, use with caution)
+      // Take the first IP in the chain (original client)
+      const xForwardedFor = req.headers['x-forwarded-for']
+      if (xForwardedFor) {
+        const ips = Array.isArray(xForwardedFor) ? xForwardedFor[0] : xForwardedFor.split(',')[0]
+        return normalizeIp(ips)
+      }
+
+      // Fallback to req.ip (requires express trust proxy configuration) or connection remote address
+      const fallbackIp = req.ip || req.socket.remoteAddress || 'unknown'
+      return normalizeIp(fallbackIp)
+    }
+
+    // Helper function to check if two IPs match, considering subnet/region matching
+    // For IPv4, this can match by subnet (e.g., 10.0.16.* matches 10.0.16.*)
+    const ipsMatch = (ip1: string, ip2: string): boolean => {
+      if (!ip1 || !ip2 || ip1 === 'unknown' || ip2 === 'unknown') {
+        return false
+      }
+
+      // Exact match
+      if (ip1 === ip2) {
+        return true
+      }
+
+      // Normalize both IPs
+      const normalizedIp1 = normalizeIp(ip1)
+      const normalizedIp2 = normalizeIp(ip2)
+
+      // Exact match after normalization
+      if (normalizedIp1 === normalizedIp2) {
+        return true
+      }
+
+      // IPv4 subnet matching: check if they're in the same /24 subnet (first 3 octets)
+      // This helps with VPNs that might use different edge servers but same region
+      const ipv4Regex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
+      const match1 = normalizedIp1.match(ipv4Regex)
+      const match2 = normalizedIp2.match(ipv4Regex)
+
+      if (match1 && match2) {
+        // Match by /24 subnet (first 3 octets)
+        if (match1[1] === match2[1] && match1[2] === match2[2] && match1[3] === match2[3]) {
+          return true
+        }
+      }
+
+      return false
+    }
+
     app.post('/requests', async (req: Request, res: Response) => {
       const data = req.body
       let msg: RequestMessage
@@ -751,15 +827,17 @@ export async function createServerComponent({
           const identityId = uuid()
           // Always use 15 minutes expiration for storage (controls when identity is removed from storage)
           const storageExpiration = new Date(Date.now() + FIFTEEN_MINUTES_IN_MILLISECONDS)
+          const clientIp = getClientIp(req)
 
           storage.setIdentity(identityId, {
             identityId,
             identity,
             expiration: storageExpiration,
-            createdAt: new Date()
+            createdAt: new Date(),
+            ipAddress: clientIp
           })
 
-          identityLogger.log(`[IID:${identityId}][EXP:${storageExpiration.getTime()}] Successfully created identity`)
+          identityLogger.log(`[IID:${identityId}][EXP:${storageExpiration.getTime()}] Successfully created identity from IP: ${clientIp}`)
 
           sendResponse<IdentityResponse>(res, 201, {
             identityId,
@@ -804,11 +882,25 @@ export async function createServerComponent({
         })
       }
 
+      // Validate that the IP address matches the one used when creating the identity
+      // Uses flexible matching to handle Cloudflare and VPN edge server differences
+      const clientIp = getClientIp(req)
+      if (!ipsMatch(identity.ipAddress, clientIp)) {
+        // Delete the identity from storage for security reasons
+        storage.deleteIdentity(identityId)
+        identityLogger.log(
+          `[IID:${identityId}] Received a request to retrieve identity from different IP. Stored: ${identity.ipAddress}, Request: ${clientIp}. Identity deleted.`
+        )
+        return sendResponse<InvalidResponseMessage>(res, 403, {
+          error: 'IP address mismatch'
+        })
+      }
+
       try {
         // Delete the identity from the storage
         storage.deleteIdentity(identityId)
 
-        identityLogger.log(`[IID:${identityId}][EXP:${identity.expiration.getTime()}] Successfully served identity`)
+        identityLogger.log(`[IID:${identityId}][EXP:${identity.expiration.getTime()}] Successfully served identity to IP: ${clientIp}`)
 
         // Return the identity for auto-login
         sendResponse<IdentityIdValidationResponse>(res, 200, {
