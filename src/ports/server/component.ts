@@ -749,21 +749,21 @@ export async function createServerComponent({
           }
 
           const identityId = uuid()
-          // Use the expiration from the identity, or default to 15 minutes
-          const expiration = identity.expiration || new Date(Date.now() + FIFTEEN_MINUTES_IN_MILLISECONDS)
+          // Always use 15 minutes expiration for storage (controls when identity is removed from storage)
+          const storageExpiration = new Date(Date.now() + FIFTEEN_MINUTES_IN_MILLISECONDS)
 
           storage.setIdentity(identityId, {
             identityId,
             identity,
-            expiration,
+            expiration: storageExpiration,
             createdAt: new Date()
           })
 
-          identityLogger.log(`[IID:${identityId}][EXP:${expiration.getTime()}] Successfully created identity`)
+          identityLogger.log(`[IID:${identityId}][EXP:${storageExpiration.getTime()}] Successfully created identity`)
 
           sendResponse<IdentityResponse>(res, 201, {
             identityId,
-            expiration
+            expiration: storageExpiration
           })
         } catch (e) {
           const errorMessage = isErrorWithMessage(e) ? e.message : 'Unknown error'
