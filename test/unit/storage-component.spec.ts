@@ -19,10 +19,12 @@ beforeEach(async () => {
 describe('when storing an identity', () => {
   let expiration: Date
   let createdAt: Date
+  let ipAddress: string
 
   beforeEach(() => {
     expiration = new Date(Date.now() + 60000)
     createdAt = new Date()
+    ipAddress = '127.0.0.1'
   })
 
   it('should not throw an error', () => {
@@ -31,7 +33,8 @@ describe('when storing an identity', () => {
         identityId,
         identity: validAuthIdentity,
         expiration,
-        createdAt
+        createdAt,
+        ipAddress
       })
     }).not.toThrow()
   })
@@ -40,17 +43,20 @@ describe('when storing an identity', () => {
 describe('when getting a stored identity', () => {
   let expiration: Date
   let createdAt: Date
+  let ipAddress: string
 
   beforeEach(() => {
     expiration = new Date(Date.now() + 60000)
     createdAt = new Date()
+    ipAddress = '127.0.0.1'
 
     // Pre-store an identity for retrieval tests
     storage.setIdentity(identityId, {
       identityId,
       identity: validAuthIdentity,
       expiration,
-      createdAt
+      createdAt,
+      ipAddress
     })
   })
 
@@ -61,7 +67,8 @@ describe('when getting a stored identity', () => {
       identityId,
       identity: validAuthIdentity,
       expiration,
-      createdAt
+      createdAt,
+      ipAddress
     })
   })
 })
@@ -82,17 +89,20 @@ describe('when getting an identity that is not stored', () => {
 describe('when deleting an identity', () => {
   let expiration: Date
   let createdAt: Date
+  let ipAddress: string
 
   beforeEach(() => {
     expiration = new Date(Date.now() + 60000)
     createdAt = new Date()
+    ipAddress = '127.0.0.1'
 
     // Pre-store an identity for deletion tests
     storage.setIdentity(identityId, {
       identityId,
       identity: validAuthIdentity,
       expiration,
-      createdAt
+      createdAt,
+      ipAddress
     })
   })
 
@@ -124,6 +134,7 @@ describe('when managing multiple identity IDs', () => {
     let expiration2: Date
     let expiration3: Date
     let createdAt: Date
+    let ipAddress: string
 
     beforeEach(() => {
       identityId1 = generateRandomIdentityId()
@@ -133,6 +144,7 @@ describe('when managing multiple identity IDs', () => {
       expiration2 = new Date(Date.now() + 120000)
       expiration3 = new Date(Date.now() + 180000)
       createdAt = new Date()
+      ipAddress = '127.0.0.1'
     })
 
     it('should store and retrieve each identity independently', () => {
@@ -141,21 +153,24 @@ describe('when managing multiple identity IDs', () => {
         identityId: identityId1,
         identity: validAuthIdentity,
         expiration: expiration1,
-        createdAt
+        createdAt,
+        ipAddress
       })
 
       storage.setIdentity(identityId2, {
         identityId: identityId2,
         identity: validAuthIdentity,
         expiration: expiration2,
-        createdAt
+        createdAt,
+        ipAddress
       })
 
       storage.setIdentity(identityId3, {
         identityId: identityId3,
         identity: validAuthIdentity,
         expiration: expiration3,
-        createdAt
+        createdAt,
+        ipAddress
       })
 
       // Verify all exist and contain the correct data
@@ -167,21 +182,24 @@ describe('when managing multiple identity IDs', () => {
         identityId: identityId1,
         identity: validAuthIdentity,
         expiration: expiration1,
-        createdAt
+        createdAt,
+        ipAddress
       })
 
       expect(retrievedIdentity2).toEqual({
         identityId: identityId2,
         identity: validAuthIdentity,
         expiration: expiration2,
-        createdAt
+        createdAt,
+        ipAddress
       })
 
       expect(retrievedIdentity3).toEqual({
         identityId: identityId3,
         identity: validAuthIdentity,
         expiration: expiration3,
-        createdAt
+        createdAt,
+        ipAddress
       })
     })
   })
@@ -191,12 +209,14 @@ describe('when managing multiple identity IDs', () => {
     let identityId2: string
     let expiration: Date
     let createdAt: Date
+    let ipAddress: string
 
     beforeEach(() => {
       identityId1 = generateRandomIdentityId()
       identityId2 = generateRandomIdentityId()
       expiration = new Date(Date.now() + 60000)
       createdAt = new Date()
+      ipAddress = '127.0.0.1'
     })
 
     it('should not affect other identities', () => {
@@ -205,14 +225,16 @@ describe('when managing multiple identity IDs', () => {
         identityId: identityId1,
         identity: validAuthIdentity,
         expiration,
-        createdAt
+        createdAt,
+        ipAddress
       })
 
       storage.setIdentity(identityId2, {
         identityId: identityId2,
         identity: validAuthIdentity,
         expiration,
-        createdAt
+        createdAt,
+        ipAddress
       })
 
       // Verify both exist and contain the correct data
@@ -220,14 +242,16 @@ describe('when managing multiple identity IDs', () => {
         identityId: identityId1,
         identity: validAuthIdentity,
         expiration,
-        createdAt
+        createdAt,
+        ipAddress
       })
 
       expect(storage.getIdentity(identityId2)).toEqual({
         identityId: identityId2,
         identity: validAuthIdentity,
         expiration,
-        createdAt
+        createdAt,
+        ipAddress
       })
 
       // Delete one
@@ -239,7 +263,8 @@ describe('when managing multiple identity IDs', () => {
         identityId: identityId2,
         identity: validAuthIdentity,
         expiration,
-        createdAt
+        createdAt,
+        ipAddress
       })
     })
   })

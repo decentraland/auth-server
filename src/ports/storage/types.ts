@@ -25,4 +25,5 @@ export type StorageIdentity = {
   identity: AuthIdentity
   expiration: Date
   createdAt: Date
+  ipAddress: string
 }

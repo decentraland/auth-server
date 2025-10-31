@@ -270,5 +270,35 @@ test('when testing identity endpoints', args => {
         })
       })
     })
+
+    describe('and the IP address does not match', () => {
+      it('should respond with 403 status and delete the identity', async () => {
+        // Request with a different IP using X-Forwarded-For header
+        const response = await fetch(`${baseUrl}/identities/${identityId}`, {
+          method: 'GET',
+          headers: {
+            'X-Forwarded-For': '192.168.1.100'
+          }
+        })
+
+        expect(response.status).toBe(403)
+
+        const responseBody = await response.json()
+        expect(responseBody).toEqual({
+          error: 'IP address mismatch'
+        })
+
+        // Verify that the identity was deleted from storage
+        const secondResponse = await fetch(`${baseUrl}/identities/${identityId}`, {
+          method: 'GET'
+        })
+        expect(secondResponse.status).toBe(404)
+
+        const secondResponseBody = await secondResponse.json()
+        expect(secondResponseBody).toEqual({
+          error: 'Identity not found'
+        })
+      })
+    })
   })
 })

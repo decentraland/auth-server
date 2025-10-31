@@ -454,6 +454,26 @@ export async function createServerComponent({
       return { sender, finalAuthority }
     }
 
+    // Helper function to get client IP address from request
+    const getClientIp = (req: Request): string => {
+      // Check X-Forwarded-For header (for proxied requests)
+      const xForwardedFor = req.headers['x-forwarded-for']
+      if (xForwardedFor) {
+        // X-Forwarded-For can contain multiple IPs, the first one is the original client
+        const ips = Array.isArray(xForwardedFor) ? xForwardedFor[0] : xForwardedFor.split(',')[0]
+        return ips.trim()
+      }
+
+      // Check X-Real-IP header (alternative header used by some proxies)
+      const xRealIp = req.headers['x-real-ip']
+      if (xRealIp) {
+        return Array.isArray(xRealIp) ? xRealIp[0] : xRealIp
+      }
+
+      // Fallback to req.ip (requires express trust proxy configuration) or connection remote address
+      return req.ip || req.socket.remoteAddress || 'unknown'
+    }
+
     app.post('/requests', async (req: Request, res: Response) => {
       const data = req.body
       let msg: RequestMessage
@@ -751,15 +771,17 @@ export async function createServerComponent({
           const identityId = uuid()
           // Always use 15 minutes expiration for storage (controls when identity is removed from storage)
           const storageExpiration = new Date(Date.now() + FIFTEEN_MINUTES_IN_MILLISECONDS)
+          const clientIp = getClientIp(req)
 
           storage.setIdentity(identityId, {
             identityId,
             identity,
             expiration: storageExpiration,
-            createdAt: new Date()
+            createdAt: new Date(),
+            ipAddress: clientIp
           })
 
-          identityLogger.log(`[IID:${identityId}][EXP:${storageExpiration.getTime()}] Successfully created identity`)
+          identityLogger.log(`[IID:${identityId}][EXP:${storageExpiration.getTime()}] Successfully created identity from IP: ${clientIp}`)
 
           sendResponse<IdentityResponse>(res, 201, {
             identityId,
@@ -804,11 +826,24 @@ export async function createServerComponent({
         })
       }
 
+      // Validate that the IP address matches the one used when creating the identity
+      const clientIp = getClientIp(req)
+      if (identity.ipAddress !== clientIp) {
+        // Delete the identity from storage for security reasons
+        storage.deleteIdentity(identityId)
+        identityLogger.log(
+          `[IID:${identityId}] Received a request to retrieve identity from different IP. Stored: ${identity.ipAddress}, Request: ${clientIp}. Identity deleted.`
+        )
+        return sendResponse<InvalidResponseMessage>(res, 403, {
+          error: 'IP address mismatch'
+        })
+      }
+
       try {
         // Delete the identity from the storage
         storage.deleteIdentity(identityId)
 
-        identityLogger.log(`[IID:${identityId}][EXP:${identity.expiration.getTime()}] Successfully served identity`)
+        identityLogger.log(`[IID:${identityId}][EXP:${identity.expiration.getTime()}] Successfully served identity to IP: ${clientIp}`)
 
         // Return the identity for auto-login
         sendResponse<IdentityIdValidationResponse>(res, 200, {
