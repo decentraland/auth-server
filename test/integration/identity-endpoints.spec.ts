@@ -273,20 +273,20 @@ test('when testing identity endpoints', args => {
 
     describe('and the IP address does not match', () => {
       describe('and the IP is from a completely different subnet', () => {
-      it('should respond with 403 status and delete the identity', async () => {
-        const response = await fetch(`${baseUrl}/identities/${identityId}`, {
-          method: 'GET',
-          headers: {
+        it('should respond with 403 status and delete the identity', async () => {
+          const response = await fetch(`${baseUrl}/identities/${identityId}`, {
+            method: 'GET',
+            headers: {
               'CF-Connecting-IP': '192.168.1.100'
-          }
-        })
+            }
+          })
 
-        expect(response.status).toBe(403)
+          expect(response.status).toBe(403)
 
-        const responseBody = await response.json()
-        expect(responseBody).toEqual({
-          error: 'IP address mismatch'
-        })
+          const responseBody = await response.json()
+          expect(responseBody).toEqual({
+            error: 'IP address mismatch'
+          })
         })
 
         it('should delete the identity from storage', async () => {
@@ -297,19 +297,19 @@ test('when testing identity endpoints', args => {
             }
           })
 
-        const secondResponse = await fetch(`${baseUrl}/identities/${identityId}`, {
-          method: 'GET'
-        })
+          const secondResponse = await fetch(`${baseUrl}/identities/${identityId}`, {
+            method: 'GET'
+          })
 
-        expect(secondResponse.status).toBe(404)
+          expect(secondResponse.status).toBe(404)
 
-        const secondResponseBody = await secondResponse.json()
-        expect(secondResponseBody).toEqual({
-          error: 'Identity not found'
+          const secondResponseBody = await secondResponse.json()
+          expect(secondResponseBody).toEqual({
+            error: 'Identity not found'
+          })
         })
       })
     })
-  })
 
     describe('and the IP is in the same /24 subnet', () => {
       let subnetTestIdentity: AuthIdentity
