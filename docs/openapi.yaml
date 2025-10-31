@@ -2,13 +2,14 @@ openapi: 3.1.0
 info:
   title: Auth Server API
   description: |
+    ## Overview
     API for Auth server with HTTP endpoints and Socket.IO WebSocket protocol.
     
     This server facilitates communication between the Decentraland clients and the auth dapp on the browser.
     It allows the desktop client to execute wallet methods (eth_sendTransaction, personal_sign, etc.) using the wallet 
     the user has on their browser.
     
-    Request Lifecycle
+    ### Request Lifecycle
     
     1. A request is created with a method and parameters
     2. The server returns a request ID, expiration time, and verification code
@@ -17,13 +18,13 @@ info:
     5. The outcome (result or error) is submitted back to the server
     6. The original client receives the outcome via WebSocket or polling
     
-    Request Characteristics
+    ### Request Characteristics
     
     - Only one request can exist at a time per connected socket. A new request will invalidate a previous one if it existed.
     - Requests have an expiration (default: 5 minutes), and cannot be consumed after it.
     - If the socket disconnects, any request made by that socket will be deleted.
     
-    Authentication
+    ### Authentication
     
     - For methods other than `dcl_personal_sign`, an `authChain` is required and will be validated.
     - For `dcl_personal_sign`, no `authChain` is required initially.
