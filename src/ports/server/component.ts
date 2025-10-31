@@ -399,6 +399,7 @@ export async function createServerComponent({
       return
     }
     const logger = logs.getLogger('websocket-server')
+    const identityLogger = logs.getLogger('identity-endpoints')
 
     logger.log('Starting socket server...')
 
@@ -699,10 +700,12 @@ export async function createServerComponent({
       }),
       async (req: Request & DecentralandSignatureData) => {
         const res = req.res as Response
+        identityLogger.log('Received a request to create identity')
         try {
           const { identity } = validateIdentityRequest(req.body)
 
           if (!identity) {
+            identityLogger.log('Received a request to create identity without AuthIdentity in body')
             return sendResponse<InvalidResponseMessage>(res, 400, {
               error: 'AuthIdentity is required in request body'
             })
@@ -714,6 +717,7 @@ export async function createServerComponent({
 
             // Verify that the ephemeral wallet address matches the finalAuthority from auth chain
             if (identity.ephemeralIdentity.address.toLowerCase() !== finalAuthority.toLowerCase()) {
+              identityLogger.log(`Ephemeral wallet address does not match auth chain final authority for sender: ${identitySender}`)
               return sendResponse<InvalidResponseMessage>(res, 403, {
                 error: 'Ephemeral wallet address does not match auth chain final authority'
               })
@@ -722,6 +726,7 @@ export async function createServerComponent({
             // Verify that the user making the request is the same as the one who signed the identity
             const requestSender = req.auth
             if (!requestSender || requestSender.toLowerCase() !== identitySender.toLowerCase()) {
+              identityLogger.log(`Request sender (${requestSender}) does not match identity owner (${identitySender})`)
               return sendResponse<InvalidResponseMessage>(res, 403, {
                 error: 'Request sender does not match identity owner'
               })
@@ -730,13 +735,16 @@ export async function createServerComponent({
             const wallet = new ethers.Wallet(identity.ephemeralIdentity.privateKey)
 
             if (wallet.address.toLowerCase() !== identity.ephemeralIdentity.address.toLowerCase()) {
+              identityLogger.log(`Ephemeral private key does not match the provided address for sender: ${identitySender}`)
               return sendResponse<InvalidResponseMessage>(res, 403, {
                 error: 'Ephemeral private key does not match the provided address'
               })
             }
           } catch (e) {
+            const errorMessage = isErrorWithMessage(e) ? e.message : 'Unknown error'
+            identityLogger.log(`Received a request to create identity with invalid auth chain: ${errorMessage}`)
             return sendResponse<InvalidResponseMessage>(res, 400, {
-              error: isErrorWithMessage(e) ? e.message : 'Unknown error'
+              error: errorMessage
             })
           }
 
@@ -751,13 +759,17 @@ export async function createServerComponent({
             createdAt: new Date()
           })
 
+          identityLogger.log(`[IID:${identityId}][EXP:${expiration.getTime()}] Successfully created identity`)
+
           sendResponse<IdentityResponse>(res, 201, {
             identityId,
             expiration
           })
         } catch (e) {
+          const errorMessage = isErrorWithMessage(e) ? e.message : 'Unknown error'
+          identityLogger.log(`Received a request to create identity with invalid message: ${errorMessage}`)
           return sendResponse<InvalidResponseMessage>(res, 400, {
-            error: isErrorWithMessage(e) ? e.message : 'Unknown error'
+            error: errorMessage
           })
         }
       }
@@ -766,8 +778,10 @@ export async function createServerComponent({
     // identities validation endpoint - returns identity for auto-login
     app.get('/identities/:id', async (req: Request, res: Response) => {
       const identityId = req.params.id
+      identityLogger.log(`Received a request to retrieve identity: ${identityId}`)
 
       if (!validateIdentityId(identityId)) {
+        identityLogger.log(`[IID:${identityId}] Received a request to retrieve identity with invalid format`)
         return sendResponse<InvalidResponseMessage>(res, 400, {
           error: 'Invalid identity format'
         })
@@ -776,6 +790,7 @@ export async function createServerComponent({
       const identity = storage.getIdentity(identityId)
 
       if (!identity) {
+        identityLogger.log(`[IID:${identityId}] Received a request to retrieve a non-existent identity`)
         return sendResponse<InvalidResponseMessage>(res, 404, {
           error: 'Identity not found'
         })
@@ -783,6 +798,7 @@ export async function createServerComponent({
 
       if (identity.expiration < new Date()) {
         storage.deleteIdentity(identityId)
+        identityLogger.log(`[IID:${identityId}] Received a request to retrieve an expired identity`)
         return sendResponse<InvalidResponseMessage>(res, 410, {
           error: 'Identity has expired'
         })
@@ -792,12 +808,15 @@ export async function createServerComponent({
         // Delete the identity from the storage
         storage.deleteIdentity(identityId)
 
+        identityLogger.log(`[IID:${identityId}][EXP:${identity.expiration.getTime()}] Successfully served identity`)
+
         // Return the identity for auto-login
         sendResponse<IdentityIdValidationResponse>(res, 200, {
           identity: identity.identity
         })
       } catch (error) {
-        logger.error(`Error serving identity: ${isErrorWithMessage(error) ? error.message : 'Unknown error'}`)
+        const errorMessage = isErrorWithMessage(error) ? error.message : 'Unknown error'
+        identityLogger.error(`[IID:${identityId}] Error serving identity: ${errorMessage}`)
         return sendResponse<InvalidResponseMessage>(res, 500, {
           error: 'Internal server error'
         })
