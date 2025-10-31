@@ -464,8 +464,15 @@ export async function createServerComponent({
     }
 
     // Helper function to get client IP address from request
-    // Prioritizes trusted headers (Cloudflare's CF-Connecting-IP, then X-Real-IP) over X-Forwarded-For
+    // Prioritizes trusted headers (True-Client-IP, X-Real-IP, Cloudflare's CF-Connecting-IP) over X-Forwarded-For
     const getClientIp = (req: Request): string => {
+      // Check True-Client-IP header (set by proxies like Cloudflare, contains the visitor's IP address)
+      const trueClientIp = req.headers['true-client-ip']
+      if (trueClientIp) {
+        const ip = Array.isArray(trueClientIp) ? trueClientIp[0] : trueClientIp
+        return normalizeIp(ip)
+      }
+
       // Check X-Real-IP header (set by proxies when configured, more trustworthy than X-Forwarded-For)
       const xRealIp = req.headers['x-real-ip']
       if (xRealIp) {
