@@ -322,7 +322,10 @@ test('when testing identity endpoints', args => {
           method: 'POST',
           path: '/identities',
           body: requestData,
-          identity: subnetTestIdentity
+          identity: subnetTestIdentity,
+          headers: {
+            'X-Real-IP': '127.0.0.1'
+          }
         })
         const createResponseBody = await createResponse.json()
         subnetIdentityId = createResponseBody.identityId
@@ -332,7 +335,7 @@ test('when testing identity endpoints', args => {
         const response = await fetch(`${baseUrl}/identities/${subnetIdentityId}`, {
           method: 'GET',
           headers: {
-            'CF-Connecting-IP': '127.0.0.2'
+            'X-Real-IP': '127.0.0.2'
           }
         })
 
@@ -354,7 +357,10 @@ test('when testing identity endpoints', args => {
           method: 'POST',
           path: '/identities',
           body: requestData,
-          identity: ipv6TestIdentity
+          identity: ipv6TestIdentity,
+          headers: {
+            'X-Real-IP': '127.0.0.1'
+          }
         })
         const createResponseBody = await createResponse.json()
         ipv6IdentityId = createResponseBody.identityId
@@ -364,7 +370,7 @@ test('when testing identity endpoints', args => {
         const response = await fetch(`${baseUrl}/identities/${ipv6IdentityId}`, {
           method: 'GET',
           headers: {
-            'CF-Connecting-IP': '::ffff:127.0.0.1'
+            'X-Real-IP': '::ffff:127.0.0.1'
           }
         })
 
