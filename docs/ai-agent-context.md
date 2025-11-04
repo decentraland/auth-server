@@ -12,6 +12,7 @@
 - Handles authentication flow with ephemeral wallet generation for identity creation
 
 **Communication Pattern:**
+
 - Real-time bidirectional via Socket.IO WebSockets (default)
 - HTTP polling alternative (POST /requests, GET /requests/:id)
 - Request-response relay pattern between desktop client ↔ auth server ↔ browser dApp
@@ -45,4 +46,7 @@
 - `src/adapters/`: Database implementations, Socket.IO handlers
 - `src/controllers/`: HTTP routes and handlers for request management
 - `src/migrations/`: PostgreSQL schema migrations
+
+```
+
 ```
