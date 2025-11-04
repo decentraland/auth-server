@@ -33,7 +33,7 @@ The next example will show how a `personal_sign` can be requested by the desktop
 1. The desktop client has to connect to the auth server through web sockets.
 
 ```ts
-const socket = io('https://auth-api.decentraland.org')
+const socket = io('https:/-api.decentraland.org')
 ```
 
 2. The desktop client has to send a request message with the method information to the auth server, and wait for the response.
@@ -71,6 +71,7 @@ const outcome = await new Promise((resolve, reject) => {
 5. Get the `result` and the `sender` from the outcome message and do with them whatever is necessary.
 
 #### Using http-polling without Socket.IO
+
 It is possible avoid using `SocketIO` as a request maker (client-side). In the next example, the same flow as below is presented but using http-polling:
 
 1. The desktop client has to send a request message with the method information to the auth server by directly sending a http POST to the `/requests` path.
@@ -97,7 +98,7 @@ async function getResponse(requestId: string) {
     if (response.statusCode === 204) {
       // Result is not ready yet, wait a second
       await new Promise(resolve => setTimeout(resolve, 1000))
-      continue;
+      continue
     }
     return await response.json()
   }
@@ -172,4 +173,8 @@ const identity = {
     }
   ]
 }
+
+## AI Agent Context
+
+For detailed AI Agent context, see [docs/ai-agent-context.md](docs/ai-agent-context.md).
 ```
