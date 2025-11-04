@@ -71,6 +71,7 @@ const outcome = await new Promise((resolve, reject) => {
 5. Get the `result` and the `sender` from the outcome message and do with them whatever is necessary.
 
 #### Using http-polling without Socket.IO
+
 It is possible avoid using `SocketIO` as a request maker (client-side). In the next example, the same flow as below is presented but using http-polling:
 
 1. The desktop client has to send a request message with the method information to the auth server by directly sending a http POST to the `/requests` path.
@@ -97,7 +98,7 @@ async function getResponse(requestId: string) {
     if (response.statusCode === 204) {
       // Result is not ready yet, wait a second
       await new Promise(resolve => setTimeout(resolve, 1000))
-      continue;
+      continue
     }
     return await response.json()
   }
@@ -173,7 +174,7 @@ const identity = {
   ]
 }
 
-## 🤖 AI Agent Context
+## AI Agent Context
 
 **Service Purpose:** Facilitates secure communication between the Decentraland desktop client and browser-based authentication dApp. Enables the desktop client to execute wallet operations (transactions, signatures) using the user's browser wallet through a request-response relay pattern.
 
@@ -186,7 +187,7 @@ const identity = {
 - Supports both WebSocket (Socket.IO) and HTTP polling communication patterns
 - Handles authentication flow with ephemeral wallet generation for identity creation
 
-**Communication Pattern:** 
+**Communication Pattern:**
 - Real-time bidirectional via Socket.IO WebSockets (default)
 - HTTP polling alternative (POST /requests, GET /requests/:id)
 - Request-response relay pattern between desktop client ↔ auth server ↔ browser dApp
