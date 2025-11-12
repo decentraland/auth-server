@@ -18,6 +18,8 @@ export type StorageRequest = Request & {
   sender?: string
   response?: OutcomeResponseMessage
   requiresValidation: boolean
+  // new token use to get the auth_chain result
+  token?: string
 }
 
 export type StorageIdentity = {

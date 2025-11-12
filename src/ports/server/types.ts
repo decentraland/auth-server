@@ -9,11 +9,22 @@ export enum MessageType {
   RECOVER = 'recover',
   OUTCOME = 'outcome',
   INVALID = 'invalid',
-  REQUEST_VALIDATION_STATUS = 'request-validation-status'
+  REQUEST_VALIDATION_STATUS = 'request-validation-status',
+  REDEEM_LOGIN_TOKEN = 'redeem_login_token'
+}
+
+export enum Method {
+  DCL_PERSONAL_SIGN = 'dcl_personal_sign',
+  DCL_PERSONAL_SIGN_WITH_TOKEN = 'dcl_personal_sign_with_token',
+  DCL_UNKNOWN = 'string'
+}
+
+export type RequestTokenMessage = {
+  token: string
 }
 
 export type Request = {
-  method: string
+  method: Method
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   params: any[]
 }

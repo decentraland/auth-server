@@ -11,8 +11,11 @@ import { AuthChain } from '@dcl/schemas'
 import { express as authMiddleware, DecentralandSignatureData } from 'decentraland-crypto-middleware'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
-import { METHOD_DCL_PERSONAL_SIGN, FIFTEEN_MINUTES_IN_MILLISECONDS } from './constants'
+import { StorageRequest } from '../storage/types'
+import { FIFTEEN_MINUTES_IN_MILLISECONDS } from './constants'
 import {
+  Method,
+  RequestTokenMessage,
   HttpOutcomeMessage,
   IServerComponent,
   IdentityResponse,
@@ -36,8 +39,16 @@ import {
   validateRequestMessage,
   validateRequestValidationMessage,
   validateIdentityId,
-  validateIdentityRequest
+  validateIdentityRequest,
+  validateRequestTokenMessage
 } from './validations'
+
+function generateSignInToken() {
+  const token = uuid()
+  const deepLink = `decentraland://?sign_in&token=${token}`
+
+  return { token, deepLink }
+}
 
 export async function createServerComponent({
   config,
@@ -130,7 +141,7 @@ export async function createServerComponent({
 
             let sender: string | undefined
 
-            if (msg.method !== METHOD_DCL_PERSONAL_SIGN) {
+            if (msg.method !== Method.DCL_PERSONAL_SIGN) {
               const authChain = msg.authChain
 
               if (!authChain) {
@@ -170,7 +181,7 @@ export async function createServerComponent({
             const requestId = uuid()
             const expiration = new Date(
               Date.now() +
-                (msg.method !== METHOD_DCL_PERSONAL_SIGN ? requestExpirationInSeconds : dclPersonalSignExpirationInSeconds) * 1000
+                (msg.method !== Method.DCL_PERSONAL_SIGN ? requestExpirationInSeconds : dclPersonalSignExpirationInSeconds) * 1000
             )
             const code = Math.floor(Math.random() * 100)
 
@@ -196,6 +207,63 @@ export async function createServerComponent({
           parentTracingContext
         )
       )
+
+      function getRequest(requestId: string | undefined, cb: (...args: unknown[]) => void): [RecoverMessage, StorageRequest] | void {
+        let msg: RecoverMessage
+        logger.log('Received a recover request')
+
+        try {
+          msg = validateRecoverMessage({ requestId })
+        } catch (e) {
+          ack<InvalidResponseMessage>(cb, {
+            error: isErrorWithMessage(e) ? e.message : 'Unknown error'
+          })
+
+          logger.log('Received a login token request with invalid message')
+          return
+        }
+        const request = storage.getRequest(msg.requestId)
+        if (!request) {
+          ack<InvalidResponseMessage>(cb, {
+            error: `Request with id "${msg.requestId}" not found`
+          })
+
+          logger.log(`[RID:${msg.requestId}] Received a recover request for a non-existent request`)
+
+          return
+        }
+
+        return [msg, request]
+      }
+
+      socket.on(MessageType.REDEEM_LOGIN_TOKEN, (data: { token: string; requestId: string }, cb) => {
+        tracer.span('websocket-redeem-login-with-token', () => {
+          const [message, request] = getRequest(data.requestId, cb) || []
+          if (!message || !request) return
+
+          function ackWithError(error: string, errorMessage?: string) {
+            ack<InvalidResponseMessage>(cb, { error })
+            message && storage.setRequest(message.requestId, null)
+            logger.log(errorMessage ?? error ?? '')
+            return
+          }
+
+          if (request.expiration < new Date()) {
+            return ackWithError('Request expired')
+          }
+
+          if (!request.response) {
+            return ackWithError('Response not found')
+          }
+
+          if (!data.token || data.token !== request.token) {
+            return ackWithError('Invalid token')
+          }
+
+          ack<OutcomeResponseMessage>(cb, request.response)
+          storage.setRequest(message.requestId, null)
+        })
+      })
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       socket.on(MessageType.RECOVER, (data: any, cb) =>
@@ -310,6 +378,13 @@ export async function createServerComponent({
               return
             }
 
+            if (request.method === Method.DCL_PERSONAL_SIGN_WITH_TOKEN) {
+              const { token, deepLink } = generateSignInToken()
+              request.response = msg
+              ack<ReturnType<typeof generateSignInToken>>(cb, { token, deepLink })
+              return
+            }
+
             // If it has a socketId, it means it was a request by socket.io
             //  otherwise, we hold the response until the client polls for it.
             if (request.socketId) {
@@ -342,7 +417,6 @@ export async function createServerComponent({
           parentTracingContext
         )
       )
-
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       socket.on(MessageType.REQUEST_VALIDATION_STATUS, (data: any, cb) => {
         tracer.span(
@@ -537,6 +611,61 @@ export async function createServerComponent({
       return false
     }
 
+    // Get the outcome of a request
+    app.post('/requests/:requestId/token', async (req: Request, res: Response) => {
+      const requestId = req.params.requestId
+      const data = req.body
+      let msg: RequestTokenMessage
+
+      try {
+        msg = validateRequestTokenMessage(data)
+      } catch (e) {
+        return sendResponse<InvalidResponseMessage>(res, 400, {
+          error: isErrorWithMessage(e) ? e.message : 'Unknown error'
+        })
+      }
+      const request = storage.getRequest(requestId)
+      const token = msg.token
+
+      if (!request) {
+        return sendResponse<InvalidResponseMessage>(res, 404, {
+          error: `Request with id "${requestId}" not found`
+        })
+      }
+
+      if (request.expiration < new Date()) {
+        storage.setRequest(requestId, null)
+        return sendResponse<InvalidResponseMessage>(res, 410, {
+          error: `Request with id "${requestId}" has expired`
+        })
+      }
+
+      if (!request.response) {
+        return sendResponse<InvalidResponseMessage>(res, 204, {
+          error: `Request with id "${requestId}" has not been completed`
+        })
+      }
+
+      if (request.method !== Method.DCL_PERSONAL_SIGN_WITH_TOKEN) {
+        storage.setRequest(requestId, null)
+        return sendResponse<InvalidResponseMessage>(res, 410, {
+          error: `Request with id "${requestId}" is invalid. Use Sign in with token method`
+        })
+      }
+
+      if (!token || !request.token || token !== request.token) {
+        storage.setRequest(requestId, null)
+        return sendResponse<InvalidResponseMessage>(res, 410, {
+          error: `Request with id "${requestId}" has an invalid token.`
+        })
+      }
+
+      logger.log(`[RID:${requestId}] Successfully sent outcome message to the client via HTTP`)
+
+      storage.setRequest(requestId, null)
+      sendResponse<OutcomeResponseMessage>(res, 200, request.response)
+    })
+
     app.post('/requests', async (req: Request, res: Response) => {
       const data = req.body
       let msg: RequestMessage
@@ -550,8 +679,7 @@ export async function createServerComponent({
       }
 
       let sender: string | undefined
-
-      if (msg.method !== METHOD_DCL_PERSONAL_SIGN) {
+      if (msg.method !== Method.DCL_PERSONAL_SIGN && msg.method !== Method.DCL_PERSONAL_SIGN_WITH_TOKEN) {
         try {
           const { sender: validatedSender } = await validateAuthChain(msg.authChain || [])
           sender = validatedSender
@@ -564,7 +692,7 @@ export async function createServerComponent({
 
       const requestId = uuid()
       const expiration = new Date(
-        Date.now() + (msg.method !== METHOD_DCL_PERSONAL_SIGN ? requestExpirationInSeconds : dclPersonalSignExpirationInSeconds) * 1000
+        Date.now() + (msg.method !== Method.DCL_PERSONAL_SIGN ? requestExpirationInSeconds : dclPersonalSignExpirationInSeconds) * 1000
       )
       const code = Math.floor(Math.random() * 100)
 
@@ -589,7 +717,6 @@ export async function createServerComponent({
     app.get('/v2/requests/:requestId', async (req: Request, res: Response) => {
       const requestId = req.params.requestId
       const request = storage.getRequest(requestId)
-
       if (!request) {
         return sendResponse<InvalidResponseMessage>(res, 404, {
           error: `Request with id "${requestId}" not found`
@@ -696,6 +823,13 @@ export async function createServerComponent({
         })
       }
 
+      if (request.method === Method.DCL_PERSONAL_SIGN_WITH_TOKEN && req.params.token !== request.token) {
+        storage.setRequest(requestId, null)
+        return sendResponse<InvalidResponseMessage>(res, 410, {
+          error: `Request with id "${requestId}" has an invalid token`
+        })
+      }
+
       logger.log(`[RID:${requestId}] Successfully sent outcome message to the client via HTTP`)
 
       storage.setRequest(requestId, null)
@@ -747,6 +881,17 @@ export async function createServerComponent({
       const outcomeMessage: OutcomeResponseMessage = {
         ...msg,
         requestId
+      }
+
+      if (request.method === Method.DCL_PERSONAL_SIGN_WITH_TOKEN) {
+        const { token, deepLink } = generateSignInToken()
+        // Store the outcome message in the request
+        request.response = {
+          ...msg,
+          requestId
+        }
+
+        return sendResponse(res, 200, { token, deepLink })
       }
 
       if (request.socketId && sockets[request.socketId]) {
