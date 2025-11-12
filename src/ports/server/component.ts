@@ -256,6 +256,10 @@ export async function createServerComponent({
             return ackWithError('Response not found')
           }
 
+          if (request.method !== Method.DCL_PERSONAL_SIGN_WITH_TOKEN) {
+            return ackWithError('Invalid login method')
+          }
+
           if (!data.token || data.token !== request.token) {
             return ackWithError('Invalid token')
           }
