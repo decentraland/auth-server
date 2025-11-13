@@ -177,11 +177,13 @@ export async function createServerComponent({
                 return
               }
             }
-
             const requestId = uuid()
             const expiration = new Date(
               Date.now() +
-                (msg.method !== Method.DCL_PERSONAL_SIGN ? requestExpirationInSeconds : dclPersonalSignExpirationInSeconds) * 1000
+                (msg.method !== Method.DCL_PERSONAL_SIGN && msg.method !== Method.DCL_PERSONAL_SIGN_WITH_TOKEN
+                  ? requestExpirationInSeconds
+                  : dclPersonalSignExpirationInSeconds) *
+                  1000
             )
             const code = Math.floor(Math.random() * 100)
 
@@ -697,7 +699,11 @@ export async function createServerComponent({
 
       const requestId = uuid()
       const expiration = new Date(
-        Date.now() + (msg.method !== Method.DCL_PERSONAL_SIGN ? requestExpirationInSeconds : dclPersonalSignExpirationInSeconds) * 1000
+        Date.now() +
+          (msg.method !== Method.DCL_PERSONAL_SIGN && msg.method !== Method.DCL_PERSONAL_SIGN_WITH_TOKEN
+            ? requestExpirationInSeconds
+            : dclPersonalSignExpirationInSeconds) *
+            1000
       )
       const code = Math.floor(Math.random() * 100)
 

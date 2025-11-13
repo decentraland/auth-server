@@ -184,38 +184,24 @@ test('when redeeming a login token but the request does not exist', args => {
 })
 
 testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when redeeming a login token but the request has expired', args => {
-  let sender: string
   let requestResponse: RequestResponseMessage
-  let token: string
 
   beforeEach(async () => {
     const port = await args.components.config.requireString('HTTP_SERVER_PORT')
     httpClient = await createHttpClient(port)
-    sender = createUnsafeIdentity().address
 
     requestResponse = (await httpClient.request({
       method: Method.DCL_PERSONAL_SIGN_WITH_TOKEN,
       params: ['ephemeral message']
     })) as RequestResponseMessage
-
-    const outcomeResponse = await httpClient.sendSuccessfulOutcome(requestResponse.requestId, sender, 'signature')
-
-    if (outcomeResponse && 'token' in outcomeResponse && outcomeResponse.token) {
-      token = outcomeResponse.token
-    } else {
-      throw new Error('Expected token in response')
-    }
   })
 
-  it('should still allow token redemption if outcome was sent before expiration', async () => {
-    // Even though the request is technically expired, if the outcome was sent
-    // and token generated before expiration, it should still work
-    const redeemResponse = await httpClient.redeemLoginToken(requestResponse.requestId, token)
+  it('should reject outcome if request has expired', async () => {
+    const sender = createUnsafeIdentity().address
+    const outcomeResponse = await httpClient.sendSuccessfulOutcome(requestResponse.requestId, sender, 'signature')
 
-    expect(redeemResponse).toEqual({
-      requestId: requestResponse.requestId,
-      sender,
-      result: 'signature'
+    expect(outcomeResponse).toEqual({
+      error: `Request with id "${requestResponse.requestId}" has expired`
     })
   })
 })
