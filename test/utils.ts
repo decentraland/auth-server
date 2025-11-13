@@ -9,12 +9,17 @@ import {
 
 export type HttpPollingClient = {
   request(data: unknown): Promise<RequestResponseMessage | { error: string }>
-  sendSuccessfulOutcome(requestId: string, sender: string, result: unknown): Promise<{ error: string } | undefined>
+  sendSuccessfulOutcome(
+    requestId: string,
+    sender: string,
+    result: unknown
+  ): Promise<{ error: string } | { token?: string; deepLink?: string } | undefined>
   sendFailedOutcome(requestId: string, sender: string, error: { code: number; message: string }): Promise<{ error: string } | undefined>
   notifyRequestValidation(requestId: string): Promise<{ error: string } | undefined>
   getRequestValidationStatus(requestId: string): Promise<RequestValidationStatusMessage | { error: string } | undefined>
   getOutcome(requestId: string): Promise<OutcomeResponseMessage | undefined>
   recover(requestId: string): Promise<RecoverResponseMessage>
+  redeemLoginToken(requestId: string, token: string): Promise<OutcomeResponseMessage | { error: string }>
 }
 
 export async function createHttpClient(port: number | string): Promise<HttpPollingClient> {
@@ -34,13 +39,17 @@ export async function createHttpClient(port: number | string): Promise<HttpPolli
 
       return response.json()
     },
-    async sendSuccessfulOutcome(requestId: string, sender: string, result: unknown): Promise<{ error: string } | undefined> {
+    async sendSuccessfulOutcome(
+      requestId: string,
+      sender: string,
+      result: unknown
+    ): Promise<{ error: string } | { token?: string; deepLink?: string } | undefined> {
       const response = await fetch(`${url}/v2/requests/${requestId}/outcome`, {
         method: 'POST',
         body: JSON.stringify({ sender, result }),
         headers: [['Content-Type', 'application/json']]
       })
-      let body: { error: string } | undefined
+      let body: { error: string } | { token?: string; deepLink?: string } | undefined
 
       try {
         body = await response.json()
@@ -103,6 +112,20 @@ export async function createHttpClient(port: number | string): Promise<HttpPolli
       })
 
       return result.json()
+    },
+    async redeemLoginToken(requestId: string, token: string): Promise<OutcomeResponseMessage | { error: string }> {
+      const response = await fetch(`${url}/requests/${requestId}/token`, {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+        headers: [['Content-Type', 'application/json']]
+      })
+
+      // Handle 204 No Content response
+      if (response.status === 204) {
+        return { error: 'Response not found' }
+      }
+
+      return response.json()
     }
   }
 }
