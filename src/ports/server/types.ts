@@ -16,7 +16,6 @@ export enum MessageType {
 export enum Method {
   DCL_PERSONAL_SIGN = 'dcl_personal_sign',
   DCL_PERSONAL_SIGN_WITH_TOKEN = 'dcl_personal_sign_with_token',
-  DCL_UNKNOWN = 'string'
 }
 
 export type RequestTokenMessage = {

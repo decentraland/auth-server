@@ -1,8 +1,7 @@
 import { TestArguments } from '@well-known-components/test-helpers'
 import { Socket } from 'socket.io-client'
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
-import { METHOD_DCL_PERSONAL_SIGN } from '../../src/ports/server/constants'
-import { MessageType, RequestResponseMessage, RequestValidationMessage } from '../../src/ports/server/types'
+import { MessageType, Method, RequestResponseMessage, RequestValidationMessage } from '../../src/ports/server/types'
 import { BaseComponents } from '../../src/types'
 import { test, testWithOverrides } from '../components'
 import { createAuthWsClient } from '../utils'
@@ -45,7 +44,7 @@ test('when sending a request message', args => {
 
   it('should respond with a request response message', async () => {
     const response = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -57,7 +56,7 @@ test('when sending a request message', args => {
   })
 })
 
-test(`when sending a request message for a method that is not ${METHOD_DCL_PERSONAL_SIGN}`, args => {
+test(`when sending a request message for a method that is not ${Method.DCL_PERSONAL_SIGN}`, args => {
   beforeEach(async () => {
     await connectClients(args)
   })
@@ -199,7 +198,7 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending a re
 
   it('should respond with an invalid response message', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -220,12 +219,12 @@ test('when sending a recover message for a request that has been overridden by a
 
   it('should respond with an invalid response message', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
 
     await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -240,12 +239,12 @@ test('when sending a recover message for a request that has been overridden by a
 
   it('should respond with a recover response message for the new request', async () => {
     await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
 
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -256,19 +255,19 @@ test('when sending a recover message for a request that has been overridden by a
     expect(recoverResponse).toEqual({
       expiration: requestResponse.expiration,
       code: requestResponse.code,
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
   })
 
   it('should not override the first request if it was sent by a different socket', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
 
     await authDappSocket.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -279,7 +278,7 @@ test('when sending a recover message for a request that has been overridden by a
     expect(recoverResponse).toEqual({
       expiration: requestResponse.expiration,
       code: requestResponse.code,
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
   })
@@ -292,7 +291,7 @@ test('when sending a recover message but the socket that sent it has disconnecte
 
   it('should respond with an invalid response message', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -315,7 +314,7 @@ test('when sending a recover message', args => {
 
   it('should respond with a recover response message', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -326,7 +325,7 @@ test('when sending a recover message', args => {
     expect(recoverResponse).toEqual({
       expiration: requestResponse.expiration,
       code: requestResponse.code,
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
   })
@@ -375,7 +374,7 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending an o
 
   it('should respond with an invalid response message', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -399,7 +398,7 @@ test('when sending an outcome message but the socket that created the request di
 
   it('should respond with an invalid response message', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -428,7 +427,7 @@ test('when the auth dapp sends an outcome message', args => {
 
   it('should respond with an empty object as ack', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -443,7 +442,7 @@ test('when the auth dapp sends an outcome message', args => {
 
   it('should emit to the desktop client the outcome response message', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -470,7 +469,7 @@ test('when the auth dapp sends an outcome message', args => {
 
   it('should emit to the desktop client the outcome response message with an error', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -503,7 +502,7 @@ test('when the auth dapp sends an outcome message', args => {
 
   it('should respond with an invalid response message if calling the output twice', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
 
@@ -534,7 +533,7 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })(
 
     it('should respond with an error indicating that the request has expired', async () => {
       const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-        method: METHOD_DCL_PERSONAL_SIGN,
+        method: Method.DCL_PERSONAL_SIGN,
         params: []
       })
 
@@ -576,7 +575,7 @@ test('when posting that a request needs validation and the request is valid', ar
   describe('and there is a client connected listening for the request validation', () => {
     beforeEach(async () => {
       requestResponse = (await desktopClientSocket.emitWithAck('request', {
-        method: METHOD_DCL_PERSONAL_SIGN,
+        method: Method.DCL_PERSONAL_SIGN,
         params: []
       })) as RequestResponseMessage
     })
@@ -602,7 +601,7 @@ test('when posting that a request needs validation and the request is valid', ar
   describe('and there is no client connected listening for the request validation', () => {
     beforeEach(async () => {
       requestResponse = (await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
-        method: METHOD_DCL_PERSONAL_SIGN,
+        method: Method.DCL_PERSONAL_SIGN,
         params: []
       })) as RequestResponseMessage
     })
