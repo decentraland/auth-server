@@ -385,6 +385,7 @@ export async function createServerComponent({
             if (request.method === Method.DCL_PERSONAL_SIGN_WITH_TOKEN) {
               const { token, deepLink } = generateSignInToken()
               request.response = msg
+              request.token = token
               ack<ReturnType<typeof generateSignInToken>>(cb, { token, deepLink })
               return
             }
@@ -895,8 +896,9 @@ export async function createServerComponent({
 
       if (request.method === Method.DCL_PERSONAL_SIGN_WITH_TOKEN) {
         const { token, deepLink } = generateSignInToken()
-        // Store the outcome message in the request
+        // Store the outcome message and token in the request
         request.response = outcomeMessage
+        request.token = token
 
         return sendResponse(res, 200, { token, deepLink })
       }
