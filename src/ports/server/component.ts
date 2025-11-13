@@ -735,6 +735,12 @@ export async function createServerComponent({
         })
       }
 
+      if (request.response) {
+        return sendResponse<InvalidResponseMessage>(res, 410, {
+          error: `Request with id "${requestId}" already has a response`
+        })
+      }
+
       sendResponse<RecoverResponseMessage>(res, 200, {
         expiration: request.expiration,
         code: request.code,
@@ -827,7 +833,7 @@ export async function createServerComponent({
         })
       }
 
-      if (request.method === Method.DCL_PERSONAL_SIGN_WITH_TOKEN && req.params.token !== request.token) {
+      if (request.method === Method.DCL_PERSONAL_SIGN_WITH_TOKEN) {
         storage.setRequest(requestId, null)
         return sendResponse<InvalidResponseMessage>(res, 410, {
           error: `Request with id "${requestId}" has an invalid token`
@@ -890,10 +896,7 @@ export async function createServerComponent({
       if (request.method === Method.DCL_PERSONAL_SIGN_WITH_TOKEN) {
         const { token, deepLink } = generateSignInToken()
         // Store the outcome message in the request
-        request.response = {
-          ...msg,
-          requestId
-        }
+        request.response = outcomeMessage
 
         return sendResponse(res, 200, { token, deepLink })
       }
@@ -910,10 +913,7 @@ export async function createServerComponent({
         storage.setRequest(requestId, null)
       } else {
         // Store the outcome message in the request
-        request.response = {
-          ...msg,
-          requestId
-        }
+        request.response = outcomeMessage
       }
 
       return res.sendStatus(200)
