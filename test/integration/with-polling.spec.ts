@@ -2,8 +2,7 @@ import { DefaultEventsMap } from 'socket.io/dist/typed-events'
 import { Socket } from 'socket.io-client'
 import { AuthIdentity } from '@dcl/crypto'
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
-import { METHOD_DCL_PERSONAL_SIGN } from '../../src/ports/server/constants'
-import { MessageType, OutcomeResponseMessage, RequestResponseMessage, RequestValidationMessage } from '../../src/ports/server/types'
+import { MessageType, Method, OutcomeResponseMessage, RequestResponseMessage, RequestValidationMessage } from '../../src/ports/server/types'
 import { test, testWithOverrides } from '../components'
 import { createHttpClient, createAuthWsClient, HttpPollingClient } from '../utils'
 import { createTestIdentity, generateRandomIdentityId } from '../utils/test-identity'
@@ -33,7 +32,7 @@ test('when sending a request message with an invalid schema', args => {
   })
 })
 
-test(`when sending a request message for a method that is not ${METHOD_DCL_PERSONAL_SIGN}`, args => {
+test(`when sending a request message for a method that is not ${Method.DCL_PERSONAL_SIGN}`, args => {
   beforeEach(async () => {
     const port = await args.components.config.requireString('HTTP_SERVER_PORT')
     wsClient = await createAuthWsClient(port)
@@ -144,7 +143,7 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending a re
 
   it('should respond with an invalid response message', async () => {
     const requestResponse = (await httpClient.request({
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })) as RequestResponseMessage
 
@@ -164,7 +163,7 @@ test('when sending a recover message', args => {
 
   it('should respond with the recover data of the request', async () => {
     const requestResponse = (await httpClient.request({
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })) as RequestResponseMessage
 
@@ -173,7 +172,7 @@ test('when sending a recover message', args => {
     expect(recoverResponse).toEqual({
       expiration: requestResponse.expiration,
       code: requestResponse.code,
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })
   })
@@ -187,7 +186,7 @@ test('when sending an outcome message with an invalid schema', args => {
 
   it('should respond with an invalid response message', async () => {
     const requestResponse = (await httpClient.request({
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })) as RequestResponseMessage
 
@@ -226,7 +225,7 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending an o
 
   it('should respond with an invalid response message', async () => {
     const requestResponse = (await httpClient.request({
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })) as RequestResponseMessage
 
@@ -251,7 +250,7 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
 
   it('should respond with the outcome response message', async () => {
     const requestResponse = (await httpClient.request({
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })) as RequestResponseMessage
 
@@ -268,7 +267,7 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
 
   it('should send the outcome response message to a websocket connected client when the outcome is sent via the HTTP', async () => {
     const requestResponse = (await wsClient.emitWithAck('request', {
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })) as RequestResponseMessage
 
@@ -289,7 +288,7 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
 
   it('should respond with the outcome response message with an error', async () => {
     const requestResponse = (await httpClient.request({
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })) as RequestResponseMessage
 
@@ -312,7 +311,7 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
 
   it('should respond with an invalid response message if calling the output twice', async () => {
     const requestResponse = (await httpClient.request({
-      method: METHOD_DCL_PERSONAL_SIGN,
+      method: Method.DCL_PERSONAL_SIGN,
       params: []
     })) as RequestResponseMessage
 
@@ -336,7 +335,7 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })(
 
     it('should respond with a 410 and an expired response message', async () => {
       const requestResponse = (await httpClient.request({
-        method: METHOD_DCL_PERSONAL_SIGN,
+        method: Method.DCL_PERSONAL_SIGN,
         params: []
       })) as RequestResponseMessage
 
@@ -377,7 +376,7 @@ test('when posting that a request needs validation and the request is valid', ar
   describe('and there is a client connected listening for the request validation', () => {
     beforeEach(async () => {
       requestResponse = (await wsClient.emitWithAck('request', {
-        method: METHOD_DCL_PERSONAL_SIGN,
+        method: Method.DCL_PERSONAL_SIGN,
         params: []
       })) as RequestResponseMessage
     })
@@ -400,7 +399,7 @@ test('when posting that a request needs validation and the request is valid', ar
   describe('and there is no client connected listening for the request validation', () => {
     beforeEach(async () => {
       requestResponse = (await httpClient.request({
-        method: METHOD_DCL_PERSONAL_SIGN,
+        method: Method.DCL_PERSONAL_SIGN,
         params: []
       })) as RequestResponseMessage
     })
@@ -435,7 +434,7 @@ test('when posting that a request needs validation and the request is valid', ar
 //       const port = await args.components.config.requireString('HTTP_SERVER_PORT')
 //       httpClient = await createHttpClient(port)
 //       requestResponse = (await httpClient.request({
-//         method: METHOD_DCL_PERSONAL_SIGN,
+//         method: Method.DCL_PERSONAL_SIGN,
 //         params: []
 //       })) as RequestResponseMessage
 //     })
@@ -457,7 +456,7 @@ test('when posting that a request needs validation and the request is valid', ar
 //     const port = await args.components.config.requireString('HTTP_SERVER_PORT')
 //     httpClient = await createHttpClient(port)
 //     requestResponse = (await httpClient.request({
-//       method: METHOD_DCL_PERSONAL_SIGN,
+//       method: Method.DCL_PERSONAL_SIGN,
 //       params: []
 //     })) as RequestResponseMessage
 //   })
@@ -479,7 +478,7 @@ test('when posting that a request needs validation and the request is valid', ar
 //     const port = await args.components.config.requireString('HTTP_SERVER_PORT')
 //     httpClient = await createHttpClient(port)
 //     requestResponse = (await httpClient.request({
-//       method: METHOD_DCL_PERSONAL_SIGN,
+//       method: Method.DCL_PERSONAL_SIGN,
 //       params: []
 //     })) as RequestResponseMessage
 

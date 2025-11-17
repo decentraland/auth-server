@@ -11,6 +11,7 @@
     "test:watch": "jest --watch --verbose -c jest.config.json",
     "test:integration": "jest --forceExit --detectOpenHandles --verbose -c jest.integration.config.json --runInBand",
     "test:integration:watch": "jest --watch --verbose -c jest.integration.config.json --runInBand",
+    "test:token-flow": "ts-node test/test-token-flow.ts",
     "lint": "eslint -c .eslintrc.json {src/**/*.ts,test/**/*.ts}",
     "check:code": "eslint -c .eslintrc.json {src,test}",
     "check:prettier": "prettier -c '{src,test}/**/*.{js,ts,json,yml,md}'",

@@ -71,6 +71,7 @@ const outcome = await new Promise((resolve, reject) => {
 5. Get the `result` and the `sender` from the outcome message and do with them whatever is necessary.
 
 #### Using http-polling without Socket.IO
+
 It is possible avoid using `SocketIO` as a request maker (client-side). In the next example, the same flow as below is presented but using http-polling:
 
 1. The desktop client has to send a request message with the method information to the auth server by directly sending a http POST to the `/requests` path.
@@ -97,7 +98,7 @@ async function getResponse(requestId: string) {
     if (response.statusCode === 204) {
       // Result is not ready yet, wait a second
       await new Promise(resolve => setTimeout(resolve, 1000))
-      continue;
+      continue
     }
     return await response.json()
   }
@@ -173,3 +174,83 @@ const identity = {
   ]
 }
 ```
+
+### Deep Link Token Authentication (Alternative Flow)
+
+This server also supports an alternative authentication flow using deep link tokens, which provides enhanced security and improved user experience by eliminating the manual verification code step. This approach is detailed in [ADR-288](https://adr.decentraland.org/adr/ADR-288).
+
+#### Security Benefits
+
+- **Prevents session hijacking**: Even if authentication URLs are shared, tokens are delivered only to the local machine via OS-level deep link handling
+- **Eliminates manual verification**: No need for users to manually check verification codes
+- **Same-machine guarantee**: Deep links only work on the machine where both browser and client are running
+
+#### How It Works
+
+1. Desktop client initiates sign-in with `use_token=true` parameter
+2. User completes social login in browser
+3. Server generates a secure token and returns it with a deep link
+4. Browser opens `decentraland://?sign_in&token=<secure_token>`
+5. OS routes the deep link to the registered Decentraland client
+6. Client extracts token and redeems it via WebSocket or HTTP
+7. Server validates token and returns the AUTH CHAIN
+
+#### Usage with WebSocket
+
+```ts
+// 1. Create request with dcl_personal_sign_with_token method
+const { requestId, expiration, code } = await socket.emitWithAck('request', {
+  method: 'dcl_personal_sign_with_token',
+  params: [ephemeralMessage]
+})
+
+// 2. Open browser with use_token=true parameter
+const authUrl = `https://auth.decentraland.org/login?requestId=${requestId}&use_token=true`
+// Open authUrl in browser...
+
+// 3. When deep link is received by the client, redeem the token
+const outcome = await socket.emitWithAck('redeem_login_token', {
+  requestId,
+  token: extractedTokenFromDeepLink
+})
+
+// 4. Use the outcome to create identity (same as standard flow)
+const signer = outcome.sender
+const signature = outcome.result
+```
+
+#### Usage with HTTP Polling
+
+```ts
+// 1. Create request with dcl_personal_sign_with_token method
+const response = await fetch(`${authServerUrl}/requests`, {
+  method: 'POST',
+  headers: [['Content-type', 'application/json']],
+  body: JSON.stringify({
+    method: 'dcl_personal_sign_with_token',
+    params: [ephemeralMessage]
+  })
+})
+const { requestId } = await response.json()
+
+// 2. Open browser with use_token=true parameter
+const authUrl = `https://auth.decentraland.org/login?requestId=${requestId}&use_token=true`
+// Open authUrl in browser...
+
+// 3. When deep link is received, POST the token to redeem it
+const tokenResponse = await fetch(`${authServerUrl}/requests/${requestId}/token`, {
+  method: 'POST',
+  headers: [['Content-type', 'application/json']],
+  body: JSON.stringify({ token: extractedTokenFromDeepLink })
+})
+const outcome = await tokenResponse.json()
+
+// 4. Use the outcome to create identity (same as standard flow)
+```
+
+#### Important Notes
+
+- Tokens are single-use and expire within 5 minutes
+- The client must register the `decentraland://` protocol handler with the OS
+- This flow is opt-in via the `use_token=true` parameter
+- The standard verification code flow remains the default method
