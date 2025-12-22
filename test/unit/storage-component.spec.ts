@@ -1,4 +1,5 @@
 import { AuthIdentity } from '@dcl/crypto'
+import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
 import { createStorageComponent } from '../../src/ports/storage/component'
 import { IStorageComponent } from '../../src/ports/storage/types'
 import { createTestIdentity, generateRandomIdentityId } from '../utils/test-identity'
@@ -8,7 +9,8 @@ let validAuthIdentity: AuthIdentity
 let identityId: string
 
 beforeEach(async () => {
-  storage = createStorageComponent()
+  const cache = createInMemoryCacheComponent()
+  storage = createStorageComponent({ cache })
 
   identityId = generateRandomIdentityId()
 
