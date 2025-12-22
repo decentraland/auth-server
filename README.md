@@ -2,174 +2,144 @@
 
 [![Coverage Status](https://coveralls.io/repos/github/decentraland/auth-server/badge.svg?branch=main)](https://coveralls.io/github/decentraland/auth-server?branch=main)
 
-Server in charge of communication between the decentraland desktop client and the auth dapp on the browser.
+This server facilitates communication between the Decentraland desktop client and the auth dapp on the browser. It allows the desktop client to execute wallet methods (`eth_sendTransaction`, `personal_sign`, etc.) using the wallet the user has on their browser by leveraging the auth dapp.
 
-Allows the desktop client to execute wallet methods (eth_sendTransaction, personal_sign, etc.) using the wallet the user has on their browser by leveraging the auth dapp.
+## Table of Contents
 
-## Requests
+- [Features](#features)
+- [Dependencies & Related Services](#dependencies--related-services)
+- [API Documentation](#api-documentation)
+- [Getting Started](#getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Installation](#installation)
+  - [Configuration](#configuration)
+  - [Running the Service](#running-the-service)
+- [Testing](#testing)
 
-Requests are the main entity this server handles. Requests contain the wallet methods that the desktop client want to execute.
+## Features
 
-They are created on the auth server on demand by the desktop client. The server then provides a request id, which can then be used to recover that request on a browser (which in this case it is intended to be opened on the auth dapp).
+- **Authentication Request Management**: Creates, stores, and manages authentication requests with automatic expiration (default: 5 minutes).
+- **WebSocket Real-Time Communication**: Provides Socket.IO-based real-time communication for instant request/response handling between clients and the auth dapp.
+- **HTTP Polling Support**: Offers REST endpoints as an alternative to WebSocket for environments where WebSocket is not available.
+- **Identity Management**: Supports temporary identity creation and retrieval for auto-login flows.
+- **Signature Validation**: Validates Ethereum signatures using `@dcl/crypto` Authenticator to ensure requests are authorized.
+- **Verification Codes**: Generates random verification codes (0-99) for visual confirmation between client and auth dapp.
 
-On the auth dapp, the user can execute said request by using the connected wallet, and communicate the result back to the auth server, which in turn will communicate it back to the desktop client.
+## Dependencies & Related Services
 
-For example, if the desktop client needs to send a transaction, it would create a transaction for the `eth_sendTransaction` method, and await for the result, which would be a transaction hash, to be returned after the flow is complete.
+This service interacts with the following services:
 
-Requests have the following characteristics:
+- **[Auth dApp](https://github.com/decentraland/auth)**: The browser-based application that executes wallet methods on behalf of the user using their connected wallet.
+- **[Decentraland Desktop Client](https://github.com/decentraland/explorer-desktop-launcher)**: The desktop application that initiates authentication requests.
 
-1. Only one request can exist at a time per connected socket. A new request will invalidate a previous one if it existed.
-2. Requests have an expiration, and cannot be consumed after it.
-3. If the socket disconnects, any request made by that socket will be deleted.
+External dependencies:
 
-## Usage
+- **@dcl/crypto**: For Ethereum signature validation
+- **@dcl/schemas**: For Decentraland schema types and validation
+- **Socket.IO**: For WebSocket real-time communication
 
-This section will explain the ways in which the service can be used.
+## API Documentation
 
-[Socket.IO](https://socket.io/) is required to connect to the auth server (https://auth-api.decentraland.org).
+The API is fully documented using the [OpenAPI standard](https://swagger.io/specification/). Its schema is located at [docs/openapi.yaml](docs/openapi.yaml).
 
-The next example will show how a `personal_sign` can be requested by the desktop client.
+## Getting Started
 
-1. The desktop client has to connect to the auth server through web sockets.
+### Prerequisites
 
-```ts
-const socket = io('https://auth-api.decentraland.org')
+Before running this service, ensure you have the following installed:
+
+- **Node.js**: Version 22.x or higher (LTS recommended)
+- **Yarn**: Version 1.22.x or higher
+- **Docker**: For containerized deployment (optional, for integration testing)
+
+### Installation
+
+1. Clone the repository:
+
+```bash
+git clone https://github.com/decentraland/auth-server.git
+cd auth-server
 ```
 
-2. The desktop client has to send a request message with the method information to the auth server, and wait for the response.
+2. Install dependencies:
 
-```ts
-const { requestId, expiration, code } = await socket.emitWithAck('request', {
-  method: 'personal_sign',
-  params: ['message to sign', 'signer address']
-})
+```bash
+yarn install
 ```
 
-The expiration shows when the request will become unavailable. The request must be consumed before it expires.
+3. Build the project:
 
-The code can be used as an easy visual help to be displayed on both the desktop client and the auth dapp for the user to see that if they match, they have a really high chance of being for the same request.
-
-The request id is necessary for the next step.
-
-4. Once the request id is obtained, the client has to listen for the corresponding outcome message that will provide the result of the request that will be executed on the auth dapp.
-
-```ts
-const outcome = await new Promise((resolve, reject) => {
-  socket.on('outcome', msg => {
-    if (msg.requestId === requestId) {
-      socket.off('message', onMessage)
-      if (msg.error) {
-        reject(msg.error)
-      } else {
-        resolve(msg)
-      }
-    }
-  })
-})
+```bash
+yarn build
 ```
 
-5. Get the `result` and the `sender` from the outcome message and do with them whatever is necessary.
+### Configuration
 
-#### Using http-polling without Socket.IO
-It is possible avoid using `SocketIO` as a request maker (client-side). In the next example, the same flow as below is presented but using http-polling:
+The service uses environment variables for configuration. Key environment variables include:
 
-1. The desktop client has to send a request message with the method information to the auth server by directly sending a http POST to the `/requests` path.
+- `HTTP_SERVER_PORT`: Port for the HTTP server (default: 3000)
+- `CORS_ORIGIN`: Comma-separated list of allowed CORS origins (supports regex patterns)
+- `CORS_METHODS`: Allowed HTTP methods for CORS
 
-```ts
-const authServerUrl = 'https://auth-api.decentraland.org'
-const response = await fetch(`${authServerUrl}/requests`, {
-  method: 'POST',
-  headers: [['Content-type', 'application/json']],
-  body: JSON.stringify({
-    method: 'personal_sign',
-    params: ['message to sign', 'signer address']
-  })
-})
-const { requestId, expiration, code } = await response.json()
+### Running the Service
+
+#### Running in development mode
+
+To run the service in development mode:
+
+```bash
+yarn start:dev
 ```
 
-2. Once the request id is obtained, the client has to polling periodically for the corresponding outcome message that will provide the result of the request that will be executed on the auth dapp.
+#### Running in production mode
 
-```ts
-async function getResponse(requestId: string) {
-  while (true) {
-    const response = await fetch(`${authServerUrl}/requests/${requestId}`)
-    if (response.statusCode === 204) {
-      // Result is not ready yet, wait a second
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      continue;
-    }
-    return await response.json()
-  }
-}
-const outcome = await getResponse(requestId)
+To run the compiled service:
+
+```bash
+yarn start
 ```
 
-3. Get the `result` and the `sender` from the outcome message and do with them whatever is necessary.
+## Testing
 
-### Authentication Flow
+This service includes comprehensive test coverage with both unit and integration tests.
 
-For the sign in flow in the desktop client, we will need to use a special method called `dcl_personal_sign`.
+### Running Tests
 
-This methods works similarly to `personal_sign` but with a little difference.
+Run all tests with coverage:
 
-For this example we'll be using `ethers v6` and `@dcl/crypto`
-
-1. The desktop client will need to generate and store an epheremeral wallet.
-
-```ts
-const ephemeralAccount = ethers.Wallet.createRandom()
+```bash
+yarn test
 ```
 
-2. The desktop client has to set a date in which the identity that will be created, expires.
+Run tests in watch mode:
 
-```ts
-const expiration = new Date(Date.now() + 24 * 60 * 60 * 1000) // 1 day in the future as an example.
+```bash
+yarn test:watch
 ```
 
-3. Generate the ephemeral message to be signed using the address of the ephemeral account and the expiration.
+Run only unit tests:
 
-```ts
-const ephemeralMessage = Authenticator.getEphemeralMessage(ephemeralAccount.address, expiration)
+```bash
+yarn test test/unit
 ```
 
-4. Follow the steps decribed on the [Usage](#usage) section, initializing the flow with the following message.
+Run only integration tests:
 
-```ts
-await socket.emitWithAck('request', {
-  method: 'dcl_personal_sign',
-  params: [ephemeralMessage]
-})
+```bash
+yarn test:integration
 ```
 
-As you can see, there is a simple difference with the previous example. That is that personal_sign requires a second parameter that is the address that will sign the message, but we don't know it yet, so only the ephemeral message is sent. The auth dApp will fill the signing address for us.
+### Test Structure
 
-If the signer is sent as a param in the request, the auth dapp will use that instead of using the one of the connected wallet, and execute it as a normal personal_sign.
+- **Unit Tests** (`test/unit/`): Test individual components and functions in isolation
+- **Integration Tests** (`test/integration/`): Test the complete request/response cycle
 
-5. Once the flow is complete, and the desktop client receives the outcome message. The `sender` and the `result` that come with it are necessary to create an auth identity, which will be used to authorize the user into the platform.
+For detailed testing guidelines and standards, refer to our [Testing Standards](https://github.com/decentraland/docs/tree/main/development-standards/testing-standards) documentation.
 
-```ts
-const signer = outcome.sender
-const signature = outcome.result
+## Working with authentication and blockchain requests
 
-const identity = {
-  expiration,
-  ephemeralIdentity: {
-    address: ephemeralAccount.address,
-    privateKey: ephemeralAccount.privateKey,
-    publicKey: ephemeralAccount.publicKey
-  },
-  authChain: [
-    {
-      type: AuthLinkType.SIGNER,
-      payload: signer,
-      signature: ''
-    },
-    {
-      type: signature.length === 132 ? AuthLinkType.ECDSA_PERSONAL_EPHEMERAL : AuthLinkType.ECDSA_EIP_1654_EPHEMERAL,
-      payload: ephemeralMessage,
-      signature: signature
-    }
-  ]
-}
-```
+To understand more about how the server works with this requests, see [docs/requests.md](docs/requests.md).
+
+## AI Agent Context
+
+For detailed AI Agent context, see [docs/ai-agent-context.md](docs/ai-agent-context.md).
