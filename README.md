@@ -75,11 +75,9 @@ yarn build
 
 ### Configuration
 
-The service uses environment variables for configuration. Key environment variables include:
-
-- `HTTP_SERVER_PORT`: Port for the HTTP server (default: 3000)
-- `CORS_ORIGIN`: Comma-separated list of allowed CORS origins (supports regex patterns)
-- `CORS_METHODS`: Allowed HTTP methods for CORS
+The service uses environment variables for configuration.
+Create a `.env` file in the root directory containing the environment variables for the service to run.
+Use the `.env.default` variables as an example.
 
 ### Running the Service
 
