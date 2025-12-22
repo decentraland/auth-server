@@ -2,12 +2,12 @@ import { AuthIdentity } from '@dcl/crypto'
 import { OutcomeResponseMessage, Request } from '../server/types'
 
 export type IStorageComponent = {
-  getRequest(requestId: string): StorageRequest | null
+  getRequest(requestId: string): Promise<StorageRequest | null>
   setRequest(requestId: string, request: StorageRequest | null): void
-  getRequestIdForSocketId(socketId: string): string | null
-  getIdentity(identityId: string): StorageIdentity | null
-  setIdentity(identityId: string, identityData: StorageIdentity | null): void
-  deleteIdentity(identityId: string): void
+  getRequestIdForSocketId(socketId: string): Promise<string | null>
+  getIdentity(identityId: string): Promise<StorageIdentity | null>
+  setIdentity(identityId: string, identityData: StorageIdentity | null): Promise<void>
+  deleteIdentity(identityId: string): Promise<void>
 }
 
 export type StorageRequest = Request & {
