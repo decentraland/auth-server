@@ -78,10 +78,10 @@ export async function createServerComponent({
       socket.on('disconnect', () =>
         tracer.span(
           'websocket-disconnect',
-          () => {
+          async () => {
             logger.log('Disconnected')
 
-            const requestId = storage.getRequestIdForSocketId(socket.id)
+            const requestId = await storage.getRequestIdForSocketId(socket.id)
 
             if (requestId) {
               storage.setRequest(requestId, null)
@@ -201,7 +201,7 @@ export async function createServerComponent({
       socket.on(MessageType.RECOVER, (data: any, cb) =>
         tracer.span(
           'websocket-recover',
-          () => {
+          async () => {
             let msg: RecoverMessage
             logger.log('Received a recover request')
 
@@ -216,7 +216,7 @@ export async function createServerComponent({
               return
             }
 
-            const request = storage.getRequest(msg.requestId)
+            const request = await storage.getRequest(msg.requestId)
 
             if (!request) {
               ack<InvalidResponseMessage>(cb, {
@@ -260,7 +260,7 @@ export async function createServerComponent({
       socket.on(MessageType.OUTCOME, (data: any, cb) =>
         tracer.span(
           'websocket-outcome',
-          () => {
+          async () => {
             let msg: OutcomeMessage
 
             try {
@@ -275,7 +275,7 @@ export async function createServerComponent({
               return
             }
 
-            const request = storage.getRequest(msg.requestId)
+            const request = await storage.getRequest(msg.requestId)
 
             // If the response was already received, it's like the request doesn't exist anymore
             if (!request) {
@@ -347,7 +347,7 @@ export async function createServerComponent({
       socket.on(MessageType.REQUEST_VALIDATION_STATUS, (data: any, cb) => {
         tracer.span(
           'websocket-request-validation',
-          () => {
+          async () => {
             let msg: RequestValidationMessage
 
             try {
@@ -359,7 +359,7 @@ export async function createServerComponent({
               })
             }
 
-            const request = storage.getRequest(msg.requestId)
+            const request = await storage.getRequest(msg.requestId)
 
             // If the response was already received, it's like the request doesn't exist anymore
             if (!request) {
@@ -588,7 +588,7 @@ export async function createServerComponent({
     // Get a request by id
     app.get('/v2/requests/:requestId', async (req: Request, res: Response) => {
       const requestId = req.params.requestId
-      const request = storage.getRequest(requestId)
+      const request = await storage.getRequest(requestId)
 
       if (!request) {
         return sendResponse<InvalidResponseMessage>(res, 404, {
@@ -617,7 +617,7 @@ export async function createServerComponent({
     app.post('/v2/requests/:requestId/validation', async (req: Request, res: Response) => {
       const requestId = req.params.requestId
 
-      const request = storage.getRequest(requestId)
+      const request = await storage.getRequest(requestId)
 
       if (!request) {
         logger.log(`[RID:${requestId}] Received a validation request message for a non-existent request`)
@@ -653,7 +653,7 @@ export async function createServerComponent({
     // Get the request validation status
     app.get('/v2/requests/:requestId/validation', async (req: Request, res: Response) => {
       const requestId = req.params.requestId
-      const request = storage.getRequest(requestId)
+      const request = await storage.getRequest(requestId)
 
       if (!request) {
         return sendResponse<InvalidResponseMessage>(res, 404, {
@@ -675,7 +675,7 @@ export async function createServerComponent({
     // Get the outcome of a request
     app.get('/requests/:requestId', async (req: Request, res: Response) => {
       const requestId = req.params.requestId
-      const request = storage.getRequest(requestId)
+      const request = await storage.getRequest(requestId)
 
       if (!request) {
         return sendResponse<InvalidResponseMessage>(res, 404, {
@@ -717,7 +717,7 @@ export async function createServerComponent({
         })
       }
 
-      const request = storage.getRequest(requestId)
+      const request = await storage.getRequest(requestId)
 
       // If the response was already received, it's like the request doesn't exist anymore
       if (!request) {
@@ -872,7 +872,7 @@ export async function createServerComponent({
         })
       }
 
-      const identity = storage.getIdentity(identityId)
+      const identity = await storage.getIdentity(identityId)
 
       if (!identity) {
         identityLogger.log(`[IID:${identityId}] Received a request to retrieve a non-existent identity`)

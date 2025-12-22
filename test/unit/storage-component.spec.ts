@@ -1,4 +1,5 @@
 import { AuthIdentity } from '@dcl/crypto'
+import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
 import { createStorageComponent } from '../../src/ports/storage/component'
 import { IStorageComponent } from '../../src/ports/storage/types'
 import { createTestIdentity, generateRandomIdentityId } from '../utils/test-identity'
@@ -8,7 +9,8 @@ let validAuthIdentity: AuthIdentity
 let identityId: string
 
 beforeEach(async () => {
-  storage = createStorageComponent()
+  const cache = createInMemoryCacheComponent()
+  storage = createStorageComponent({ cache })
 
   identityId = generateRandomIdentityId()
 
@@ -27,8 +29,8 @@ describe('when storing an identity', () => {
     ipAddress = '127.0.0.1'
   })
 
-  it('should not throw an error', () => {
-    expect(() => {
+  it('should not throw an error', async () => {
+    await expect(
       storage.setIdentity(identityId, {
         identityId,
         identity: validAuthIdentity,
@@ -36,7 +38,7 @@ describe('when storing an identity', () => {
         createdAt,
         ipAddress
       })
-    }).not.toThrow()
+    ).resolves.not.toThrow()
   })
 })
 
@@ -45,13 +47,13 @@ describe('when getting a stored identity', () => {
   let createdAt: Date
   let ipAddress: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     expiration = new Date(Date.now() + 60000)
     createdAt = new Date()
     ipAddress = '127.0.0.1'
 
     // Pre-store an identity for retrieval tests
-    storage.setIdentity(identityId, {
+    await storage.setIdentity(identityId, {
       identityId,
       identity: validAuthIdentity,
       expiration,
@@ -60,8 +62,8 @@ describe('when getting a stored identity', () => {
     })
   })
 
-  it('should return the stored data', () => {
-    const storedIdentity = storage.getIdentity(identityId)
+  it('should return the stored data', async () => {
+    const storedIdentity = await storage.getIdentity(identityId)
 
     expect(storedIdentity).toEqual({
       identityId,
@@ -80,8 +82,8 @@ describe('when getting an identity that is not stored', () => {
     nonExistentId = generateRandomIdentityId()
   })
 
-  it('should return null', () => {
-    const result = storage.getIdentity(nonExistentId)
+  it('should return null', async () => {
+    const result = await storage.getIdentity(nonExistentId)
     expect(result).toBeNull()
   })
 })
@@ -91,13 +93,13 @@ describe('when deleting an identity', () => {
   let createdAt: Date
   let ipAddress: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     expiration = new Date(Date.now() + 60000)
     createdAt = new Date()
     ipAddress = '127.0.0.1'
 
     // Pre-store an identity for deletion tests
-    storage.setIdentity(identityId, {
+    await storage.setIdentity(identityId, {
       identityId,
       identity: validAuthIdentity,
       expiration,
@@ -106,22 +108,22 @@ describe('when deleting an identity', () => {
     })
   })
 
-  it('should remove it from the store', () => {
+  it('should remove it from the store', async () => {
     // Verify it exists before deletion
-    expect(storage.getIdentity(identityId)).toBeDefined()
+    expect(await storage.getIdentity(identityId)).toBeDefined()
 
     // Delete it
-    storage.deleteIdentity(identityId)
+    await storage.deleteIdentity(identityId)
 
     // Verify it's gone
-    expect(storage.getIdentity(identityId)).toBeNull()
+    expect(await storage.getIdentity(identityId)).toBeNull()
   })
 
-  it('should handle deletion of non-existent identity gracefully', () => {
+  it('should handle deletion of non-existent identity gracefully', async () => {
     const nonExistentId = generateRandomIdentityId()
 
     // Should not throw an error when deleting non-existent identity
-    expect(() => storage.deleteIdentity(nonExistentId)).not.toThrow()
+    await expect(storage.deleteIdentity(nonExistentId)).resolves.not.toThrow()
   })
 })
 
@@ -147,9 +149,9 @@ describe('when managing multiple identity IDs', () => {
       ipAddress = '127.0.0.1'
     })
 
-    it('should store and retrieve each identity independently', () => {
+    it('should store and retrieve each identity independently', async () => {
       // Store multiple identities
-      storage.setIdentity(identityId1, {
+      await storage.setIdentity(identityId1, {
         identityId: identityId1,
         identity: validAuthIdentity,
         expiration: expiration1,
@@ -157,7 +159,7 @@ describe('when managing multiple identity IDs', () => {
         ipAddress
       })
 
-      storage.setIdentity(identityId2, {
+      await storage.setIdentity(identityId2, {
         identityId: identityId2,
         identity: validAuthIdentity,
         expiration: expiration2,
@@ -165,7 +167,7 @@ describe('when managing multiple identity IDs', () => {
         ipAddress
       })
 
-      storage.setIdentity(identityId3, {
+      await storage.setIdentity(identityId3, {
         identityId: identityId3,
         identity: validAuthIdentity,
         expiration: expiration3,
@@ -174,9 +176,9 @@ describe('when managing multiple identity IDs', () => {
       })
 
       // Verify all exist and contain the correct data
-      const retrievedIdentity1 = storage.getIdentity(identityId1)
-      const retrievedIdentity2 = storage.getIdentity(identityId2)
-      const retrievedIdentity3 = storage.getIdentity(identityId3)
+      const retrievedIdentity1 = await storage.getIdentity(identityId1)
+      const retrievedIdentity2 = await storage.getIdentity(identityId2)
+      const retrievedIdentity3 = await storage.getIdentity(identityId3)
 
       expect(retrievedIdentity1).toEqual({
         identityId: identityId1,
@@ -219,9 +221,9 @@ describe('when managing multiple identity IDs', () => {
       ipAddress = '127.0.0.1'
     })
 
-    it('should not affect other identities', () => {
+    it('should not affect other identities', async () => {
       // Store multiple identities
-      storage.setIdentity(identityId1, {
+      await storage.setIdentity(identityId1, {
         identityId: identityId1,
         identity: validAuthIdentity,
         expiration,
@@ -229,7 +231,7 @@ describe('when managing multiple identity IDs', () => {
         ipAddress
       })
 
-      storage.setIdentity(identityId2, {
+      await storage.setIdentity(identityId2, {
         identityId: identityId2,
         identity: validAuthIdentity,
         expiration,
@@ -238,7 +240,7 @@ describe('when managing multiple identity IDs', () => {
       })
 
       // Verify both exist and contain the correct data
-      expect(storage.getIdentity(identityId1)).toEqual({
+      expect(await storage.getIdentity(identityId1)).toEqual({
         identityId: identityId1,
         identity: validAuthIdentity,
         expiration,
@@ -246,7 +248,7 @@ describe('when managing multiple identity IDs', () => {
         ipAddress
       })
 
-      expect(storage.getIdentity(identityId2)).toEqual({
+      expect(await storage.getIdentity(identityId2)).toEqual({
         identityId: identityId2,
         identity: validAuthIdentity,
         expiration,
@@ -255,11 +257,11 @@ describe('when managing multiple identity IDs', () => {
       })
 
       // Delete one
-      storage.deleteIdentity(identityId1)
+      await storage.deleteIdentity(identityId1)
 
       // Verify one is gone, other remains with correct data
-      expect(storage.getIdentity(identityId1)).toBeNull()
-      expect(storage.getIdentity(identityId2)).toEqual({
+      expect(await storage.getIdentity(identityId1)).toBeNull()
+      expect(await storage.getIdentity(identityId2)).toEqual({
         identityId: identityId2,
         identity: validAuthIdentity,
         expiration,

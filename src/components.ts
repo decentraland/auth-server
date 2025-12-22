@@ -1,6 +1,7 @@
 import { createDotEnvConfigComponent } from '@well-known-components/env-config-provider'
 import { createLogComponent } from '@well-known-components/logger'
 import { createTracerComponent } from '@well-known-components/tracer-component'
+import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
 import { createServerComponent } from './ports/server/component'
 import { createStorageComponent } from './ports/storage/component'
 import { AppComponents } from './types'
@@ -12,7 +13,8 @@ export async function initComponents(): Promise<AppComponents> {
   const dclPersonalSignExpirationInSeconds = await config.requireNumber('DCL_PERSONAL_SIGN_REQUEST_EXPIRATION_IN_SECONDS')
   const tracer = await createTracerComponent()
   const logs = await createLogComponent({ tracer })
-  const storage = createStorageComponent()
+  const cache = createInMemoryCacheComponent()
+  const storage = createStorageComponent({ cache })
   const server = await createServerComponent({
     config,
     logs,
@@ -23,6 +25,7 @@ export async function initComponents(): Promise<AppComponents> {
   })
 
   return {
+    cache,
     config,
     logs,
     server,
