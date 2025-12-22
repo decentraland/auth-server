@@ -1,4 +1,5 @@
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
+import { MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from '../../src/ports/server/constants'
 import {
   RequestMessage,
   RecoverMessage,
@@ -48,6 +49,48 @@ describe('when validating request messages', () => {
       expect(() => validateRequestMessage(invalidRequestMessage)).toThrow()
     })
   })
+
+  describe('and the method exceeds max length', () => {
+    it('should throw validation error', () => {
+      const messageWithLongMethod = {
+        method: 'a'.repeat(MAX_METHOD_LENGTH + 1),
+        params: []
+      }
+      expect(() => validateRequestMessage(messageWithLongMethod)).toThrow()
+    })
+  })
+
+  describe('and the method is at max length', () => {
+    it('should return the validated message', () => {
+      const messageWithMaxMethod = {
+        method: 'a'.repeat(MAX_METHOD_LENGTH),
+        params: []
+      }
+      const result = validateRequestMessage(messageWithMaxMethod)
+      expect(result.method).toHaveLength(MAX_METHOD_LENGTH)
+    })
+  })
+
+  describe('and the params array exceeds max items', () => {
+    it('should throw validation error', () => {
+      const messageWithTooManyParams = {
+        method: 'eth_call',
+        params: Array(MAX_PARAMS_ITEMS + 1).fill({ data: 'test' })
+      }
+      expect(() => validateRequestMessage(messageWithTooManyParams)).toThrow()
+    })
+  })
+
+  describe('and the params array is at max items', () => {
+    it('should return the validated message', () => {
+      const messageWithMaxParams = {
+        method: 'eth_call',
+        params: Array(MAX_PARAMS_ITEMS).fill({ data: 'test' })
+      }
+      const result = validateRequestMessage(messageWithMaxParams)
+      expect(result.params).toHaveLength(MAX_PARAMS_ITEMS)
+    })
+  })
 })
 
 describe('when validating recover messages', () => {
@@ -75,6 +118,25 @@ describe('when validating recover messages', () => {
   describe('and the message is invalid', () => {
     it('should throw validation error', () => {
       expect(() => validateRecoverMessage(invalidRecoverMessage)).toThrow()
+    })
+  })
+
+  describe('and the requestId exceeds max length', () => {
+    it('should throw validation error', () => {
+      const messageWithLongRequestId = {
+        requestId: 'a'.repeat(MAX_REQUEST_ID_LENGTH + 1)
+      }
+      expect(() => validateRecoverMessage(messageWithLongRequestId)).toThrow()
+    })
+  })
+
+  describe('and the requestId is at max length', () => {
+    it('should return the validated message', () => {
+      const messageWithMaxRequestId = {
+        requestId: 'a'.repeat(MAX_REQUEST_ID_LENGTH)
+      }
+      const result = validateRecoverMessage(messageWithMaxRequestId)
+      expect(result.requestId).toHaveLength(MAX_REQUEST_ID_LENGTH)
     })
   })
 })
@@ -135,6 +197,116 @@ describe('when validating outcome messages', () => {
       expect(() => validateOutcomeMessage(invalidOutcomeMessage)).toThrow()
     })
   })
+
+  describe('and the requestId exceeds max length', () => {
+    it('should throw validation error', () => {
+      const messageWithLongRequestId = {
+        requestId: 'a'.repeat(MAX_REQUEST_ID_LENGTH + 1),
+        sender: '0x1234567890123456789012345678901234567890',
+        result: { data: 'test' }
+      }
+      expect(() => validateOutcomeMessage(messageWithLongRequestId)).toThrow()
+    })
+  })
+
+  describe('and the sender is not a valid Ethereum address', () => {
+    it('should throw validation error for invalid format', () => {
+      const messageWithInvalidSender = {
+        requestId: generateRandomIdentityId(),
+        sender: 'invalid-sender-address',
+        result: { data: 'test' }
+      }
+      expect(() => validateOutcomeMessage(messageWithInvalidSender)).toThrow()
+    })
+
+    it('should throw validation error for address without 0x prefix', () => {
+      const messageWithoutPrefix = {
+        requestId: generateRandomIdentityId(),
+        sender: '1234567890123456789012345678901234567890',
+        result: { data: 'test' }
+      }
+      expect(() => validateOutcomeMessage(messageWithoutPrefix)).toThrow()
+    })
+
+    it('should throw validation error for address with wrong length', () => {
+      const messageWithShortAddress = {
+        requestId: generateRandomIdentityId(),
+        sender: '0x123456789012345678901234567890123456789', // 39 chars instead of 40
+        result: { data: 'test' }
+      }
+      expect(() => validateOutcomeMessage(messageWithShortAddress)).toThrow()
+    })
+
+    it('should throw validation error for address with invalid characters', () => {
+      const messageWithInvalidChars = {
+        requestId: generateRandomIdentityId(),
+        sender: '0xGGGG567890123456789012345678901234567890', // G is not hex
+        result: { data: 'test' }
+      }
+      expect(() => validateOutcomeMessage(messageWithInvalidChars)).toThrow()
+    })
+  })
+
+  describe('and the sender is a valid Ethereum address', () => {
+    it('should return the validated message for lowercase address', () => {
+      const messageWithLowercaseSender = {
+        requestId: generateRandomIdentityId(),
+        sender: '0xabcdef7890123456789012345678901234567890',
+        result: { data: 'test' }
+      }
+      const result = validateOutcomeMessage(messageWithLowercaseSender)
+      expect(result.sender).toBe('0xabcdef7890123456789012345678901234567890')
+    })
+
+    it('should return the validated message for uppercase address', () => {
+      const messageWithUppercaseSender = {
+        requestId: generateRandomIdentityId(),
+        sender: '0xABCDEF7890123456789012345678901234567890',
+        result: { data: 'test' }
+      }
+      const result = validateOutcomeMessage(messageWithUppercaseSender)
+      expect(result.sender).toBe('0xABCDEF7890123456789012345678901234567890')
+    })
+
+    it('should return the validated message for mixed case address', () => {
+      const messageWithMixedCaseSender = {
+        requestId: generateRandomIdentityId(),
+        sender: '0xAbCdEf7890123456789012345678901234567890',
+        result: { data: 'test' }
+      }
+      const result = validateOutcomeMessage(messageWithMixedCaseSender)
+      expect(result.sender).toBe('0xAbCdEf7890123456789012345678901234567890')
+    })
+  })
+
+  describe('and the error message exceeds max length', () => {
+    it('should throw validation error', () => {
+      const messageWithLongErrorMessage = {
+        requestId: generateRandomIdentityId(),
+        sender: '0x1234567890123456789012345678901234567890',
+        error: {
+          code: 1000,
+          message: 'a'.repeat(MAX_ERROR_MESSAGE_LENGTH + 1)
+        }
+      }
+      expect(() => validateOutcomeMessage(messageWithLongErrorMessage)).toThrow()
+    })
+  })
+
+  describe('and the error message is at max length', () => {
+    it('should return the validated message', () => {
+      const messageWithMaxErrorMessage = {
+        requestId: generateRandomIdentityId(),
+        sender: '0x1234567890123456789012345678901234567890',
+        error: {
+          code: 1000,
+          message: 'a'.repeat(MAX_ERROR_MESSAGE_LENGTH)
+        }
+      }
+      const result = validateOutcomeMessage(messageWithMaxErrorMessage)
+      expect(result.error?.message).toHaveLength(MAX_ERROR_MESSAGE_LENGTH)
+    })
+  })
 })
 
 describe('when validating request validation messages', () => {
@@ -162,6 +334,25 @@ describe('when validating request validation messages', () => {
   describe('and the message is invalid', () => {
     it('should throw validation error', () => {
       expect(() => validateRequestValidationMessage(invalidRequestValidationMessage)).toThrow()
+    })
+  })
+
+  describe('and the requestId exceeds max length', () => {
+    it('should throw validation error', () => {
+      const messageWithLongRequestId = {
+        requestId: 'a'.repeat(MAX_REQUEST_ID_LENGTH + 1)
+      }
+      expect(() => validateRequestValidationMessage(messageWithLongRequestId)).toThrow()
+    })
+  })
+
+  describe('and the requestId is at max length', () => {
+    it('should return the validated message', () => {
+      const messageWithMaxRequestId = {
+        requestId: 'a'.repeat(MAX_REQUEST_ID_LENGTH)
+      }
+      const result = validateRequestValidationMessage(messageWithMaxRequestId)
+      expect(result.requestId).toHaveLength(MAX_REQUEST_ID_LENGTH)
     })
   })
 })
@@ -244,6 +435,62 @@ describe('when validating HTTP outcome messages', () => {
   describe('and the message is invalid', () => {
     it('should throw validation error', () => {
       expect(() => validateHttpOutcomeMessage(invalidHttpOutcomeMessage)).toThrow()
+    })
+  })
+
+  describe('and the sender is not a valid Ethereum address', () => {
+    it('should throw validation error for invalid format', () => {
+      const messageWithInvalidSender = {
+        sender: 'invalid-sender-address',
+        result: { data: 'test' }
+      }
+      expect(() => validateHttpOutcomeMessage(messageWithInvalidSender)).toThrow()
+    })
+
+    it('should throw validation error for address without 0x prefix', () => {
+      const messageWithoutPrefix = {
+        sender: '1234567890123456789012345678901234567890',
+        result: { data: 'test' }
+      }
+      expect(() => validateHttpOutcomeMessage(messageWithoutPrefix)).toThrow()
+    })
+  })
+
+  describe('and the sender is a valid Ethereum address', () => {
+    it('should return the validated message', () => {
+      const messageWithValidSender = {
+        sender: '0x1234567890123456789012345678901234567890',
+        result: { data: 'test' }
+      }
+      const result = validateHttpOutcomeMessage(messageWithValidSender)
+      expect(result.sender).toBe('0x1234567890123456789012345678901234567890')
+    })
+  })
+
+  describe('and the error message exceeds max length', () => {
+    it('should throw validation error', () => {
+      const messageWithLongErrorMessage = {
+        sender: '0x1234567890123456789012345678901234567890',
+        error: {
+          code: 1000,
+          message: 'a'.repeat(MAX_ERROR_MESSAGE_LENGTH + 1)
+        }
+      }
+      expect(() => validateHttpOutcomeMessage(messageWithLongErrorMessage)).toThrow()
+    })
+  })
+
+  describe('and the error message is at max length', () => {
+    it('should return the validated message', () => {
+      const messageWithMaxErrorMessage = {
+        sender: '0x1234567890123456789012345678901234567890',
+        error: {
+          code: 1000,
+          message: 'a'.repeat(MAX_ERROR_MESSAGE_LENGTH)
+        }
+      }
+      const result = validateHttpOutcomeMessage(messageWithMaxErrorMessage)
+      expect(result.error?.message).toHaveLength(MAX_ERROR_MESSAGE_LENGTH)
     })
   })
 })

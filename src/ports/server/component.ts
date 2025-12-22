@@ -11,7 +11,7 @@ import { AuthChain } from '@dcl/schemas'
 import { express as authMiddleware, DecentralandSignatureData } from 'decentraland-crypto-middleware'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
-import { METHOD_DCL_PERSONAL_SIGN, FIFTEEN_MINUTES_IN_MILLISECONDS } from './constants'
+import { METHOD_DCL_PERSONAL_SIGN, FIFTEEN_MINUTES_IN_MILLISECONDS, MAX_BODY_SIZE } from './constants'
 import {
   HttpOutcomeMessage,
   IServerComponent,
@@ -407,7 +407,7 @@ export async function createServerComponent({
     const httpServer = createServer(app)
 
     // Middleware to parse JSON in the request body
-    app.use(bodyParser.json())
+    app.use(bodyParser.json({ limit: MAX_BODY_SIZE }))
     app.use(cors(corsOptions))
 
     app.get('/health/ready', (_req, res) => {

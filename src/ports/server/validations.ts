@@ -1,6 +1,7 @@
 import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
 import { AuthChain } from '@dcl/schemas'
+import { MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from './constants'
 import { HttpOutcomeMessage, OutcomeMessage, RecoverMessage, RequestMessage, RequestValidationMessage, IdentityRequest } from './types'
 
 const ajv = new Ajv({ allowUnionTypes: true })
@@ -10,10 +11,12 @@ const requestMessageSchema = {
   type: 'object',
   properties: {
     method: {
-      type: 'string'
+      type: 'string',
+      maxLength: MAX_METHOD_LENGTH
     },
     params: {
-      type: 'array'
+      type: 'array',
+      maxItems: MAX_PARAMS_ITEMS
     },
     authChain: AuthChain.schema
   },
@@ -25,7 +28,8 @@ const recoverMessageSchema = {
   type: 'object',
   properties: {
     requestId: {
-      type: 'string'
+      type: 'string',
+      maxLength: MAX_REQUEST_ID_LENGTH
     }
   },
   required: ['requestId'],
@@ -36,10 +40,12 @@ const outcomeMessageSchema = {
   type: 'object',
   properties: {
     requestId: {
-      type: 'string'
+      type: 'string',
+      maxLength: MAX_REQUEST_ID_LENGTH
     },
     sender: {
-      type: 'string'
+      type: 'string',
+      pattern: '^0x[a-fA-F0-9]{40}$'
     },
     result: {},
     error: {
@@ -49,7 +55,8 @@ const outcomeMessageSchema = {
           type: 'number'
         },
         message: {
-          type: 'string'
+          type: 'string',
+          maxLength: MAX_ERROR_MESSAGE_LENGTH
         },
         data: {}
       },
@@ -77,7 +84,7 @@ const httpOutcomeMessageSchema = {
 const requestValidationMessageSchema = {
   type: 'object',
   properties: {
-    requestId: { type: 'string' }
+    requestId: { type: 'string', maxLength: MAX_REQUEST_ID_LENGTH }
   },
   required: ['requestId']
 }
