@@ -22,6 +22,8 @@
   },
   "devDependencies": {
     "@dcl/eslint-config": "^1.1.6",
+    "@types/body-parser": "^1.19.6",
+    "@types/express": "^5.0.6",
     "@types/jest": "^29.5.4",
     "@types/node": "^22.13.4",
     "@types/uuid": "^9.0.7",
