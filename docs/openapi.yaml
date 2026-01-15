@@ -54,6 +54,8 @@ tags:
     description: Health check endpoints for monitoring and orchestration
   - name: Requests
     description: Authentication request management endpoints
+    - name: Identities
+      description: Temporary identity endpoints used for auto-login flows
   - name: WebSocket
     description: Socket.IO WebSocket events for real-time communication
 paths:
@@ -114,6 +116,10 @@ paths:
       responses:
         '200':
           description: Service is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LiveResponseMessage'
         '400':
           description: Bad request
           content:
@@ -260,6 +266,235 @@ paths:
                 $ref: '#/components/schemas/InvalidResponseMessage'
               example:
                 error: "Request with id \"550e8400-e29b-41d4-a716-446655440000\" has expired"
+  /v2/requests/{requestId}/outcome:
+    post:
+      tags:
+        - Requests
+      summary: Submit request outcome
+      description: |
+        Submits the outcome of a previously created request. If the request originated from a WebSocket client, the server will immediately emit the `outcome` event to that client and delete the request. Otherwise, the outcome is stored for later retrieval via polling.
+      operationId: submitOutcome
+      security: []
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Request ID to submit outcome for
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OutcomeMessageInput'
+            examples:
+              success:
+                summary: Successful outcome
+                value:
+                  sender: "0x1234567890123456789012345678901234567890"
+                  result: "0xabcdef1234567890..."
+              failure:
+                summary: Failed outcome
+                value:
+                  sender: "0x1234567890123456789012345678901234567890"
+                  error:
+                    code: 4001
+                    message: "User rejected the request"
+      responses:
+        '200':
+          description: Outcome accepted
+        '400':
+          description: Bad request (invalid body or request already has a response)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+        '404':
+          description: Request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+        '410':
+          description: Request expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+  /v2/requests/{requestId}/validation:
+    post:
+      tags:
+        - Requests
+      summary: Notify request requires validation
+      description: |
+        Notifies that the request requires additional user validation (e.g., visual code confirmation).  
+        If the requester is connected via WebSocket, the server relays a `request-validation-status` event to that client.
+      operationId: notifyRequestValidation
+      security: []
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Request ID to notify
+      responses:
+        '204':
+          description: Notification accepted (no content)
+        '404':
+          description: Request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+        '410':
+          description: Request expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+    get:
+      tags:
+        - Requests
+      summary: Get request validation status
+      description: Returns whether a request requires additional validation.
+      operationId: getRequestValidationStatus
+      security: []
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Request ID to check
+      responses:
+        '200':
+          description: Validation status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestValidationStatusMessage'
+        '404':
+          description: Request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+        '410':
+          description: Request expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+  /identities:
+    post:
+      tags:
+        - Identities
+      summary: Create identity (Signed Fetch)
+      description: |
+        Creates a temporary identity used for auto-login.  
+        This endpoint requires a Signed Fetch request per ADR-44. Requests signed by scenes are rejected.
+      operationId: createIdentity
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IdentityRequest'
+            example:
+              identity:
+                expiration: "2024-01-01T12:10:00.000Z"
+                ephemeralIdentity:
+                  address: "0x1234567890123456789012345678901234567890"
+                  publicKey: "0x..."
+                  privateKey: "0x..."
+                authChain:
+                  - type: "SIGNER"
+                    payload: "0x1234567890123456789012345678901234567890"
+                    signature: "0x..."
+                  - type: "ECDSA_EPHEMERAL"
+                    payload: "..."
+                    signature: "0x..."
+      responses:
+        '201':
+          description: Identity created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityResponse'
+        '400':
+          description: Invalid request or auth chain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+        '401':
+          description: Ephemeral key expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+        '403':
+          description: Authorization mismatch or invalid signer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+  /identities/{id}:
+    get:
+      tags:
+        - Identities
+      summary: Retrieve and consume identity
+      description: |
+        Retrieves an identity by ID for auto-login.  
+        The identity is deleted after a successful retrieval.  
+        The request must originate from the same IP (flexible matching) used when creating the identity.
+      operationId: getIdentity
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Identity ID
+      responses:
+        '200':
+          description: Identity retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityIdValidationResponse'
+        '400':
+          description: Invalid identity format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+        '403':
+          description: IP address mismatch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+        '404':
+          description: Identity not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+        '410':
+          description: Identity expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
   /v2/requests/{requestId}:
     get:
       tags:
@@ -322,6 +557,14 @@ paths:
                 error: "Request with id \"550e8400-e29b-41d4-a716-446655440000\" has expired"
 components:
   schemas:
+    LiveResponseMessage:
+      type: object
+      properties:
+        timestamp:
+          type: number
+          description: Server timestamp in milliseconds
+      required:
+        - timestamp
     RequestMessage:
       type: object
       properties:
@@ -410,6 +653,90 @@ components:
         - code
         - method
         - params
+    RequestValidationStatusMessage:
+      type: object
+      properties:
+        requiresValidation:
+          type: boolean
+          description: Whether this request requires additional validation
+      required:
+        - requiresValidation
+    OutcomeMessageInput:
+      type: object
+      properties:
+        sender:
+          type: string
+          description: Address that executed the request
+          example: "0x1234567890123456789012345678901234567890"
+        result:
+          description: Success result (any JSON-serializable type). Required if error is not present.
+        error:
+          $ref: '#/components/schemas/OutcomeError'
+          description: Error details. Required if result is not present.
+      required:
+        - sender
+      oneOf:
+        - required: [result]
+        - required: [error]
+    EphemeralIdentity:
+      type: object
+      properties:
+        address:
+          type: string
+          description: Ephemeral wallet address
+        publicKey:
+          type: string
+          description: Ephemeral wallet public key
+        privateKey:
+          type: string
+          description: Ephemeral wallet private key
+      required:
+        - address
+        - publicKey
+        - privateKey
+    AuthIdentity:
+      type: object
+      properties:
+        expiration:
+          type: string
+          format: date-time
+        ephemeralIdentity:
+          $ref: '#/components/schemas/EphemeralIdentity'
+        authChain:
+          $ref: '#/components/schemas/AuthChain'
+      required:
+        - expiration
+        - ephemeralIdentity
+        - authChain
+    IdentityRequest:
+      type: object
+      properties:
+        identity:
+          $ref: '#/components/schemas/AuthIdentity'
+      required:
+        - identity
+      additionalProperties: false
+    IdentityResponse:
+      type: object
+      properties:
+        identityId:
+          type: string
+          format: uuid
+          description: Unique identity identifier
+        expiration:
+          type: string
+          format: date-time
+          description: Identity expiration time (ISO 8601)
+      required:
+        - identityId
+        - expiration
+    IdentityIdValidationResponse:
+      type: object
+      properties:
+        identity:
+          $ref: '#/components/schemas/AuthIdentity'
+      required:
+        - identity
     OutcomeError:
       type: object
       properties:
@@ -563,6 +890,40 @@ x-websocket:
           event: outcome
           message:
             $ref: '#/components/schemas/OutcomeResponseMessage'
+    request-validation-status:
+      description: |
+        Notify that a request requires validation (auth dapp → server).  
+        If the original request was made over WebSocket and the client is connected, the server relays a `request-validation-status` message to that client with the `requestId` and `code`.
+      message:
+        type: object
+        properties:
+          requestId:
+            type: string
+            format: uuid
+            description: Request ID
+        required:
+          - requestId
+      response:
+        oneOf:
+          - type: object
+            description: Empty acknowledgment object
+            properties: {}
+          - $ref: '#/components/schemas/InvalidResponseMessage'
+      emits:
+        - description: Emitted to original requester (if request was made via WebSocket)
+          event: request-validation-status
+          message:
+            type: object
+            properties:
+              requestId:
+                type: string
+                format: uuid
+              code:
+                type: number
+                description: Request verification code
+            required:
+              - requestId
+              - code
   authentication:
     type: ethereum-signature
     description: |
