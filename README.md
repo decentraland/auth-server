@@ -2,7 +2,7 @@
 
 [![Coverage Status](https://coveralls.io/repos/github/decentraland/auth-server/badge.svg?branch=main)](https://coveralls.io/github/decentraland/auth-server?branch=main)
 
-This server facilitates communication between the Decentraland desktop client and the auth dapp on the browser. It allows the desktop client to execute wallet methods (`eth_sendTransaction`, `personal_sign`, etc.) using the wallet the user has on their browser by leveraging the auth dapp.
+This server facilitates communication between the Decentraland client and the auth dapp on the browser. It allows the client to execute wallet methods (`eth_sendTransaction`, `personal_sign`, etc.) using the wallet the user has on their browser by leveraging the auth dapp.
 
 ## Table of Contents
 
