@@ -30,7 +30,7 @@ This server facilitates communication between the Decentraland client and the au
 This service interacts with the following services:
 
 - **[Auth dApp](https://github.com/decentraland/auth)**: The browser-based application that executes wallet methods on behalf of the user using their connected wallet.
-- **[Decentraland Desktop Client](https://github.com/decentraland/explorer-desktop-launcher)**: The desktop application that initiates authentication requests.
+- **[Decentraland Client](https://github.com/decentraland/launcher-rust)**: The desktop application that initiates authentication requests.
 
 External dependencies:
 
