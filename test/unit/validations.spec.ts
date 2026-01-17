@@ -15,7 +15,8 @@ import {
   validateRequestValidationMessage,
   validateIdentityId,
   validateHttpOutcomeMessage,
-  validateIdentityRequest
+  validateIdentityRequest,
+  isTxHash
 } from '../../src/ports/server/validations'
 import { generateRandomIdentityId, createTestIdentity } from '../utils/test-identity'
 
@@ -570,6 +571,41 @@ describe('when validating identity requests', () => {
       expect(() => validateIdentityRequest('invalid-string')).toThrow()
       expect(() => validateIdentityRequest(123)).toThrow()
       expect(() => validateIdentityRequest([])).toThrow()
+    })
+  })
+})
+
+describe('when validating transaction hashes', () => {
+  describe('and the hash is valid', () => {
+    it('should return true', () => {
+      expect(isTxHash('0x' + '0'.repeat(64))).toBe(true)
+      expect(isTxHash('0x' + 'a'.repeat(64))).toBe(true)
+      expect(isTxHash('0x' + 'A'.repeat(64))).toBe(true)
+      expect(isTxHash('0x' + 'Ab'.repeat(32))).toBe(true)
+    })
+  })
+
+  describe('and the hash is invalid', () => {
+    it('should return false for non-strings', () => {
+      expect(isTxHash(null)).toBe(false)
+      expect(isTxHash(undefined)).toBe(false)
+      expect(isTxHash(123)).toBe(false)
+      expect(isTxHash({})).toBe(false)
+      expect(isTxHash([])).toBe(false)
+    })
+
+    it('should return false for missing 0x prefix', () => {
+      expect(isTxHash('a'.repeat(64))).toBe(false)
+    })
+
+    it('should return false for wrong length', () => {
+      expect(isTxHash('0x' + '1'.repeat(63))).toBe(false)
+      expect(isTxHash('0x' + '1'.repeat(65))).toBe(false)
+    })
+
+    it('should return false for non-hex characters', () => {
+      expect(isTxHash('0x' + 'g'.repeat(64))).toBe(false)
+      expect(isTxHash('0x' + '!'.repeat(64))).toBe(false)
     })
   })
 })

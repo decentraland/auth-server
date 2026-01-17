@@ -1,4 +1,5 @@
 import { createServer } from 'http'
+import { SNSClient, PublishCommand } from '@aws-sdk/client-sns'
 import { IBaseComponent } from '@well-known-components/interfaces'
 import bodyParser from 'body-parser'
 import cors from 'cors'
@@ -7,7 +8,7 @@ import express, { Request, Response } from 'express'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
 import { Authenticator, parseEmphemeralPayload } from '@dcl/crypto'
-import { AuthChain } from '@dcl/schemas'
+import { AuthChain, EthAddress, Events } from '@dcl/schemas'
 import { express as authMiddleware, DecentralandSignatureData } from 'decentraland-crypto-middleware'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
@@ -27,7 +28,8 @@ import {
   RequestMessage,
   RequestResponseMessage,
   RequestValidationMessage,
-  RequestValidationStatusMessage
+  RequestValidationStatusMessage,
+  TipReceivedEvent
 } from './types'
 import {
   validateHttpOutcomeMessage,
@@ -36,7 +38,9 @@ import {
   validateRequestMessage,
   validateRequestValidationMessage,
   validateIdentityId,
-  validateIdentityRequest
+  validateIdentityRequest,
+  createTipTransactionValidator,
+  isTxHash
 } from './validations'
 
 export async function createServerComponent({
@@ -52,6 +56,11 @@ export async function createServerComponent({
 }): Promise<IServerComponent> {
   // Wraps the callback function on messages to type the message that is being sent
   const sendResponse = <T>(res: Response, statusCode: number, msg: T) => {
+    // 204 must not include a response body
+    if (statusCode === 204) {
+      res.sendStatus(204)
+      return
+    }
     res.status(statusCode).json(msg)
   }
 
@@ -66,6 +75,19 @@ export async function createServerComponent({
   const sockets: Record<string, Socket> = {}
 
   let server: Server | null = null
+
+  let snsClient: SNSClient | null = null
+
+  const validateTipTransaction = createTipTransactionValidator(config)
+
+  const getSnsClient = async (): Promise<SNSClient> => {
+    if (snsClient) return snsClient
+    const optionalEndpoint = await config.getString('AWS_SNS_ENDPOINT')
+    snsClient = new SNSClient({
+      endpoint: optionalEndpoint ? optionalEndpoint : undefined
+    })
+    return snsClient
+  }
 
   const onConnection = (socket: Socket) =>
     tracer.span('websocket-connection', () => {
@@ -921,6 +943,110 @@ export async function createServerComponent({
         })
       }
     })
+    app.post(
+      '/v2/notifications/tip',
+      authMiddleware({
+        optional: false,
+        onError: (err: unknown) => ({
+          error: err instanceof Error ? err.message : 'Unknown error',
+          message: 'This endpoint requires a signed fetch request. See ADR-44.'
+        }),
+        verifyMetadataContent: (metadata: { signer?: string } | undefined) => metadata?.signer !== 'decentraland-kernel-scene' // prevent requests from scenes
+      }),
+      async (req: Request & DecentralandSignatureData) => {
+        const res = req.res as Response
+        const tipLogger = logs.getLogger('tip-notifications')
+
+        const senderAddress = (req.auth || '').toLowerCase()
+        const { receiverAddress, amount, transactionHash } = (req.body || {}) as {
+          receiverAddress?: unknown
+          amount?: unknown
+          transactionHash?: unknown
+        }
+
+        if (!senderAddress || !EthAddress.validate(senderAddress)) {
+          tipLogger.log(`Invalid sender address: ${String(senderAddress)}`)
+          return sendResponse<InvalidResponseMessage>(res, 400, {
+            error: 'Invalid sender address'
+          })
+        }
+
+        if (!EthAddress.validate(receiverAddress)) {
+          tipLogger.log(`Invalid receiverAddress: ${String(receiverAddress)}`)
+          return sendResponse<InvalidResponseMessage>(res, 400, {
+            error: 'Invalid receiverAddress'
+          })
+        }
+
+        const normalizedReceiverAddress = receiverAddress.toLowerCase()
+        const normalizedAmount = typeof amount === 'string' ? amount.trim() : ''
+        const normalizedTxHash = typeof transactionHash === 'string' ? transactionHash.toLowerCase() : ''
+
+        if (normalizedAmount.length === 0) {
+          tipLogger.log(`Invalid amount: ${String(amount)}`)
+          return sendResponse<InvalidResponseMessage>(res, 400, {
+            error: 'Invalid amount'
+          })
+        }
+
+        if (!isTxHash(transactionHash)) {
+          tipLogger.log(`Invalid transactionHash: ${String(transactionHash)}`)
+          return sendResponse<InvalidResponseMessage>(res, 400, {
+            error: 'Invalid transactionHash'
+          })
+        }
+
+        const txValidation = await validateTipTransaction({
+          transactionHash: normalizedTxHash,
+          senderAddress,
+          receiverAddress: normalizedReceiverAddress,
+          amount: normalizedAmount
+        })
+        if (!txValidation.ok) {
+          tipLogger.warn(`Tip transaction validation failed: ${txValidation.error}`)
+          return sendResponse<InvalidResponseMessage>(res, txValidation.status, {
+            error: txValidation.error
+          })
+        }
+
+        const topicArn = await config.getString('AWS_SNS_ARN')
+        if (!topicArn) {
+          tipLogger.warn('AWS_SNS_ARN not configured, skipping tip notification publish')
+          return sendResponse(res, 204, null)
+        }
+
+        const event: TipReceivedEvent = {
+          type: Events.Type.BLOCKCHAIN,
+          subType: Events.SubType.Blockchain.TIP_RECEIVED,
+          key: `tip-${normalizedTxHash}`,
+          metadata: {
+            amount: normalizedAmount,
+            senderAddress,
+            receiverAddress: normalizedReceiverAddress
+          },
+          timestamp: Date.now()
+        }
+
+        try {
+          const client = await getSnsClient()
+          await client.send(
+            new PublishCommand({
+              // AWS SNS API uses PascalCase keys; keep the SDK-required shape.
+              // eslint-disable-next-line @typescript-eslint/naming-convention
+              TopicArn: topicArn,
+              // eslint-disable-next-line @typescript-eslint/naming-convention
+              Message: JSON.stringify(event)
+            })
+          )
+          return sendResponse(res, 204, null)
+        } catch (e) {
+          tipLogger.error(`Failed to publish tip notification: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
+          return sendResponse<InvalidResponseMessage>(res, 500, {
+            error: 'Failed to publish tip notification'
+          })
+        }
+      }
+    )
 
     server = new Server(httpServer, { cors: corsOptions })
 

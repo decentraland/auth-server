@@ -1,6 +1,6 @@
 import { IBaseComponent } from '@well-known-components/interfaces'
 import { AuthIdentity } from '@dcl/crypto'
-import { AuthChain } from '@dcl/schemas'
+import { AuthChain, Events } from '@dcl/schemas'
 
 export type IServerComponent = IBaseComponent
 
@@ -89,6 +89,32 @@ export type IdentityIdValidationResponse = {
   identity: AuthIdentity
 }
 
+export type TipReceivedEvent = {
+  type: Events.Type.BLOCKCHAIN
+  subType: Events.SubType.Blockchain.TIP_RECEIVED
+  key: string
+  metadata: {
+    amount: string
+    senderAddress: string
+    receiverAddress: string
+  }
+  timestamp: number
+}
+
 export type InputMessage = RequestMessage | RecoverMessage | OutcomeMessage | IdentityRequest
 
 export type ResponseMessage = RequestResponseMessage | RecoverResponseMessage | OutcomeResponseMessage | InvalidResponseMessage
+
+// Tip transaction validation types
+export type TipTransactionValidationParams = {
+  transactionHash: string
+  senderAddress: string
+  receiverAddress: string
+  amount: string
+}
+
+export type TipTransactionValidationResult = { ok: true } | { ok: false; status: number; error: string }
+
+export type TipValidationConfigLike = {
+  getString(key: string): Promise<string | undefined>
+}
