@@ -537,6 +537,11 @@ export async function createServerComponent({
       return false
     }
 
+    // Helper function to format IP-related headers for logging
+    const formatIpHeaders = (req: Request): string => {
+      return `true-client-ip=${req.headers['true-client-ip']}, x-real-ip=${req.headers['x-real-ip']}, cf-connecting-ip=${req.headers['cf-connecting-ip']}, x-forwarded-for=${req.headers['x-forwarded-for']}`
+    }
+
     app.post('/requests', async (req: Request, res: Response) => {
       const data = req.body
       let msg: RequestMessage
@@ -786,6 +791,7 @@ export async function createServerComponent({
         identityLogger.log('Received a request to create identity')
         try {
           const { identity } = validateIdentityRequest(req.body)
+          const { isMobile } = req.body
 
           if (!identity) {
             identityLogger.log('Received a request to create identity without AuthIdentity in body')
@@ -797,7 +803,6 @@ export async function createServerComponent({
           // Validate auth chain using the same logic as /requests endpoint
           try {
             const { sender: identitySender, finalAuthority } = await validateAuthChain(identity.authChain)
-
             // Verify that the ephemeral wallet address matches the finalAuthority from auth chain
             if (identity.ephemeralIdentity.address.toLowerCase() !== finalAuthority.toLowerCase()) {
               identityLogger.log(`Ephemeral wallet address does not match auth chain final authority for sender: ${identitySender}`)
@@ -841,10 +846,15 @@ export async function createServerComponent({
             identity,
             expiration: storageExpiration,
             createdAt: new Date(),
-            ipAddress: clientIp
+            ipAddress: clientIp,
+            isMobile: isMobile === true
           })
 
-          identityLogger.log(`[IID:${identityId}][EXP:${storageExpiration.getTime()}] Successfully created identity from IP: ${clientIp}`)
+          identityLogger.log(
+            `[IID:${identityId}][EXP:${storageExpiration.getTime()}][Mobile:${
+              isMobile === true
+            }] Successfully created identity from IP: ${clientIp}. Headers: ${formatIpHeaders(req)}`
+          )
 
           sendResponse<IdentityResponse>(res, 201, {
             identityId,
@@ -892,8 +902,19 @@ export async function createServerComponent({
       // Validate that the IP address matches the one used when creating the identity
       // Uses flexible matching to handle Cloudflare and VPN edge server differences
       const clientIp = getClientIp(req)
-      if (!ipsMatch(identity.ipAddress, clientIp)) {
-        // Delete the identity from storage for security reasons
+
+      if (identity.isMobile) {
+        // Log header details if IPs differ (for debugging), but allow the request
+        if (!ipsMatch(identity.ipAddress, clientIp)) {
+          identityLogger.log(
+            `[IID:${identityId}] Mobile IP mismatch (allowed). Stored: ${
+              identity.ipAddress
+            }, Request: ${clientIp}. Headers: ${formatIpHeaders(req)}`
+          )
+        }
+        // Continue without blocking for mobile
+      } else if (!ipsMatch(identity.ipAddress, clientIp)) {
+        // Non-mobile: delete identity and return 403
         storage.deleteIdentity(identityId)
         identityLogger.log(
           `[IID:${identityId}] Received a request to retrieve identity from different IP. Stored: ${identity.ipAddress}, Request: ${clientIp}. Identity deleted.`

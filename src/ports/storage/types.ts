@@ -26,4 +26,5 @@ export type StorageIdentity = {
   expiration: Date
   createdAt: Date
   ipAddress: string
+  isMobile?: boolean
 }
