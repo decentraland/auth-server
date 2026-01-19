@@ -790,8 +790,7 @@ export async function createServerComponent({
         const res = req.res as Response
         identityLogger.log('Received a request to create identity')
         try {
-          const { identity } = validateIdentityRequest(req.body)
-          const { isMobile } = req.body
+          const { identity, isMobile } = validateIdentityRequest(req.body)
 
           if (!identity) {
             identityLogger.log('Received a request to create identity without AuthIdentity in body')
