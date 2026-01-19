@@ -119,7 +119,8 @@ const identityRequestSchema = {
         }
       },
       required: ['expiration', 'ephemeralIdentity', 'authChain']
-    }
+    },
+    isMobile: { type: 'boolean' }
   },
   required: ['identity'],
   additionalProperties: false

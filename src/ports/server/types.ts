@@ -78,6 +78,7 @@ export type InvalidResponseMessage = {
 
 export type IdentityRequest = {
   identity: AuthIdentity
+  isMobile?: boolean
 }
 
 export type IdentityResponse = {
