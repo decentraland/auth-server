@@ -4,9 +4,11 @@ import net from 'net'
 import path from 'node:path'
 import { createDotEnvConfigComponent } from '@well-known-components/env-config-provider'
 import { createLogComponent } from '@well-known-components/logger'
+import { createTestMetricsComponent } from '@well-known-components/metrics'
 import { createRunner } from '@well-known-components/test-helpers'
 import { createTracerComponent } from '@well-known-components/tracer-component'
 import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
+import { metricDeclarations } from '../src/metrics'
 import { createServerComponent } from '../src/ports/server/component'
 import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
@@ -67,11 +69,13 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
 
   const tracer = await createTracerComponent()
   const logs = await createLogComponent({ tracer })
+  const metrics = createTestMetricsComponent(metricDeclarations)
   const cache = createInMemoryCacheComponent()
   const storage = createStorageComponent({ cache })
   const server = await createServerComponent({
     config,
     logs,
+    metrics,
     tracer,
     storage,
     requestExpirationInSeconds: overrides.requestExpirationInSeconds ?? 5 * 60, // 5 Minutes
@@ -82,6 +86,7 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     config,
     tracer,
     logs,
+    metrics,
     server,
     storage
   }

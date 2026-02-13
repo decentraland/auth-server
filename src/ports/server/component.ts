@@ -42,11 +42,12 @@ import {
 export async function createServerComponent({
   config,
   logs,
+  metrics,
   storage,
   tracer,
   requestExpirationInSeconds,
   dclPersonalSignExpirationInSeconds
-}: Pick<AppComponents, 'config' | 'logs' | 'storage' | 'tracer'> & {
+}: Pick<AppComponents, 'config' | 'logs' | 'metrics' | 'storage' | 'tracer'> & {
   requestExpirationInSeconds: number
   dclPersonalSignExpirationInSeconds: number
 }): Promise<IServerComponent> {
@@ -62,6 +63,11 @@ export async function createServerComponent({
     origin: (await config.requireString('CORS_ORIGIN')).split(';').map(origin => new RegExp(origin)),
     methods: await config.requireString('CORS_METHODS')
   }
+
+  // Metrics configuration
+  const metricsPath = (await config.getString('WKC_METRICS_PUBLIC_PATH')) || '/metrics'
+  const metricsBearerToken = await config.getString('WKC_METRICS_BEARER_TOKEN')
+  const resetEveryNight = (await config.getString('WKC_METRICS_RESET_AT_NIGHT')) === 'true'
 
   const sockets: Record<string, Socket> = {}
 
@@ -409,6 +415,79 @@ export async function createServerComponent({
     // Middleware to parse JSON in the request body
     app.use(bodyParser.json({ limit: MAX_BODY_SIZE }))
     app.use(cors(corsOptions))
+
+    // --- Prometheus metrics instrumentation ---
+
+    // Nightly reset state
+    const calculateNextReset = () => new Date(new Date(new Date().toDateString()).getTime() + 86400000).getTime()
+    let nextReset = calculateNextReset()
+
+    // GET /metrics endpoint
+    app.get(metricsPath, async (req: Request, res: Response) => {
+      if (metricsBearerToken) {
+        const authHeader = req.headers['authorization']
+        if (!authHeader) {
+          res.sendStatus(401)
+          return
+        }
+        const [, token] = authHeader.split(' ')
+        if (token !== metricsBearerToken) {
+          res.sendStatus(401)
+          return
+        }
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const registry = (metrics as any).registry
+      if (!registry) {
+        res.sendStatus(500)
+        return
+      }
+
+      const body = await registry.metrics()
+
+      if (resetEveryNight && Date.now() > nextReset) {
+        nextReset = calculateNextReset()
+        metrics.resetAll()
+      }
+
+      res.set('content-type', registry.contentType)
+      res.status(200).send(body)
+    })
+
+    // Request tracking middleware
+    app.use((req, res, next) => {
+      // Skip tracking for the metrics endpoint itself
+      if (req.path === metricsPath) {
+        return next()
+      }
+
+      const labels = {
+        method: req.method,
+        handler: '',
+        code: 200
+      }
+
+      const startTimerResult = metrics.startTimer('http_request_duration_seconds', labels)
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      const end = startTimerResult?.end || (() => {})
+
+      res.on('finish', () => {
+        labels.code = res.statusCode
+        if (req.route?.path) {
+          labels.handler = req.baseUrl + req.route.path
+        }
+
+        const contentLength = parseInt(req.get('content-length') || '0', 10) || 0
+        metrics.observe('http_request_size_bytes', labels, contentLength)
+        metrics.increment('http_requests_total', labels)
+        end(labels)
+      })
+
+      next()
+    })
+
+    // --- End Prometheus metrics instrumentation ---
 
     app.get('/health/ready', (_req, res) => {
       res.sendStatus(200)
