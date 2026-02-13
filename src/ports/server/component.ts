@@ -67,7 +67,6 @@ export async function createServerComponent({
   // Metrics configuration
   const metricsPath = (await config.getString('WKC_METRICS_PUBLIC_PATH')) || '/metrics'
   const metricsBearerToken = await config.getString('WKC_METRICS_BEARER_TOKEN')
-  const resetEveryNight = (await config.getString('WKC_METRICS_RESET_AT_NIGHT')) === 'true'
 
   const sockets: Record<string, Socket> = {}
 
@@ -416,48 +415,8 @@ export async function createServerComponent({
     app.use(bodyParser.json({ limit: MAX_BODY_SIZE }))
     app.use(cors(corsOptions))
 
-    // --- Prometheus metrics instrumentation ---
-
-    // Nightly reset state
-    const calculateNextReset = () => new Date(new Date(new Date().toDateString()).getTime() + 86400000).getTime()
-    let nextReset = calculateNextReset()
-
-    // GET /metrics endpoint
-    app.get(metricsPath, async (req: Request, res: Response) => {
-      if (metricsBearerToken) {
-        const authHeader = req.headers['authorization']
-        if (!authHeader) {
-          res.sendStatus(401)
-          return
-        }
-        const [, token] = authHeader.split(' ')
-        if (token !== metricsBearerToken) {
-          res.sendStatus(401)
-          return
-        }
-      }
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const registry = (metrics as any).registry
-      if (!registry) {
-        res.sendStatus(500)
-        return
-      }
-
-      const body = await registry.metrics()
-
-      if (resetEveryNight && Date.now() > nextReset) {
-        nextReset = calculateNextReset()
-        metrics.resetAll()
-      }
-
-      res.set('content-type', registry.contentType)
-      res.status(200).send(body)
-    })
-
     // Request tracking middleware
     app.use((req, res, next) => {
-      // Skip tracking for the metrics endpoint itself
       if (req.path === metricsPath) {
         return next()
       }
@@ -486,8 +445,6 @@ export async function createServerComponent({
 
       next()
     })
-
-    // --- End Prometheus metrics instrumentation ---
 
     app.get('/health/ready', (_req, res) => {
       res.sendStatus(200)
@@ -1019,6 +976,33 @@ export async function createServerComponent({
           error: 'Internal server error'
         })
       }
+    })
+
+    // PROM metrics endpoint
+    app.get(metricsPath, async (req: Request, res: Response) => {
+      if (metricsBearerToken) {
+        const authHeader = req.headers['authorization']
+        if (!authHeader) {
+          res.sendStatus(401)
+          return
+        }
+        const [, token] = authHeader.split(' ')
+        if (token !== metricsBearerToken) {
+          res.sendStatus(401)
+          return
+        }
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const registry = (metrics as any).registry
+      if (!registry) {
+        res.sendStatus(500)
+        return
+      }
+
+      const body = await registry.metrics()
+      res.set('content-type', registry.contentType)
+      res.status(200).send(body)
     })
 
     server = new Server(httpServer, { cors: corsOptions })
