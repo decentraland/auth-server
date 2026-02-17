@@ -3,6 +3,7 @@ import { createLogComponent } from '@well-known-components/logger'
 import { createMetricsComponent } from '@well-known-components/metrics'
 import { createTracerComponent } from '@well-known-components/tracer-component'
 import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
+import { createRedisComponent } from '@dcl/redis-component'
 import { metricDeclarations } from './metrics'
 import { createServerComponent } from './ports/server/component'
 import { createStorageComponent } from './ports/storage/component'
@@ -16,7 +17,8 @@ export async function initComponents(): Promise<AppComponents> {
   const tracer = await createTracerComponent()
   const logs = await createLogComponent({ tracer })
   const metrics = await createMetricsComponent(metricDeclarations, { config })
-  const cache = createInMemoryCacheComponent()
+  const redisHostUrl = await config.getString('REDIS_HOST')
+  const cache = redisHostUrl ? await createRedisComponent(redisHostUrl, { logs }) : createInMemoryCacheComponent()
   const storage = createStorageComponent({ cache })
   const server = await createServerComponent({
     config,
