@@ -89,7 +89,11 @@ export async function createServerComponent({
             const requestId = await storage.getRequestIdForSocketId(socket.id)
 
             if (requestId) {
-              storage.setRequest(requestId, null)
+              const request = await storage.getRequest(requestId)
+              // Only delete unfulfilled (orphaned) requests — fulfilled ones should persist until expiration
+              if (!request?.fulfilled) {
+                storage.setRequest(requestId, null)
+              }
             }
 
             delete sockets[socket.id]
@@ -233,6 +237,16 @@ export async function createServerComponent({
               return
             }
 
+            if (request.fulfilled) {
+              ack<InvalidResponseMessage>(cb, {
+                error: `Request with id "${msg.requestId}" has already been fulfilled`
+              })
+
+              logger.log(`[RID:${msg.requestId}] Received a recover request for an already fulfilled request`)
+
+              return
+            }
+
             if (request.expiration < new Date()) {
               storage.setRequest(msg.requestId, null)
 
@@ -282,13 +296,22 @@ export async function createServerComponent({
 
             const request = await storage.getRequest(msg.requestId)
 
-            // If the response was already received, it's like the request doesn't exist anymore
             if (!request) {
               ack<InvalidResponseMessage>(cb, {
                 error: `Request with id "${msg.requestId}" not found`
               })
 
               logger.log(`[RID:${msg.requestId}] Received an outcome message for a non-existent request`)
+
+              return
+            }
+
+            if (request.fulfilled) {
+              ack<InvalidResponseMessage>(cb, {
+                error: `Request with id "${msg.requestId}" has already been fulfilled`
+              })
+
+              logger.log(`[RID:${msg.requestId}] Received an outcome message for an already fulfilled request`)
 
               return
             }
@@ -329,7 +352,17 @@ export async function createServerComponent({
                 return
               }
 
-              storage.setRequest(msg.requestId, null)
+              // Mark as fulfilled instead of deleting — allows frontend to distinguish "consumed" from "never existed"
+              storage.setRequest(msg.requestId, {
+                requestId: msg.requestId,
+                socketId: request.socketId,
+                fulfilled: true,
+                expiration: request.expiration,
+                code: 0,
+                method: '',
+                params: [],
+                requiresValidation: false
+              })
 
               const outcomeMessage: OutcomeResponseMessage = msg
               storedSocket.emit(MessageType.OUTCOME, outcomeMessage)
@@ -366,11 +399,17 @@ export async function createServerComponent({
 
             const request = await storage.getRequest(msg.requestId)
 
-            // If the response was already received, it's like the request doesn't exist anymore
             if (!request) {
               logger.log(`[RID:${msg.requestId}] Tried to communicate that the request must be validated but it doesn't exist`)
               return ack<InvalidResponseMessage>(cb, {
                 error: `Request with id "${msg.requestId}" not found`
+              })
+            }
+
+            if (request.fulfilled) {
+              logger.log(`[RID:${msg.requestId}] Tried to communicate that the request must be validated but it has already been fulfilled`)
+              return ack<InvalidResponseMessage>(cb, {
+                error: `Request with id "${msg.requestId}" has already been fulfilled`
               })
             }
 
@@ -637,6 +676,12 @@ export async function createServerComponent({
         })
       }
 
+      if (request.fulfilled) {
+        return sendResponse<InvalidResponseMessage>(res, 410, {
+          error: `Request with id "${requestId}" has already been fulfilled`
+        })
+      }
+
       if (request.expiration < new Date()) {
         storage.setRequest(requestId, null)
 
@@ -664,6 +709,13 @@ export async function createServerComponent({
         logger.log(`[RID:${requestId}] Received a validation request message for a non-existent request`)
         return sendResponse<InvalidResponseMessage>(res, 404, {
           error: `Request with id "${requestId}" not found`
+        })
+      }
+
+      if (request.fulfilled) {
+        logger.log(`[RID:${requestId}] Received a validation request message for an already fulfilled request`)
+        return sendResponse<InvalidResponseMessage>(res, 410, {
+          error: `Request with id "${requestId}" has already been fulfilled`
         })
       }
 
@@ -702,6 +754,12 @@ export async function createServerComponent({
         })
       }
 
+      if (request.fulfilled) {
+        return sendResponse<InvalidResponseMessage>(res, 410, {
+          error: `Request with id "${requestId}" has already been fulfilled`
+        })
+      }
+
       if (request.expiration < new Date()) {
         storage.setRequest(requestId, null)
 
@@ -724,6 +782,12 @@ export async function createServerComponent({
         })
       }
 
+      if (request.fulfilled) {
+        return sendResponse<InvalidResponseMessage>(res, 410, {
+          error: `Request with id "${requestId}" has already been fulfilled`
+        })
+      }
+
       if (request.expiration < new Date()) {
         storage.setRequest(requestId, null)
         return sendResponse<InvalidResponseMessage>(res, 410, {
@@ -739,7 +803,16 @@ export async function createServerComponent({
 
       logger.log(`[RID:${requestId}] Successfully sent outcome message to the client via HTTP`)
 
-      storage.setRequest(requestId, null)
+      // Mark as fulfilled instead of deleting — allows frontend to distinguish "consumed" from "never existed"
+      storage.setRequest(requestId, {
+        requestId,
+        fulfilled: true,
+        expiration: request.expiration,
+        code: 0,
+        method: '',
+        params: [],
+        requiresValidation: false
+      })
       sendResponse<OutcomeResponseMessage>(res, 200, request.response)
     })
 
@@ -760,11 +833,17 @@ export async function createServerComponent({
 
       const request = await storage.getRequest(requestId)
 
-      // If the response was already received, it's like the request doesn't exist anymore
       if (!request) {
         logger.log(`[RID:${requestId}] Received an outcome message for a non-existent request`)
         return sendResponse<InvalidResponseMessage>(res, 404, {
           error: `Request with id "${requestId}" not found`
+        })
+      }
+
+      if (request.fulfilled) {
+        logger.log(`[RID:${requestId}] Received an outcome message for an already fulfilled request`)
+        return sendResponse<InvalidResponseMessage>(res, 410, {
+          error: `Request with id "${requestId}" has already been fulfilled`
         })
       }
 
@@ -798,8 +877,17 @@ export async function createServerComponent({
             request.requestId
           }][EXP:${request.expiration.getTime()}] Successfully sent outcome message to the client via socket`
         )
-        // Remove the request from the storage after it has been sent to the client
-        storage.setRequest(requestId, null)
+        // Mark as fulfilled instead of deleting — allows frontend to distinguish "consumed" from "never existed"
+        storage.setRequest(requestId, {
+          requestId,
+          socketId: request.socketId,
+          fulfilled: true,
+          expiration: request.expiration,
+          code: 0,
+          method: '',
+          params: [],
+          requiresValidation: false
+        })
       } else {
         // Store the outcome message in the request
         request.response = {

@@ -18,6 +18,7 @@ export type StorageRequest = Request & {
   sender?: string
   response?: OutcomeResponseMessage
   requiresValidation: boolean
+  fulfilled?: boolean
 }
 
 export type StorageIdentity = {
