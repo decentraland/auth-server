@@ -83,19 +83,11 @@ export async function createServerComponent({
       socket.on('disconnect', () =>
         tracer.span(
           'websocket-disconnect',
-          async () => {
+          () => {
             logger.log('Disconnected')
-
-            const requestId = await storage.getRequestIdForSocketId(socket.id)
-
-            if (requestId) {
-              const request = await storage.getRequest(requestId)
-              // Only delete unfulfilled (orphaned) requests — fulfilled ones should persist until expiration
-              if (!request?.fulfilled) {
-                storage.setRequest(requestId, null)
-              }
-            }
-
+            // Don't delete requests on disconnect — let them expire naturally via TTL.
+            // This prevents the race condition where the user is still completing
+            // the auth flow when the game client's socket temporarily disconnects.
             delete sockets[socket.id]
           },
           parentTracingContext
@@ -338,19 +330,12 @@ export async function createServerComponent({
               return
             }
 
-            // If it has a socketId, it means it was a request by socket.io
-            //  otherwise, we hold the response until the client polls for it.
-            if (request.socketId) {
+            const outcomeMessage: OutcomeResponseMessage = msg
+
+            // If it has a socketId and the socket is still connected, send via socket.
+            // Otherwise, store the response for polling via GET /requests/:requestId.
+            if (request.socketId && sockets[request.socketId]) {
               const storedSocket = sockets[request.socketId]
-              if (!storedSocket) {
-                ack<InvalidResponseMessage>(cb, {
-                  error: `Socket with id "${request.socketId}" not found`
-                })
-
-                logger.log(`[SID:${request.socketId}] Received an outcome message for a non-existent socket`)
-
-                return
-              }
 
               // Mark as fulfilled instead of deleting — allows frontend to distinguish "consumed" from "never existed"
               storage.setRequest(msg.requestId, {
@@ -364,7 +349,6 @@ export async function createServerComponent({
                 requiresValidation: false
               })
 
-              const outcomeMessage: OutcomeResponseMessage = msg
               storedSocket.emit(MessageType.OUTCOME, outcomeMessage)
               logger.log(
                 `[METHOD:${request.method}][RID:${
@@ -372,7 +356,16 @@ export async function createServerComponent({
                 }][EXP:${request.expiration.getTime()}] Successfully sent outcome message to the client`
               )
             } else {
-              request.response = msg
+              // Socket gone or HTTP-created request — persist response for polling
+              storage.setRequest(msg.requestId, {
+                ...request,
+                response: outcomeMessage
+              })
+              logger.log(
+                `[METHOD:${request.method}][RID:${
+                  request.requestId
+                }][EXP:${request.expiration.getTime()}] Stored outcome for polling (socket unavailable)`
+              )
             }
 
             ack<object>(cb, {})
@@ -889,11 +882,16 @@ export async function createServerComponent({
           requiresValidation: false
         })
       } else {
-        // Store the outcome message in the request
-        request.response = {
-          ...msg,
-          requestId
-        }
+        // Socket gone or HTTP-created request — persist response for polling via GET /requests/:requestId
+        storage.setRequest(requestId, {
+          ...request,
+          response: outcomeMessage
+        })
+        logger.log(
+          `[METHOD:${request.method}][RID:${
+            request.requestId
+          }][EXP:${request.expiration.getTime()}] Stored outcome for polling (socket unavailable)`
+        )
       }
 
       return res.sendStatus(200)

@@ -290,7 +290,7 @@ test('when sending a recover message but the socket that sent it has disconnecte
     await connectClients(args)
   })
 
-  it('should respond with an invalid response message', async () => {
+  it('should still return the request data (requests survive socket disconnect)', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
@@ -303,7 +303,10 @@ test('when sending a recover message but the socket that sent it has disconnecte
     })
 
     expect(recoverResponse).toEqual({
-      error: `Request with id "${requestResponse.requestId}" not found`
+      expiration: requestResponse.expiration,
+      code: requestResponse.code,
+      method: METHOD_DCL_PERSONAL_SIGN,
+      params: []
     })
   })
 })
@@ -397,7 +400,7 @@ test('when sending an outcome message but the socket that created the request di
     await connectClients(args)
   })
 
-  it('should respond with an invalid response message', async () => {
+  it('should accept the outcome and store it for polling (requests survive socket disconnect)', async () => {
     const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
@@ -412,9 +415,7 @@ test('when sending an outcome message but the socket that created the request di
       result: 'result'
     })
 
-    expect(outcomeResponse).toEqual({
-      error: `Request with id "${requestResponse.requestId}" not found`
-    })
+    expect(outcomeResponse).toEqual({})
   })
 })
 
