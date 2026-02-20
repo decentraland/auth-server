@@ -10,16 +10,16 @@ RUN apk add --no-cache py3-setuptools python3-dev build-base
 
 # install dependencies
 COPY package.json /app/package.json
-COPY package-lock.json /app/package-lock.json
-RUN npm install
+COPY yarn.lock /app/yarn.lock
+RUN yarn install --frozen-lockfile
 
 # build the app
 COPY . /app
-RUN npm run build
-RUN npm run test -- --passWithNoTests
+RUN yarn build
+RUN yarn test -- --passWithNoTests
 
 # remove devDependencies, keep only used dependencies
-RUN npm install --only=production --ignore-scripts
+RUN yarn install --frozen-lockfile --production=true --ignore-scripts
 
 ########################## END OF BUILD STAGE ##########################
 
