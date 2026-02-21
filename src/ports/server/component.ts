@@ -531,10 +531,47 @@ export async function createServerComponent({
       return ip.trim()
     }
 
+    // Helper function to check if an IP is IPv6
+    const isIPv6 = (ip: string): boolean => {
+      return ip.includes(':')
+    }
+
+    // Helper function to normalize IPv6 address for comparison
+    // This expands compressed IPv6 addresses (e.g., 2001:db8::1 -> 2001:0db8:0000:0000:0000:0000:0000:0001)
+    const normalizeIPv6 = (ip: string): string => {
+      // Remove brackets if present
+      const cleanIp = ip.replace(/^\[|\]$/g, '')
+
+      // Split by : to handle compressed notation
+      const parts = cleanIp.split(':')
+
+      // Check if it's an IPv4-mapped IPv6 (::ffff:xxx.xxx.xxx.xxx)
+      if (cleanIp.includes('::ffff:')) {
+        return cleanIp
+      }
+
+      // Handle compressed IPv6 (containing ::)
+      if (cleanIp.includes('::')) {
+        const [left, right] = cleanIp.split('::')
+        const leftParts = left ? left.split(':') : []
+        const rightParts = right ? right.split(':') : []
+        const missingParts = 8 - leftParts.length - rightParts.length
+
+        const expanded = [...leftParts, ...Array(missingParts).fill('0000'), ...rightParts]
+
+        // Pad each part to 4 hex digits
+        return expanded.map(part => part.padStart(4, '0')).join(':')
+      }
+
+      // Already expanded, just pad each part
+      return parts.map(part => part.padStart(4, '0')).join(':')
+    }
+
     // Helper function to get client IP address from request
-    // Prioritizes trusted headers (True-Client-IP, X-Real-IP, Cloudflare's CF-Connecting-IP) over X-Forwarded-For
+    // Prioritizes trusted headers (True-Client-IP, X-Real-IP, Cloudflare's CF-Connecting-IPv6/CF-Connecting-IP) over X-Forwarded-For
     const getClientIp = (req: Request): string => {
       // Check True-Client-IP header (set by proxies like Cloudflare, contains the visitor's IP address)
+      // Can contain both IPv4 and IPv6 addresses
       const trueClientIp = req.headers['true-client-ip']
       if (trueClientIp) {
         const ip = Array.isArray(trueClientIp) ? trueClientIp[0] : trueClientIp
@@ -548,7 +585,16 @@ export async function createServerComponent({
         return normalizeIp(ip)
       }
 
-      // Check CF-Connecting-IP header first (Cloudflare's trusted header, cannot be spoofed)
+      // Check CF-Connecting-IPv6 header (Cloudflare's IPv6 header, preserved when Pseudo IPv4 overwrites CF-Connecting-IP)
+      // This should be checked before CF-Connecting-IP to prioritize the real IPv6 address when available
+      const cfConnectingIpv6 = req.headers['cf-connecting-ipv6']
+      if (cfConnectingIpv6) {
+        const ip = Array.isArray(cfConnectingIpv6) ? cfConnectingIpv6[0] : cfConnectingIpv6
+        return normalizeIp(ip)
+      }
+
+      // Check CF-Connecting-IP header (Cloudflare's trusted header, cannot be spoofed)
+      // Contains IPv4 address, or IPv4 pseudo when Pseudo IPv4 is enabled
       const cfConnectingIp = req.headers['cf-connecting-ip']
       if (cfConnectingIp) {
         const ip = Array.isArray(cfConnectingIp) ? cfConnectingIp[0] : cfConnectingIp
@@ -560,7 +606,7 @@ export async function createServerComponent({
       const xForwardedFor = req.headers['x-forwarded-for']
       if (xForwardedFor) {
         const ips = Array.isArray(xForwardedFor) ? xForwardedFor[0] : xForwardedFor.split(',')[0]
-        return normalizeIp(ips)
+        return normalizeIp(ips.trim())
       }
 
       // Fallback to req.ip (requires express trust proxy configuration) or connection remote address
@@ -570,6 +616,7 @@ export async function createServerComponent({
 
     // Helper function to check if two IPs match, considering subnet/region matching
     // For IPv4, this can match by subnet (e.g., 10.0.16.* matches 10.0.16.*)
+    // For IPv6, this matches by /64 prefix (first 64 bits) which is the standard subnet size
     const ipsMatch = (ip1: string, ip2: string): boolean => {
       if (!ip1 || !ip2 || ip1 === 'unknown' || ip2 === 'unknown') {
         return false
@@ -587,6 +634,43 @@ export async function createServerComponent({
       // Exact match after normalization
       if (normalizedIp1 === normalizedIp2) {
         return true
+      }
+
+      // Check if both are IPv6
+      const isIp1IPv6 = isIPv6(normalizedIp1)
+      const isIp2IPv6 = isIPv6(normalizedIp2)
+
+      // If one is IPv6 and the other is IPv4, they don't match
+      if (isIp1IPv6 !== isIp2IPv6) {
+        return false
+      }
+
+      // IPv6 matching: check if they're in the same /64 subnet (first 4 hextets)
+      // This helps with VPNs and different edge servers but same network prefix
+      if (isIp1IPv6 && isIp2IPv6) {
+        try {
+          const normalizedIpv6_1 = normalizeIPv6(normalizedIp1)
+          const normalizedIpv6_2 = normalizeIPv6(normalizedIp2)
+
+          // Exact match after IPv6 normalization
+          if (normalizedIpv6_1 === normalizedIpv6_2) {
+            return true
+          }
+
+          // Match by /64 prefix (first 4 hextets)
+          const parts1 = normalizedIpv6_1.split(':')
+          const parts2 = normalizedIpv6_2.split(':')
+
+          if (parts1.length === 8 && parts2.length === 8) {
+            // Compare first 4 hextets (64 bits)
+            if (parts1[0] === parts2[0] && parts1[1] === parts2[1] && parts1[2] === parts2[2] && parts1[3] === parts2[3]) {
+              return true
+            }
+          }
+        } catch (e) {
+          // If IPv6 normalization fails, fall back to exact string comparison
+          return false
+        }
       }
 
       // IPv4 subnet matching: check if they're in the same /24 subnet (first 3 octets)
