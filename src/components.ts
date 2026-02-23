@@ -5,9 +5,9 @@ import { createTracerComponent } from '@well-known-components/tracer-component'
 import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
 import { createRedisComponent } from '@dcl/redis-component'
 import { metricDeclarations } from './metrics'
-import { createServerComponent } from './ports/server/component'
+import { createServerComponent } from './ports/server/server'
 import { createStorageComponent } from './ports/storage/component'
-import { AppComponents } from './types'
+import { AppComponents } from './types/components'
 
 // Initialize all the components of the app
 export async function initComponents(): Promise<AppComponents> {

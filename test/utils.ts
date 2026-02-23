@@ -1,5 +1,3 @@
-import { DefaultEventsMap } from 'socket.io/dist/typed-events'
-import { io, Socket } from 'socket.io-client'
 import {
   OutcomeResponseMessage,
   RecoverResponseMessage,
@@ -105,15 +103,4 @@ export async function createHttpClient(port: number | string): Promise<HttpPolli
       return result.json()
     }
   }
-}
-
-export async function createAuthWsClient(port: number | string): Promise<Socket<DefaultEventsMap, DefaultEventsMap>> {
-  const ioClient = io(`http://localhost:${port}`)
-  return new Promise(resolve => {
-    const handleOnConnect = () => {
-      resolve(ioClient)
-    }
-
-    ioClient.on('connect', handleOnConnect)
-  })
 }

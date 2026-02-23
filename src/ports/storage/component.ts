@@ -1,8 +1,7 @@
-import { AppComponents } from '../../types'
+import { AppComponents } from '../../types/components'
 import { IStorageComponent, StorageRequest, StorageIdentity } from './types'
 
 const REQUESTS_CACHE_KEY_PREFIX = 'request:'
-const REQUEST_IDS_BY_SOCKET_ID_CACHE_KEY_PREFIX = 'requestIdsBySocketId:'
 const IDENTITIES_BY_ID_CACHE_KEY_PREFIX = 'identity:'
 
 /** Normalize cache value to Date (Redis/JSON returns string; in-memory may return Date). */
@@ -22,10 +21,6 @@ export function createStorageComponent({ cache }: Pick<AppComponents, 'cache'>):
     return `${REQUESTS_CACHE_KEY_PREFIX}${requestId}`
   }
 
-  const getRequestIdsBySocketIdCacheKey = (socketId: string) => {
-    return `${REQUEST_IDS_BY_SOCKET_ID_CACHE_KEY_PREFIX}${socketId}`
-  }
-
   const getIdentityCacheKey = (identityId: string) => {
     return `${IDENTITIES_BY_ID_CACHE_KEY_PREFIX}${identityId}`
   }
@@ -42,31 +37,10 @@ export function createStorageComponent({ cache }: Pick<AppComponents, 'cache'>):
   const setRequest = async (requestId: string, request: StorageRequest | null): Promise<void> => {
     if (request) {
       const ttlSeconds = secondsUntilExpiration(request.expiration)
-      if (request.socketId) {
-        const previousSocketRequestId = (await cache.get<string>(getRequestIdsBySocketIdCacheKey(request.socketId))) ?? null
-
-        if (previousSocketRequestId) {
-          await cache.remove(getRequestCacheKey(previousSocketRequestId))
-          await cache.remove(getRequestIdsBySocketIdCacheKey(request.socketId))
-        }
-
-        await cache.set(getRequestIdsBySocketIdCacheKey(request.socketId), requestId, ttlSeconds)
-      }
       await cache.set(getRequestCacheKey(requestId), request, ttlSeconds)
     } else {
-      const previousRequest = (await cache.get<StorageRequest>(getRequestCacheKey(requestId))) ?? null
-
-      if (previousRequest) {
-        await cache.remove(getRequestCacheKey(requestId))
-        if (previousRequest.socketId) {
-          await cache.remove(getRequestIdsBySocketIdCacheKey(previousRequest.socketId))
-        }
-      }
+      await cache.remove(getRequestCacheKey(requestId))
     }
-  }
-
-  const getRequestIdForSocketId = async (socketId: string): Promise<string | null> => {
-    return (await cache.get<string>(getRequestIdsBySocketIdCacheKey(socketId))) ?? null
   }
 
   const getIdentity = async (identityId: string): Promise<StorageIdentity | null> => {
@@ -93,7 +67,6 @@ export function createStorageComponent({ cache }: Pick<AppComponents, 'cache'>):
   return {
     getRequest,
     setRequest,
-    getRequestIdForSocketId,
     getIdentity,
     setIdentity,
     deleteIdentity

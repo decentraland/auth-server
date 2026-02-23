@@ -9,10 +9,10 @@ import { createRunner } from '@well-known-components/test-helpers'
 import { createTracerComponent } from '@well-known-components/tracer-component'
 import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
 import { metricDeclarations } from '../src/metrics'
-import { createServerComponent } from '../src/ports/server/component'
+import { createServerComponent } from '../src/ports/server/server'
 import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
-import { TestComponents } from '../src/types'
+import { TestComponents } from '../src/types/components'
 
 type TestOverrides = {
   requestExpirationInSeconds?: number
