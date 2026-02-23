@@ -1,4 +1,5 @@
 import { createServer } from 'http'
+import * as Sentry from '@sentry/node'
 import { IBaseComponent } from '@well-known-components/interfaces'
 import bodyParser from 'body-parser'
 import cors from 'cors'
@@ -112,322 +113,350 @@ export async function createServerComponent({
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       socket.on(MessageType.REQUEST, async (data: any, cb) =>
-        tracer.span(
-          'websocket-request',
-          async () => {
-            let msg: RequestMessage
-            logger.log('Received a request')
-
-            try {
-              msg = validateRequestMessage(data)
-            } catch (e) {
-              ack<InvalidResponseMessage>(cb, {
-                error: isErrorWithMessage(e) ? e.message : 'Unknown error'
-              })
-              logger.log('Received a request with invalid message')
-
-              return
-            }
-
-            let sender: string | undefined
-
-            if (msg.method !== METHOD_DCL_PERSONAL_SIGN) {
-              const authChain = msg.authChain
-
-              if (!authChain) {
-                ack<InvalidResponseMessage>(cb, {
-                  error: 'Auth chain is required'
-                })
-                logger.log('Received a request without an auth chain')
-                return
-              }
-
-              sender = Authenticator.ownerAddress(authChain)
-
-              let finalAuthority: string
+        tracer
+          .span(
+            'websocket-request',
+            async () => {
+              let msg: RequestMessage
+              logger.log('Received a request')
 
               try {
-                finalAuthority = parseEmphemeralPayload(authChain[authChain.length - 1].payload).ephemeralAddress
+                msg = validateRequestMessage(data)
               } catch (e) {
                 ack<InvalidResponseMessage>(cb, {
-                  error: 'Could not get final authority from auth chain'
+                  error: isErrorWithMessage(e) ? e.message : 'Unknown error'
                 })
-                logger.log('Received a request with invalid auth chain')
+                logger.log('Received a request with invalid message')
+
                 return
               }
 
-              const validationResult = await Authenticator.validateSignature(finalAuthority, authChain, null)
+              let sender: string | undefined
 
-              if (!validationResult.ok) {
-                ack<InvalidResponseMessage>(cb, {
-                  error: validationResult.message ?? 'Signature validation failed'
-                })
+              if (msg.method !== METHOD_DCL_PERSONAL_SIGN) {
+                const authChain = msg.authChain
 
-                logger.log('Received a request with invalid signature')
-                return
+                if (!authChain) {
+                  ack<InvalidResponseMessage>(cb, {
+                    error: 'Auth chain is required'
+                  })
+                  logger.log('Received a request without an auth chain')
+                  return
+                }
+
+                sender = Authenticator.ownerAddress(authChain)
+
+                let finalAuthority: string
+
+                try {
+                  finalAuthority = parseEmphemeralPayload(authChain[authChain.length - 1].payload).ephemeralAddress
+                } catch (e) {
+                  ack<InvalidResponseMessage>(cb, {
+                    error: 'Could not get final authority from auth chain'
+                  })
+                  logger.log('Received a request with invalid auth chain')
+                  return
+                }
+
+                const validationResult = await Authenticator.validateSignature(finalAuthority, authChain, null)
+
+                if (!validationResult.ok) {
+                  ack<InvalidResponseMessage>(cb, {
+                    error: validationResult.message ?? 'Signature validation failed'
+                  })
+
+                  logger.log('Received a request with invalid signature')
+                  return
+                }
               }
-            }
 
-            const requestId = uuid()
-            const expiration = new Date(
-              Date.now() +
-                (msg.method !== METHOD_DCL_PERSONAL_SIGN ? requestExpirationInSeconds : dclPersonalSignExpirationInSeconds) * 1000
-            )
-            const code = Math.floor(Math.random() * 100)
+              const requestId = uuid()
+              const expiration = new Date(
+                Date.now() +
+                  (msg.method !== METHOD_DCL_PERSONAL_SIGN ? requestExpirationInSeconds : dclPersonalSignExpirationInSeconds) * 1000
+              )
+              const code = Math.floor(Math.random() * 100)
 
-            storage.setRequest(requestId, {
-              requestId: requestId,
-              socketId: socket.id,
-              requiresValidation: false,
-              expiration,
-              code,
-              method: msg.method,
-              params: msg.params,
-              sender: sender?.toLowerCase()
-            })
+              storage.setRequest(requestId, {
+                requestId: requestId,
+                socketId: socket.id,
+                requiresValidation: false,
+                expiration,
+                code,
+                method: msg.method,
+                params: msg.params,
+                sender: sender?.toLowerCase()
+              })
 
-            ack<RequestResponseMessage>(cb, {
-              requestId,
-              expiration,
-              code
-            })
+              ack<RequestResponseMessage>(cb, {
+                requestId,
+                expiration,
+                code
+              })
 
-            logger.log(`[METHOD:${msg.method}][RID:${requestId}][EXP:${expiration.getTime()}] Successfully registered request response`)
-          },
-          parentTracingContext
-        )
+              logger.log(`[METHOD:${msg.method}][RID:${requestId}][EXP:${expiration.getTime()}] Successfully registered request response`)
+            },
+            parentTracingContext
+          )
+          .catch(e => {
+            Sentry.captureException(e)
+            logger.error(`Unexpected error in ${MessageType.REQUEST} handler: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
+            ack<InvalidResponseMessage>(cb, { error: 'Internal server error' })
+          })
       )
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       socket.on(MessageType.RECOVER, (data: any, cb) =>
-        tracer.span(
-          'websocket-recover',
-          async () => {
-            let msg: RecoverMessage
-            logger.log('Received a recover request')
+        tracer
+          .span(
+            'websocket-recover',
+            async () => {
+              let msg: RecoverMessage
+              logger.log('Received a recover request')
 
-            try {
-              msg = validateRecoverMessage(data)
-            } catch (e) {
-              ack<InvalidResponseMessage>(cb, {
-                error: isErrorWithMessage(e) ? e.message : 'Unknown error'
+              try {
+                msg = validateRecoverMessage(data)
+              } catch (e) {
+                ack<InvalidResponseMessage>(cb, {
+                  error: isErrorWithMessage(e) ? e.message : 'Unknown error'
+                })
+
+                logger.log('Received a recover request with invalid message')
+                return
+              }
+
+              const request = await storage.getRequest(msg.requestId)
+
+              if (!request) {
+                ack<InvalidResponseMessage>(cb, {
+                  error: `Request with id "${msg.requestId}" not found`
+                })
+
+                logger.log(`[RID:${msg.requestId}] Received a recover request for a non-existent request`)
+
+                return
+              }
+
+              if (request.fulfilled) {
+                ack<InvalidResponseMessage>(cb, {
+                  error: `Request with id "${msg.requestId}" has already been fulfilled`
+                })
+
+                logger.log(`[RID:${msg.requestId}] Received a recover request for an already fulfilled request`)
+
+                return
+              }
+
+              if (request.expiration < new Date()) {
+                storage.setRequest(msg.requestId, null)
+
+                ack<InvalidResponseMessage>(cb, {
+                  error: `Request with id "${msg.requestId}" has expired`
+                })
+
+                logger.log(`[RID:${msg.requestId}] Received a recover request for an expired request`)
+
+                return
+              }
+
+              ack<RecoverResponseMessage>(cb, {
+                expiration: request.expiration,
+                code: request.code,
+                method: request.method,
+                params: request.params,
+                sender: request.sender
               })
 
-              logger.log('Received a recover request with invalid message')
-              return
-            }
-
-            const request = await storage.getRequest(msg.requestId)
-
-            if (!request) {
-              ack<InvalidResponseMessage>(cb, {
-                error: `Request with id "${msg.requestId}" not found`
-              })
-
-              logger.log(`[RID:${msg.requestId}] Received a recover request for a non-existent request`)
-
-              return
-            }
-
-            if (request.fulfilled) {
-              ack<InvalidResponseMessage>(cb, {
-                error: `Request with id "${msg.requestId}" has already been fulfilled`
-              })
-
-              logger.log(`[RID:${msg.requestId}] Received a recover request for an already fulfilled request`)
-
-              return
-            }
-
-            if (request.expiration < new Date()) {
-              storage.setRequest(msg.requestId, null)
-
-              ack<InvalidResponseMessage>(cb, {
-                error: `Request with id "${msg.requestId}" has expired`
-              })
-
-              logger.log(`[RID:${msg.requestId}] Received a recover request for an expired request`)
-
-              return
-            }
-
-            ack<RecoverResponseMessage>(cb, {
-              expiration: request.expiration,
-              code: request.code,
-              method: request.method,
-              params: request.params,
-              sender: request.sender
-            })
-
-            logger.log(
-              `[METHOD:${request.method}][RID:${request.requestId}][EXP:${request.expiration.getTime()}] Successfully recovered request`
-            )
-          },
-          parentTracingContext
-        )
+              logger.log(
+                `[METHOD:${request.method}][RID:${request.requestId}][EXP:${request.expiration.getTime()}] Successfully recovered request`
+              )
+            },
+            parentTracingContext
+          )
+          .catch(e => {
+            Sentry.captureException(e)
+            logger.error(`Unexpected error in ${MessageType.RECOVER} handler: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
+            ack<InvalidResponseMessage>(cb, { error: 'Internal server error' })
+          })
       )
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       socket.on(MessageType.OUTCOME, (data: any, cb) =>
-        tracer.span(
-          'websocket-outcome',
-          async () => {
-            let msg: OutcomeMessage
+        tracer
+          .span(
+            'websocket-outcome',
+            async () => {
+              let msg: OutcomeMessage
 
-            try {
-              msg = validateOutcomeMessage(data)
-            } catch (e) {
-              ack<InvalidResponseMessage>(cb, {
-                error: isErrorWithMessage(e) ? e.message : 'Unknown error'
-              })
+              try {
+                msg = validateOutcomeMessage(data)
+              } catch (e) {
+                ack<InvalidResponseMessage>(cb, {
+                  error: isErrorWithMessage(e) ? e.message : 'Unknown error'
+                })
 
-              logger.log('Received an outcome message with invalid message')
+                logger.log('Received an outcome message with invalid message')
 
-              return
-            }
+                return
+              }
 
-            const request = await storage.getRequest(msg.requestId)
+              const request = await storage.getRequest(msg.requestId)
 
-            if (!request) {
-              ack<InvalidResponseMessage>(cb, {
-                error: `Request with id "${msg.requestId}" not found`
-              })
+              if (!request) {
+                ack<InvalidResponseMessage>(cb, {
+                  error: `Request with id "${msg.requestId}" not found`
+                })
 
-              logger.log(`[RID:${msg.requestId}] Received an outcome message for a non-existent request`)
+                logger.log(`[RID:${msg.requestId}] Received an outcome message for a non-existent request`)
 
-              return
-            }
+                return
+              }
 
-            if (request.fulfilled) {
-              ack<InvalidResponseMessage>(cb, {
-                error: `Request with id "${msg.requestId}" has already been fulfilled`
-              })
+              if (request.fulfilled) {
+                ack<InvalidResponseMessage>(cb, {
+                  error: `Request with id "${msg.requestId}" has already been fulfilled`
+                })
 
-              logger.log(`[RID:${msg.requestId}] Received an outcome message for an already fulfilled request`)
+                logger.log(`[RID:${msg.requestId}] Received an outcome message for an already fulfilled request`)
 
-              return
-            }
+                return
+              }
 
-            if (request.response) {
-              ack<InvalidResponseMessage>(cb, {
-                error: `Request with id "${msg.requestId}" already has a response`
-              })
+              if (request.response) {
+                ack<InvalidResponseMessage>(cb, {
+                  error: `Request with id "${msg.requestId}" already has a response`
+                })
 
-              logger.log(`[RID:${msg.requestId}] Received an outcome message for a request that already has a response`)
+                logger.log(`[RID:${msg.requestId}] Received an outcome message for a request that already has a response`)
 
-              return
-            }
+                return
+              }
 
-            if (request.expiration < new Date()) {
-              storage.setRequest(msg.requestId, null)
+              if (request.expiration < new Date()) {
+                storage.setRequest(msg.requestId, null)
 
-              ack<InvalidResponseMessage>(cb, {
-                error: `Request with id "${msg.requestId}" has expired`
-              })
+                ack<InvalidResponseMessage>(cb, {
+                  error: `Request with id "${msg.requestId}" has expired`
+                })
 
-              logger.log(`[RID:${msg.requestId}] Received an outcome message for an expired request`)
+                logger.log(`[RID:${msg.requestId}] Received an outcome message for an expired request`)
 
-              return
-            }
+                return
+              }
 
-            const outcomeMessage: OutcomeResponseMessage = msg
+              const outcomeMessage: OutcomeResponseMessage = msg
 
-            // If it has a socketId and the socket is still connected, send via socket.
-            // Otherwise, store the response for polling via GET /requests/:requestId.
-            if (request.socketId && sockets[request.socketId]) {
-              const storedSocket = sockets[request.socketId]
+              // If it has a socketId and the socket is still connected, send via socket.
+              // Otherwise, store the response for polling via GET /requests/:requestId.
+              if (request.socketId && sockets[request.socketId]) {
+                const storedSocket = sockets[request.socketId]
 
-              // Mark as fulfilled instead of deleting — allows frontend to distinguish "consumed" from "never existed"
-              storage.setRequest(msg.requestId, {
-                requestId: msg.requestId,
-                socketId: request.socketId,
-                fulfilled: true,
-                expiration: request.expiration,
-                code: 0,
-                method: '',
-                params: [],
-                requiresValidation: false
-              })
+                // Mark as fulfilled instead of deleting — allows frontend to distinguish "consumed" from "never existed"
+                storage.setRequest(msg.requestId, {
+                  requestId: msg.requestId,
+                  socketId: request.socketId,
+                  fulfilled: true,
+                  expiration: request.expiration,
+                  code: 0,
+                  method: '',
+                  params: [],
+                  requiresValidation: false
+                })
 
-              storedSocket.emit(MessageType.OUTCOME, outcomeMessage)
-              logger.log(
-                `[METHOD:${request.method}][RID:${
-                  request.requestId
-                }][EXP:${request.expiration.getTime()}] Successfully sent outcome message to the client`
-              )
-            } else {
-              // Socket gone or HTTP-created request — persist response for polling
-              storage.setRequest(msg.requestId, {
-                ...request,
-                response: outcomeMessage
-              })
-              logger.log(
-                `[METHOD:${request.method}][RID:${
-                  request.requestId
-                }][EXP:${request.expiration.getTime()}] Stored outcome for polling (socket unavailable)`
-              )
-            }
+                storedSocket.emit(MessageType.OUTCOME, outcomeMessage)
+                logger.log(
+                  `[METHOD:${request.method}][RID:${
+                    request.requestId
+                  }][EXP:${request.expiration.getTime()}] Successfully sent outcome message to the client`
+                )
+              } else {
+                // Socket gone or HTTP-created request — persist response for polling
+                storage.setRequest(msg.requestId, {
+                  ...request,
+                  response: outcomeMessage
+                })
+                logger.log(
+                  `[METHOD:${request.method}][RID:${
+                    request.requestId
+                  }][EXP:${request.expiration.getTime()}] Stored outcome for polling (socket unavailable)`
+                )
+              }
 
-            ack<object>(cb, {})
-          },
-          parentTracingContext
-        )
+              ack<object>(cb, {})
+            },
+            parentTracingContext
+          )
+          .catch(e => {
+            Sentry.captureException(e)
+            logger.error(`Unexpected error in ${MessageType.OUTCOME} handler: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
+            ack<InvalidResponseMessage>(cb, { error: 'Internal server error' })
+          })
       )
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       socket.on(MessageType.REQUEST_VALIDATION_STATUS, (data: any, cb) => {
-        tracer.span(
-          'websocket-request-validation',
-          async () => {
-            let msg: RequestValidationMessage
+        tracer
+          .span(
+            'websocket-request-validation',
+            async () => {
+              let msg: RequestValidationMessage
 
-            try {
-              msg = validateRequestValidationMessage(data)
-            } catch (e) {
-              logger.log('Received an outcome message with invalid message')
-              return ack<InvalidResponseMessage>(cb, {
-                error: isErrorWithMessage(e) ? e.message : 'Unknown error'
-              })
-            }
+              try {
+                msg = validateRequestValidationMessage(data)
+              } catch (e) {
+                logger.log('Received an outcome message with invalid message')
+                return ack<InvalidResponseMessage>(cb, {
+                  error: isErrorWithMessage(e) ? e.message : 'Unknown error'
+                })
+              }
 
-            const request = await storage.getRequest(msg.requestId)
+              const request = await storage.getRequest(msg.requestId)
 
-            if (!request) {
-              logger.log(`[RID:${msg.requestId}] Tried to communicate that the request must be validated but it doesn't exist`)
-              return ack<InvalidResponseMessage>(cb, {
-                error: `Request with id "${msg.requestId}" not found`
-              })
-            }
+              if (!request) {
+                logger.log(`[RID:${msg.requestId}] Tried to communicate that the request must be validated but it doesn't exist`)
+                return ack<InvalidResponseMessage>(cb, {
+                  error: `Request with id "${msg.requestId}" not found`
+                })
+              }
 
-            if (request.fulfilled) {
-              logger.log(`[RID:${msg.requestId}] Tried to communicate that the request must be validated but it has already been fulfilled`)
-              return ack<InvalidResponseMessage>(cb, {
-                error: `Request with id "${msg.requestId}" has already been fulfilled`
-              })
-            }
+              if (request.fulfilled) {
+                logger.log(
+                  `[RID:${msg.requestId}] Tried to communicate that the request must be validated but it has already been fulfilled`
+                )
+                return ack<InvalidResponseMessage>(cb, {
+                  error: `Request with id "${msg.requestId}" has already been fulfilled`
+                })
+              }
 
-            if (request.expiration < new Date()) {
-              storage.setRequest(msg.requestId, null)
+              if (request.expiration < new Date()) {
+                storage.setRequest(msg.requestId, null)
 
-              logger.log(`[RID:${msg.requestId}] Tried to communicate that the request must be validated but it has expired`)
-              return ack<InvalidResponseMessage>(cb, {
-                error: `Request with id "${msg.requestId}" has expired`
-              })
-            }
+                logger.log(`[RID:${msg.requestId}] Tried to communicate that the request must be validated but it has expired`)
+                return ack<InvalidResponseMessage>(cb, {
+                  error: `Request with id "${msg.requestId}" has expired`
+                })
+              }
 
-            if (request.socketId && sockets[request.socketId] && !request.requiresValidation) {
-              const storedSocket = sockets[request.socketId]
+              if (request.socketId && sockets[request.socketId] && !request.requiresValidation) {
+                const storedSocket = sockets[request.socketId]
 
-              // Relay the request validation to the client
-              storedSocket.emit(MessageType.REQUEST_VALIDATION_STATUS, { requestId: msg.requestId, code: request.code })
-            }
+                // Relay the request validation to the client
+                storedSocket.emit(MessageType.REQUEST_VALIDATION_STATUS, { requestId: msg.requestId, code: request.code })
+              }
 
-            request.requiresValidation = true
+              request.requiresValidation = true
 
-            ack<object>(cb, {})
-          },
-          parentTracingContext
-        )
+              ack<object>(cb, {})
+            },
+            parentTracingContext
+          )
+          .catch(e => {
+            Sentry.captureException(e)
+            logger.error(
+              `Unexpected error in ${MessageType.REQUEST_VALIDATION_STATUS} handler: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`
+            )
+            ack<InvalidResponseMessage>(cb, { error: 'Internal server error' })
+          })
       })
     })
 
@@ -1090,6 +1119,8 @@ export async function createServerComponent({
       res.set('content-type', registry.contentType)
       res.status(200).send(body)
     })
+
+    Sentry.setupExpressErrorHandler(app)
 
     server = new Server(httpServer, { cors: corsOptions })
 
