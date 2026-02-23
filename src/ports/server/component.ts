@@ -51,6 +51,10 @@ export async function createServerComponent({
   requestExpirationInSeconds: number
   dclPersonalSignExpirationInSeconds: number
 }): Promise<IServerComponent> {
+  const getPathParam = (value: string | string[]): string => {
+    return Array.isArray(value) ? value[0] : value
+  }
+
   // Wraps the callback function on messages to type the message that is being sent
   const sendResponse = <T>(res: Response, statusCode: number, msg: T) => {
     res.status(statusCode).json(msg)
@@ -660,7 +664,7 @@ export async function createServerComponent({
 
     // Get a request by id
     app.get('/v2/requests/:requestId', async (req: Request, res: Response) => {
-      const requestId = req.params.requestId
+      const requestId = getPathParam(req.params.requestId)
       const request = await storage.getRequest(requestId)
 
       if (!request) {
@@ -694,7 +698,7 @@ export async function createServerComponent({
 
     // Communicate that the request must be validated
     app.post('/v2/requests/:requestId/validation', async (req: Request, res: Response) => {
-      const requestId = req.params.requestId
+      const requestId = getPathParam(req.params.requestId)
 
       const request = await storage.getRequest(requestId)
 
@@ -738,7 +742,7 @@ export async function createServerComponent({
 
     // Get the request validation status
     app.get('/v2/requests/:requestId/validation', async (req: Request, res: Response) => {
-      const requestId = req.params.requestId
+      const requestId = getPathParam(req.params.requestId)
       const request = await storage.getRequest(requestId)
 
       if (!request) {
@@ -766,7 +770,7 @@ export async function createServerComponent({
 
     // Get the outcome of a request
     app.get('/requests/:requestId', async (req: Request, res: Response) => {
-      const requestId = req.params.requestId
+      const requestId = getPathParam(req.params.requestId)
       const request = await storage.getRequest(requestId)
 
       if (!request) {
@@ -811,7 +815,7 @@ export async function createServerComponent({
 
     // Record the outcome of a request
     app.post('/v2/requests/:requestId/outcome', async (req: Request, res: Response) => {
-      const requestId = req.params.requestId
+      const requestId = getPathParam(req.params.requestId)
 
       const data = req.body
       let msg: HttpOutcomeMessage
@@ -993,7 +997,7 @@ export async function createServerComponent({
 
     // identities validation endpoint - returns identity for auto-login
     app.get('/identities/:id', async (req: Request, res: Response) => {
-      const identityId = req.params.id
+      const identityId = getPathParam(req.params.id)
       identityLogger.log(`Received a request to retrieve identity: ${identityId}`)
 
       if (!validateIdentityId(identityId)) {
