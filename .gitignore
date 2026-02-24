@@ -3,7 +3,6 @@
 
 node_modules
 dist
-package-lock.json
 
 *.js
 
@@ -13,3 +12,6 @@ TODO.md
 *.db
 
 coverage
+
+.cursor
+.claude

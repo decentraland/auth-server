@@ -4,14 +4,6 @@ import { AuthChain } from '@dcl/schemas'
 
 export type IServerComponent = IBaseComponent
 
-export enum MessageType {
-  REQUEST = 'request',
-  RECOVER = 'recover',
-  OUTCOME = 'outcome',
-  INVALID = 'invalid',
-  REQUEST_VALIDATION_STATUS = 'request-validation-status'
-}
-
 export type Request = {
   method: string
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

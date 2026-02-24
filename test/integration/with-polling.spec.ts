@@ -1,21 +1,12 @@
-import { DefaultEventsMap } from 'socket.io/dist/typed-events'
-import { Socket } from 'socket.io-client'
 import { AuthIdentity } from '@dcl/crypto'
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
 import { METHOD_DCL_PERSONAL_SIGN } from '../../src/ports/server/constants'
-import { MessageType, OutcomeResponseMessage, RequestResponseMessage, RequestValidationMessage } from '../../src/ports/server/types'
+import { RequestResponseMessage } from '../../src/ports/server/types'
 import { test, testWithOverrides } from '../components'
-import { createHttpClient, createAuthWsClient, HttpPollingClient } from '../utils'
+import { createHttpClient, HttpPollingClient } from '../utils'
 import { createTestIdentity, generateRandomIdentityId } from '../utils/test-identity'
 
 let httpClient: HttpPollingClient
-let wsClient: Socket<DefaultEventsMap, DefaultEventsMap>
-
-afterEach(() => {
-  if (wsClient && wsClient.connected) {
-    wsClient.close()
-  }
-})
 
 test('when sending a request message with an invalid schema', args => {
   beforeEach(async () => {
@@ -36,7 +27,6 @@ test('when sending a request message with an invalid schema', args => {
 test(`when sending a request message for a method that is not ${METHOD_DCL_PERSONAL_SIGN}`, args => {
   beforeEach(async () => {
     const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-    wsClient = await createAuthWsClient(port)
     httpClient = await createHttpClient(port)
   })
 
@@ -245,7 +235,6 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
   beforeEach(async () => {
     const port = await args.components.config.requireString('HTTP_SERVER_PORT')
     httpClient = await createHttpClient(port)
-    wsClient = await createAuthWsClient(port)
     sender = createUnsafeIdentity().address
   })
 
@@ -260,27 +249,6 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
     const outcomeResponse = await httpClient.getOutcome(requestResponse.requestId)
 
     expect(outcomeResponse).toEqual({
-      requestId: requestResponse.requestId,
-      sender,
-      result: 'result'
-    })
-  })
-
-  it('should send the outcome response message to a websocket connected client when the outcome is sent via the HTTP', async () => {
-    const requestResponse = (await wsClient.emitWithAck('request', {
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
-    })) as RequestResponseMessage
-
-    const promiseOfAnOutcome = new Promise<OutcomeResponseMessage>((resolve, _) => {
-      wsClient.on(MessageType.OUTCOME, (data: OutcomeResponseMessage) => {
-        resolve(data)
-      })
-    })
-
-    await httpClient.sendSuccessfulOutcome(requestResponse.requestId, sender, 'result')
-
-    return expect(promiseOfAnOutcome).resolves.toEqual({
       requestId: requestResponse.requestId,
       sender,
       result: 'result'
@@ -371,43 +339,15 @@ test('when posting that a request needs validation and the request is valid', ar
   beforeEach(async () => {
     const port = await args.components.config.requireString('HTTP_SERVER_PORT')
     httpClient = await createHttpClient(port)
-    wsClient = await createAuthWsClient(port)
+
+    requestResponse = (await httpClient.request({
+      method: METHOD_DCL_PERSONAL_SIGN,
+      params: []
+    })) as RequestResponseMessage
   })
 
-  describe('and there is a client connected listening for the request validation', () => {
-    beforeEach(async () => {
-      requestResponse = (await wsClient.emitWithAck('request', {
-        method: METHOD_DCL_PERSONAL_SIGN,
-        params: []
-      })) as RequestResponseMessage
-    })
-
-    it('should respond with a 204 and a valid response message and send the request validation to the client', async () => {
-      const promiseOfRequestValidation = new Promise<RequestValidationMessage>((resolve, _) => {
-        wsClient.on(MessageType.REQUEST_VALIDATION_STATUS, (data: RequestValidationMessage) => {
-          resolve(data)
-        })
-      })
-
-      await httpClient.notifyRequestValidation(requestResponse.requestId)
-
-      return expect(promiseOfRequestValidation).resolves.toEqual({
-        requestId: requestResponse.requestId
-      })
-    })
-  })
-
-  describe('and there is no client connected listening for the request validation', () => {
-    beforeEach(async () => {
-      requestResponse = (await httpClient.request({
-        method: METHOD_DCL_PERSONAL_SIGN,
-        params: []
-      })) as RequestResponseMessage
-    })
-
-    it('should respond with a 204 and a valid response message', async () => {
-      return expect(httpClient.notifyRequestValidation(requestResponse.requestId)).resolves.toBeUndefined()
-    })
+  it('should respond with a 204 and a valid response message', async () => {
+    return expect(httpClient.notifyRequestValidation(requestResponse.requestId)).resolves.toBeUndefined()
   })
 })
 
