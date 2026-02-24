@@ -24,9 +24,13 @@ export type GlobalContext = {
 
 // components used in every environment.
 export type BaseComponents = {
+  authChain: IAuthChainComponent
   config: IConfigComponent
+  identityOperations: IIdentityOperationsComponent
+  ipUtils: IIpUtilsComponent
   logs: ILoggerComponent
   metrics: IMetricsComponent<keyof typeof metricDeclarations>
+  requestOperations: IRequestOperationsComponent
   server: IServerComponent
   storage: IStorageComponent
   tracer: ITracerComponent

@@ -8,11 +8,15 @@ import { createTestMetricsComponent } from '@well-known-components/metrics'
 import { createRunner } from '@well-known-components/test-helpers'
 import { createTracerComponent } from '@well-known-components/tracer-component'
 import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
+import { createAuthChainComponent } from '../src/logic/auth-chain'
+import { createIdentityOperationsComponent } from '../src/logic/identity-operations'
+import { createRequestOperationsComponent } from '../src/logic/request-operations'
 import { metricDeclarations } from '../src/metrics'
 import { createServerComponent } from '../src/ports/server/server'
 import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
 import { TestComponents } from '../src/types/components'
+import { createIpUtilsComponent } from '../src/utils/ip'
 
 type TestOverrides = {
   requestExpirationInSeconds?: number
@@ -72,10 +76,18 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
   const metrics = createTestMetricsComponent(metricDeclarations)
   const cache = createInMemoryCacheComponent()
   const storage = createStorageComponent({ cache })
+  const authChain = await createAuthChainComponent({ logs })
+  const identityOperations = await createIdentityOperationsComponent({ logs })
+  const ipUtils = await createIpUtilsComponent({ logs })
+  const requestOperations = await createRequestOperationsComponent({ config })
   const server = await createServerComponent({
+    authChain,
     config,
+    identityOperations,
+    ipUtils,
     logs,
     metrics,
+    requestOperations,
     tracer,
     storage,
     requestExpirationInSeconds: overrides.requestExpirationInSeconds ?? 5 * 60, // 5 Minutes
@@ -83,10 +95,14 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
   })
 
   return {
+    authChain,
     config,
+    identityOperations,
+    ipUtils,
     tracer,
     logs,
     metrics,
+    requestOperations,
     server,
     storage
   }

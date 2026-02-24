@@ -5,11 +5,7 @@ import cors from 'cors'
 import express, { Request, Response } from 'express'
 import { v4 as uuid } from 'uuid'
 import { express as authMiddleware, DecentralandSignatureData } from 'decentraland-crypto-middleware'
-import { createAuthChainComponent } from '../../logic/auth-chain'
 import { isErrorWithMessage } from '../../logic/error-handling'
-import { createIdentityOperationsComponent } from '../../logic/identity-operations'
-import { createIpUtilsComponent } from '../../utils/ip'
-import { createRequestOperationsComponent } from '../../logic/request-operations'
 import { AppComponents } from '../../types/components'
 import type { IpHeaders } from '../../utils/ip.types'
 import { METHOD_DCL_PERSONAL_SIGN, MAX_BODY_SIZE } from './constants'
@@ -29,14 +25,21 @@ import {
 import { validateHttpOutcomeMessage, validateIdentityId, validateIdentityRequest, validateRequestMessage } from './validations'
 
 export async function createServerComponent({
+  authChain,
   config,
+  identityOperations,
+  ipUtils,
   logs,
   metrics,
+  requestOperations,
   storage,
   tracer,
   requestExpirationInSeconds,
   dclPersonalSignExpirationInSeconds
-}: Pick<AppComponents, 'config' | 'logs' | 'metrics' | 'storage' | 'tracer'> & {
+}: Pick<
+  AppComponents,
+  'authChain' | 'config' | 'identityOperations' | 'ipUtils' | 'logs' | 'metrics' | 'requestOperations' | 'storage' | 'tracer'
+> & {
   requestExpirationInSeconds: number
   dclPersonalSignExpirationInSeconds: number
 }): Promise<IServerComponent> {
@@ -52,10 +55,6 @@ export async function createServerComponent({
 
   const port = await config.requireNumber('HTTP_SERVER_PORT')
   const logger = logs.getLogger('http-server')
-  const authChainLogic = await createAuthChainComponent({ logs })
-  const identityOperations = await createIdentityOperationsComponent({ logs })
-  const ipUtils = await createIpUtilsComponent({ logs })
-  const requestOperations = await createRequestOperationsComponent({ config })
 
   const corsOptions = {
     origin: (await config.requireString('CORS_ORIGIN')).split(';').map(origin => new RegExp(origin)),
@@ -140,7 +139,7 @@ export async function createServerComponent({
 
       if (msg.method !== METHOD_DCL_PERSONAL_SIGN) {
         try {
-          const { sender: validatedSender } = await authChainLogic.validateAuthChain(msg.authChain || [])
+          const { sender: validatedSender } = await authChain.validateAuthChain(msg.authChain || [])
           sender = validatedSender
         } catch (e) {
           return sendResponse<InvalidResponseMessage>(res, 400, {
@@ -378,7 +377,7 @@ export async function createServerComponent({
 
           let identitySender: string | undefined
           try {
-            const authChainValidation = await authChainLogic.validateAuthChain(identity.authChain)
+            const authChainValidation = await authChain.validateAuthChain(identity.authChain)
             identitySender = authChainValidation.sender
             identityOperations.assertEphemeralAddressMatchesFinalAuthority(identity, authChainValidation.finalAuthority)
             identityOperations.assertRequestSenderMatchesIdentityOwner(req.auth, identitySender)
