@@ -1,10 +1,17 @@
-import Ajv from 'ajv'
+import AjvLib from 'ajv'
 import addFormats from 'ajv-formats'
 import { AuthChain } from '@dcl/schemas'
-import { MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from './constants'
-import { HttpOutcomeMessage, OutcomeMessage, RecoverMessage, RequestMessage, RequestValidationMessage, IdentityRequest } from './types'
+import { MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from '../ports/server/constants'
+import {
+  HttpOutcomeMessage,
+  OutcomeMessage,
+  RecoverMessage,
+  RequestMessage,
+  RequestValidationMessage,
+  IdentityRequest
+} from '../ports/server/types'
 
-const ajv = new Ajv({ allowUnionTypes: true })
+const ajv = new AjvLib({ allowUnionTypes: true })
 addFormats(ajv)
 
 const requestMessageSchema = {
@@ -171,16 +178,6 @@ export function validateIdentityRequest(msg: unknown) {
   }
 
   return msg as IdentityRequest
-}
-
-export function validateIdentityId(identityId: string): boolean {
-  if (!identityId || typeof identityId !== 'string') {
-    return false
-  }
-
-  // Basic UUID v4 format validation
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-  return uuidRegex.test(identityId)
 }
 
 export function validateHttpOutcomeMessage(msg: unknown) {

@@ -82,6 +82,10 @@ export async function createHttpClient(port: number | string): Promise<HttpPolli
         headers: [['Origin', 'http://localhost:3000']]
       })
 
+      if (response.status === 204) {
+        return undefined
+      }
+
       return response.json()
     },
     async notifyRequestValidation(requestId: string): Promise<{ error: string } | undefined> {

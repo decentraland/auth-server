@@ -1,6 +1,6 @@
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
+import { validateOutcomeMessage } from '../../src/controllers/validations'
 import { OutcomeResponseMessage } from '../../src/ports/server/types'
-import { validateOutcomeMessage } from '../../src/ports/server/validations'
 import { generateRandomIdentityId } from '../utils/test-identity'
 
 describe('when validating the outcome', () => {
