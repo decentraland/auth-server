@@ -4,18 +4,18 @@ import net from 'net'
 import path from 'node:path'
 import { createDotEnvConfigComponent } from '@well-known-components/env-config-provider'
 import { createLogComponent } from '@well-known-components/logger'
-import { createTestMetricsComponent } from '@well-known-components/metrics'
 import { createRunner } from '@well-known-components/test-helpers'
 import { createTracerComponent } from '@well-known-components/tracer-component'
+import { createServerComponent, createStatusCheckComponent, instrumentHttpServerWithPromClientRegistry } from '@dcl/http-server'
 import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
+import { createTestMetricsComponent } from '@dcl/metrics'
 import { createAuthChainComponent } from '../src/logic/auth-chain'
 import { createIdentityOperationsComponent } from '../src/logic/identity-operations'
 import { createRequestOperationsComponent } from '../src/logic/request-operations'
 import { metricDeclarations } from '../src/metrics'
-import { createServerComponent } from '../src/ports/server/server'
 import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
-import { TestComponents } from '../src/types/components'
+import { GlobalContext, TestComponents } from '../src/types/components'
 import { createIpUtilsComponent } from '../src/utils/ip'
 
 type TestOverrides = {
@@ -65,10 +65,17 @@ export const testWithOverrides = (overrides: TestOverrides) =>
 
 async function initComponents(overrides: TestOverrides = {}): Promise<TestComponents> {
   const httpServerPort = await findOpenPort()
+  const requestExpirationInSeconds = overrides.requestExpirationInSeconds ?? 5 * 60
+  const dclPersonalSignExpirationInSeconds = overrides.dclPersonalSignExpirationInSeconds ?? 5 * 60
 
   const config = await createDotEnvConfigComponent(
     { path: [path.resolve(__dirname, '../.env.spec')] },
-    { HTTP_SERVER_PORT: httpServerPort.toString(), CORS_ORIGIN: 'https://test-*.org;https://test-*.zone' }
+    {
+      HTTP_SERVER_PORT: httpServerPort.toString(),
+      CORS_ORIGIN: 'https://test-*.org;https://test-*.zone',
+      REQUEST_EXPIRATION_IN_SECONDS: requestExpirationInSeconds.toString(),
+      DCL_PERSONAL_SIGN_REQUEST_EXPIRATION_IN_SECONDS: dclPersonalSignExpirationInSeconds.toString()
+    }
   )
 
   const tracer = await createTracerComponent()
@@ -80,19 +87,32 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
   const identityOperations = await createIdentityOperationsComponent({ logs })
   const ipUtils = await createIpUtilsComponent({ logs })
   const requestOperations = await createRequestOperationsComponent({ config })
-  const server = await createServerComponent({
-    authChain,
-    config,
-    identityOperations,
-    ipUtils,
-    logs,
-    metrics,
-    requestOperations,
-    tracer,
-    storage,
-    requestExpirationInSeconds: overrides.requestExpirationInSeconds ?? 5 * 60, // 5 Minutes
-    dclPersonalSignExpirationInSeconds: overrides.dclPersonalSignExpirationInSeconds ?? 5 * 60 // 5 Minutes
+  const corsMethods = (await config.requireString('CORS_METHODS'))
+    .split(',')
+    .map(method => method.trim())
+    .filter(method => method.length > 0)
+  const corsOrigin = (await config.requireString('CORS_ORIGIN')).split(';').map(origin => new RegExp(origin))
+  const server = await createServerComponent<GlobalContext>(
+    {
+      config,
+      logs
+    },
+    {
+      cors: {
+        origin: corsOrigin,
+        methods: corsMethods
+      }
+    }
+  )
+  const statusChecks = await createStatusCheckComponent({
+    server,
+    config
   })
+  const metricsRegistry = metrics.registry
+  if (!metricsRegistry) {
+    throw new Error('Metrics registry is required to instrument HTTP server metrics')
+  }
+  await instrumentHttpServerWithPromClientRegistry({ config, metrics, registry: metricsRegistry, server })
 
   return {
     authChain,
@@ -104,6 +124,7 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     metrics,
     requestOperations,
     server,
+    statusChecks,
     storage
   }
 }

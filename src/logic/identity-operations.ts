@@ -3,6 +3,7 @@ import type { AuthIdentity } from '@dcl/crypto'
 import { FIFTEEN_MINUTES_IN_MILLISECONDS } from '../ports/server/constants'
 import type { StorageIdentity } from '../ports/storage/types'
 import type { AppComponents, IIdentityOperationsComponent } from '../types/components'
+import { EphemeralAddressMismatchError, EphemeralPrivateKeyMismatchError, RequestSenderMismatchError } from './errors'
 import type {
   BuildStorageIdentityParams,
   ValidateIdentityIpAccessParams,
@@ -15,14 +16,14 @@ export async function createIdentityOperationsComponent({ logs }: Pick<AppCompon
   const assertEphemeralAddressMatchesFinalAuthority = (identity: AuthIdentity, finalAuthority: string): void => {
     if (identity.ephemeralIdentity.address.toLowerCase() !== finalAuthority.toLowerCase()) {
       logger.log('Ephemeral wallet address does not match auth chain final authority')
-      throw new Error('Ephemeral wallet address does not match auth chain final authority')
+      throw new EphemeralAddressMismatchError(identity.ephemeralIdentity.address, finalAuthority)
     }
   }
 
   const assertRequestSenderMatchesIdentityOwner = (requestSender: string | undefined, identitySender: string): void => {
     if (!requestSender || requestSender.toLowerCase() !== identitySender.toLowerCase()) {
       logger.log('Request sender does not match identity owner')
-      throw new Error('Request sender does not match identity owner')
+      throw new RequestSenderMismatchError(requestSender, identitySender)
     }
   }
 
@@ -31,7 +32,7 @@ export async function createIdentityOperationsComponent({ logs }: Pick<AppCompon
 
     if (wallet.address.toLowerCase() !== identity.ephemeralIdentity.address.toLowerCase()) {
       logger.log('Ephemeral private key does not match the provided address')
-      throw new Error('Ephemeral private key does not match the provided address')
+      throw new EphemeralPrivateKeyMismatchError(identity.ephemeralIdentity.address)
     }
   }
 

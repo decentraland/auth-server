@@ -1,7 +1,14 @@
-import type { IConfigComponent, ILoggerComponent, IMetricsComponent, ITracerComponent } from '@well-known-components/interfaces'
+import type {
+  IBaseComponent,
+  IConfigComponent,
+  ILoggerComponent,
+  IMetricsComponent,
+  ITracerComponent
+} from '@well-known-components/interfaces'
 import type { ICacheStorageComponent } from '@dcl/core-commons'
 import type { AuthIdentity } from '@dcl/crypto'
 import type { AuthChain } from '@dcl/schemas'
+import type { DecentralandSignatureContext } from 'decentraland-crypto-middleware'
 import type { ValidateAuthChainResult } from '../logic/auth-chain.types'
 import type {
   BuildStorageIdentityParams,
@@ -18,7 +25,7 @@ import type { HttpOutcomeMessage, IServerComponent, OutcomeResponseMessage, Reco
 import type { IStorageComponent, StorageIdentity, StorageRequest } from '../ports/storage/types'
 import type { GetClientIpInput, IpHeaders } from '../utils/ip.types'
 
-export type GlobalContext = {
+export type GlobalContext = DecentralandSignatureContext & {
   components: BaseComponents
 }
 
@@ -29,9 +36,10 @@ export type BaseComponents = {
   identityOperations: IIdentityOperationsComponent
   ipUtils: IIpUtilsComponent
   logs: ILoggerComponent
-  metrics: IMetricsComponent<keyof typeof metricDeclarations>
+  metrics: IMetricsComponent<Extract<keyof typeof metricDeclarations, string>>
   requestOperations: IRequestOperationsComponent
   server: IServerComponent
+  statusChecks: IBaseComponent
   storage: IStorageComponent
   tracer: ITracerComponent
 }

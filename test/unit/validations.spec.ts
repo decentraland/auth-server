@@ -1,4 +1,12 @@
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
+import {
+  validateRequestMessage,
+  validateRecoverMessage,
+  validateOutcomeMessage,
+  validateRequestValidationMessage,
+  validateHttpOutcomeMessage,
+  validateIdentityRequest
+} from '../../src/controllers/validations'
 import { MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from '../../src/ports/server/constants'
 import {
   RequestMessage,
@@ -8,15 +16,7 @@ import {
   HttpOutcomeMessage,
   IdentityRequest
 } from '../../src/ports/server/types'
-import {
-  validateRequestMessage,
-  validateRecoverMessage,
-  validateOutcomeMessage,
-  validateRequestValidationMessage,
-  validateIdentityId,
-  validateHttpOutcomeMessage,
-  validateIdentityRequest
-} from '../../src/ports/server/validations'
+import { isValidIdentityId } from '../../src/utils/identity-id'
 import { generateRandomIdentityId, createTestIdentity } from '../utils/test-identity'
 
 describe('when validating request messages', () => {
@@ -370,35 +370,35 @@ describe('when validating identity IDs', () => {
 
   describe('and the identity ID is valid UUID v4', () => {
     it('should return true', () => {
-      const result = validateIdentityId(validIdentityId)
+      const result = isValidIdentityId(validIdentityId)
       expect(result).toBe(true)
     })
   })
 
   describe('and the identity ID has invalid format', () => {
     it('should return false', () => {
-      const result = validateIdentityId(invalidIdentityId)
+      const result = isValidIdentityId(invalidIdentityId)
       expect(result).toBe(false)
     })
   })
 
   describe('and the identity ID is empty', () => {
     it('should return false', () => {
-      const result = validateIdentityId(emptyIdentityId)
+      const result = isValidIdentityId(emptyIdentityId)
       expect(result).toBe(false)
     })
   })
 
   describe('and the identity ID is null', () => {
     it('should return false', () => {
-      const result = validateIdentityId(null as unknown as string)
+      const result = isValidIdentityId(null as unknown as string)
       expect(result).toBe(false)
     })
   })
 
   describe('and the identity ID is not a string', () => {
     it('should return false', () => {
-      const result = validateIdentityId(123 as unknown as string)
+      const result = isValidIdentityId(123 as unknown as string)
       expect(result).toBe(false)
     })
   })
