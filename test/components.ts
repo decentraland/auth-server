@@ -21,6 +21,7 @@ import { createIpUtilsComponent } from '../src/utils/ip'
 type TestOverrides = {
   requestExpirationInSeconds?: number
   dclPersonalSignExpirationInSeconds?: number
+  metricsBearerToken?: string
 }
 
 /**
@@ -74,7 +75,8 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
       HTTP_SERVER_PORT: httpServerPort.toString(),
       CORS_ORIGIN: 'https://test-*.org;https://test-*.zone',
       REQUEST_EXPIRATION_IN_SECONDS: requestExpirationInSeconds.toString(),
-      DCL_PERSONAL_SIGN_REQUEST_EXPIRATION_IN_SECONDS: dclPersonalSignExpirationInSeconds.toString()
+      DCL_PERSONAL_SIGN_REQUEST_EXPIRATION_IN_SECONDS: dclPersonalSignExpirationInSeconds.toString(),
+      ...(overrides.metricsBearerToken ? { WKC_METRICS_BEARER_TOKEN: overrides.metricsBearerToken } : {})
     }
   )
 
