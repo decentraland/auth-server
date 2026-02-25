@@ -351,87 +351,85 @@ test('when posting that a request needs validation and the request is valid', ar
   })
 })
 
-// test('when getting the request validation status of a request that does not exist', args => {
-//   beforeEach(async () => {
-//     const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-//     httpClient = await createHttpClient(port)
-//   })
+test('when getting the request validation status of a request that does not exist', args => {
+  beforeEach(async () => {
+    const port = await args.components.config.requireString('HTTP_SERVER_PORT')
+    httpClient = await createHttpClient(port)
+  })
 
-//   it('should respond with a 404 and an error message', async () => {
-//     const response = await httpClient.getRequestValidationStatus('requestId')
+  it('should respond with a 404 and an error message', async () => {
+    const response = await httpClient.getRequestValidationStatus('requestId')
 
-//     expect(response).toEqual({
-//       error: 'Request with id "requestId" not found'
-//     })
-//   })
-// })
+    expect(response).toEqual({
+      error: 'Request with id "requestId" not found'
+    })
+  })
+})
 
-// testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })(
-//   'when getting the request validation status of a request that has expired',
-//   args => {
-//     let requestResponse: RequestResponseMessage
+testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })(
+  'when getting the request validation status of a request that has expired',
+  args => {
+    let requestResponse: RequestResponseMessage
 
-//     beforeEach(async () => {
-//       const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-//       httpClient = await createHttpClient(port)
-//       requestResponse = (await httpClient.request({
-//         method: METHOD_DCL_PERSONAL_SIGN,
-//         params: []
-//       })) as RequestResponseMessage
-//     })
+    beforeEach(async () => {
+      const port = await args.components.config.requireString('HTTP_SERVER_PORT')
+      httpClient = await createHttpClient(port)
+      requestResponse = (await httpClient.request({
+        method: METHOD_DCL_PERSONAL_SIGN,
+        params: []
+      })) as RequestResponseMessage
+    })
 
-//     it('should respond with a 410 and an expired response message', async () => {
-//       const response = await httpClient.getRequestValidationStatus(requestResponse.requestId)
+    it('should respond with a 410 and an expired response message', async () => {
+      const response = await httpClient.getRequestValidationStatus(requestResponse.requestId)
 
-//       expect(response).toEqual({
-//         error: 'Request with id "requestId" has expired'
-//       })
-//     })
-//   }
-// )
+      expect(response).toEqual({
+        error: `Request with id "${requestResponse.requestId}" has expired`
+      })
+    })
+  }
+)
 
-// test('when getting the request validation status of a request that should not be validated', args => {
-//   let requestResponse: RequestResponseMessage
+test('when getting the request validation status of a request that should not be validated', args => {
+  let requestResponse: RequestResponseMessage
 
-//   beforeEach(async () => {
-//     const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-//     httpClient = await createHttpClient(port)
-//     requestResponse = (await httpClient.request({
-//       method: METHOD_DCL_PERSONAL_SIGN,
-//       params: []
-//     })) as RequestResponseMessage
-//   })
+  beforeEach(async () => {
+    const port = await args.components.config.requireString('HTTP_SERVER_PORT')
+    httpClient = await createHttpClient(port)
+    requestResponse = (await httpClient.request({
+      method: METHOD_DCL_PERSONAL_SIGN,
+      params: []
+    })) as RequestResponseMessage
+  })
 
-//   it('should respond with a 200 and the request validation status as false', async () => {
-//     const response = await httpClient.getRequestValidationStatus(requestResponse.requestId)
+  it('should respond with a 200 and the request validation status as false', async () => {
+    const response = await httpClient.getRequestValidationStatus(requestResponse.requestId)
 
-//     expect(response).toEqual({
-//       requestId: requestResponse.requestId,
-//       requiresValidation: false
-//     })
-//   })
-// })
+    expect(response).toEqual({
+      requiresValidation: false
+    })
+  })
+})
 
-// test('when getting the request validation status of a request that should be validated', args => {
-//   let requestResponse: RequestResponseMessage
+test('when getting the request validation status of a request that should be validated', args => {
+  let requestResponse: RequestResponseMessage
 
-//   beforeEach(async () => {
-//     const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-//     httpClient = await createHttpClient(port)
-//     requestResponse = (await httpClient.request({
-//       method: METHOD_DCL_PERSONAL_SIGN,
-//       params: []
-//     })) as RequestResponseMessage
+  beforeEach(async () => {
+    const port = await args.components.config.requireString('HTTP_SERVER_PORT')
+    httpClient = await createHttpClient(port)
+    requestResponse = (await httpClient.request({
+      method: METHOD_DCL_PERSONAL_SIGN,
+      params: []
+    })) as RequestResponseMessage
 
-//     await httpClient.notifyRequestValidation(requestResponse.requestId)
-//   })
+    await httpClient.notifyRequestValidation(requestResponse.requestId)
+  })
 
-//   it('should respond with a 200 and the request validation status as true', async () => {
-//     const response = await httpClient.getRequestValidationStatus(requestResponse.requestId)
+  it('should respond with a 200 and the request validation status as true', async () => {
+    const response = await httpClient.getRequestValidationStatus(requestResponse.requestId)
 
-//     expect(response).toEqual({
-//       requestId: requestResponse.requestId,
-//       requiresValidation: true
-//     })
-//   })
-// })
+    expect(response).toEqual({
+      requiresValidation: true
+    })
+  })
+})
