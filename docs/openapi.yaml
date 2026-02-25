@@ -3,7 +3,7 @@ info:
   title: Auth Server API
   description: |
     ## Overview
-    API for Auth server with HTTP endpoints and Socket.IO WebSocket protocol.
+    API for Auth server with HTTP polling endpoints.
     
     This server facilitates communication between the Decentraland clients and the auth dapp on the browser.
     It allows the desktop client to execute wallet methods (eth_sendTransaction, personal_sign, etc.) using the wallet 
@@ -16,13 +16,13 @@ info:
     3. The auth dapp recovers the request using the request ID
     4. The request is executed on the auth dapp with the user's wallet
     5. The outcome (result or error) is submitted back to the server
-    6. The original client receives the outcome via WebSocket or polling
+    6. The original client polls the outcome endpoint until the request is completed
     
     ### Request Characteristics
     
-    - Only one request can exist at a time per connected socket. A new request will invalidate a previous one if it existed.
+    - Requests are identified by `requestId` and can be consumed once.
     - Requests have an expiration (default: 5 minutes), and cannot be consumed after it.
-    - If the socket disconnects, any request made by that socket will be deleted.
+    - Polling clients should handle `204` responses while requests are pending.
     
     ### Authentication
     
@@ -54,57 +54,51 @@ tags:
     description: Health check endpoints for monitoring and orchestration
   - name: Requests
     description: Authentication request management endpoints
-    - name: Identities
-      description: Temporary identity endpoints used for auto-login flows
-  - name: WebSocket
-    description: Socket.IO WebSocket events for real-time communication
+  - name: Identities
+    description: Temporary identity endpoints used for auto-login flows
 paths:
   /health/ready:
     get:
       tags:
         - Health
       summary: Readiness probe
-      description: Returns 200 when service is ready to accept traffic
+      description: Returns service readiness state following WKC status-check behavior
       operationId: getReadiness
       security: []
       responses:
         '200':
           description: Service is ready
-        '400':
-          description: Bad request
           content:
-            application/json:
+            application/health+json:
               schema:
-                $ref: '#/components/schemas/InvalidResponseMessage'
-        '500':
-          description: Internal server error
+                $ref: '#/components/schemas/HealthStatusMessage'
+        '503':
+          description: Service is not ready
           content:
-            application/json:
+            application/health+json:
               schema:
-                $ref: '#/components/schemas/InvalidResponseMessage'
+                $ref: '#/components/schemas/HealthStatusMessage'
   /health/startup:
     get:
       tags:
         - Health
       summary: Startup probe
-      description: Returns 200 when service has started
+      description: Returns startup state following WKC status-check behavior
       operationId: getStartup
       security: []
       responses:
         '200':
           description: Service has started
-        '400':
-          description: Bad request
           content:
-            application/json:
+            application/health+json:
               schema:
-                $ref: '#/components/schemas/InvalidResponseMessage'
-        '500':
-          description: Internal server error
+                $ref: '#/components/schemas/HealthStatusMessage'
+        '503':
+          description: Service has not finished startup
           content:
-            application/json:
+            application/health+json:
               schema:
-                $ref: '#/components/schemas/InvalidResponseMessage'
+                $ref: '#/components/schemas/HealthStatusMessage'
   /health/live:
     get:
       tags:
@@ -117,21 +111,29 @@ paths:
         '200':
           description: Service is alive
           content:
-            application/json:
+            text/plain:
               schema:
-                $ref: '#/components/schemas/LiveResponseMessage'
-        '400':
-          description: Bad request
+                type: string
+                example: alive
+  /metrics:
+    get:
+      tags:
+        - Health
+      summary: Metrics endpoint
+      description: |
+        Returns Prometheus metrics. If `WKC_METRICS_BEARER_TOKEN` is configured,
+        the request must include `Authorization: Bearer <token>`.
+      operationId: getMetrics
+      security: []
+      responses:
+        '200':
+          description: Metrics payload
           content:
-            application/json:
+            text/plain:
               schema:
-                $ref: '#/components/schemas/InvalidResponseMessage'
-        '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/InvalidResponseMessage'
+                type: string
+        '401':
+          description: Missing or invalid bearer token
   /requests:
     post:
       tags:
@@ -211,8 +213,6 @@ paths:
       summary: Poll for request outcome
       description: |
         Polls for the outcome of an authentication request. 
-        
-        This endpoint can be used as an alternative to WebSocket for receiving request outcomes.
         The client should poll this endpoint periodically until a result is returned.
         
         **Status Codes:**
@@ -244,12 +244,6 @@ paths:
                 result: "0xabcdef1234567890..."
         '204':
           description: Request not yet completed (continue polling)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/InvalidResponseMessage'
-              example:
-                error: "Request with id \"550e8400-e29b-41d4-a716-446655440000\" has not been completed"
         '404':
           description: Request not found
           content:
@@ -272,7 +266,7 @@ paths:
         - Requests
       summary: Submit request outcome
       description: |
-        Submits the outcome of a previously created request. If the request originated from a WebSocket client, the server will immediately emit the `outcome` event to that client and delete the request. Otherwise, the outcome is stored for later retrieval via polling.
+        Submits the outcome of a previously created request and stores it for polling retrieval.
       operationId: submitOutcome
       security: []
       parameters:
@@ -329,8 +323,7 @@ paths:
         - Requests
       summary: Notify request requires validation
       description: |
-        Notifies that the request requires additional user validation (e.g., visual code confirmation).  
-        If the requester is connected via WebSocket, the server relays a `request-validation-status` event to that client.
+        Notifies that the request requires additional user validation (e.g., visual code confirmation).
       operationId: notifyRequestValidation
       security: []
       parameters:
@@ -557,14 +550,23 @@ paths:
                 error: "Request with id \"550e8400-e29b-41d4-a716-446655440000\" has expired"
 components:
   schemas:
-    LiveResponseMessage:
+    HealthStatusMessage:
       type: object
       properties:
-        timestamp:
-          type: number
-          description: Server timestamp in milliseconds
+        status:
+          type: string
+          description: Health status of the probe
+        details:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              status:
+                type: string
+            required:
+              - status
       required:
-        - timestamp
+        - status
     RequestMessage:
       type: object
       properties:
@@ -781,161 +783,3 @@ components:
           description: Error message describing what went wrong
       required:
         - error
-x-websocket:
-  tag: WebSocket
-  description: |
-    Socket.IO WebSocket protocol for real-time authentication.
-    
-    Clients connect using Socket.IO and can send/receive messages in real-time.
-    The server uses acknowledgment callbacks for request/response patterns.
-    
-    **Connection:**
-    - Connect to the server URL using Socket.IO client
-    - Example: `const socket = io('https://auth-api.decentraland.org')`
-    
-    **Important Notes:**
-    - Only one request can exist per socket at a time. A new request invalidates previous ones.
-    - If a socket disconnects, all requests made by that socket are deleted.
-    - Requests expire after the configured time (default: 5 minutes).
-  protocol: socket.io
-  events:
-    request:
-      description: |
-        Create authentication request (client→server).
-        
-        Used by the desktop client to request execution of a wallet method.
-        The server validates the request and returns a request ID with expiration.
-        
-        **Response Handling:**
-        Use `socket.emitWithAck()` to send and receive the response:
-        ```typescript
-        const response = await socket.emitWithAck('request', {
-          method: 'personal_sign',
-          params: ['message', 'address'],
-          authChain: [...]
-        })
-        ```
-      message:
-        $ref: '#/components/schemas/RequestMessage'
-      response:
-        oneOf:
-          - $ref: '#/components/schemas/RequestResponseMessage'
-          - $ref: '#/components/schemas/InvalidResponseMessage'
-      validation:
-        description: |
-          Validates request structure and auth chain:
-          - Validates JSON schema using Ajv
-          - For methods other than `dcl_personal_sign`, validates that authChain is present
-          - Validates authChain signature using @dcl/crypto Authenticator
-          - Checks that ephemeral address can be extracted from authChain
-    recover:
-      description: |
-        Recover existing request (client→server).
-        
-        Used by the auth dapp to retrieve request details for execution.
-        The request must exist and not be expired.
-      message:
-        type: object
-        properties:
-          requestId:
-            type: string
-            format: uuid
-            description: Request ID to recover
-        required:
-          - requestId
-      response:
-        oneOf:
-          - $ref: '#/components/schemas/RecoverResponseMessage'
-          - $ref: '#/components/schemas/InvalidResponseMessage'
-    outcome:
-      description: |
-        Submit request outcome (client→server) and receive response (server→client).
-        
-        **Sending Outcome (auth dapp → server):**
-        The auth dapp sends the outcome after executing the request.
-        The message should include either `result` (success) or `error` (failure).
-        
-        **Receiving Outcome (server → desktop client):**
-        After receiving an outcome, if the original request was made via WebSocket, 
-        the server emits an `outcome` event to the original requester with the complete outcome message.
-        
-        If the original request was made via HTTP, the outcome is stored and retrieved via polling.
-      message:
-        type: object
-        properties:
-          requestId:
-            type: string
-            format: uuid
-            description: Request ID
-          sender:
-            type: string
-            description: Address that executed the request
-          result:
-            description: Success result (any JSON-serializable type). Required if error is not present.
-          error:
-            $ref: '#/components/schemas/OutcomeError'
-            description: Error details. Required if result is not present.
-        required:
-          - requestId
-          - sender
-        oneOf:
-          - required: [result]
-          - required: [error]
-      response:
-        type: object
-        description: Empty acknowledgment object
-        properties: {}
-      emits:
-        - description: Emitted to original requester (if request was made via WebSocket)
-          event: outcome
-          message:
-            $ref: '#/components/schemas/OutcomeResponseMessage'
-    request-validation-status:
-      description: |
-        Notify that a request requires validation (auth dapp → server).  
-        If the original request was made over WebSocket and the client is connected, the server relays a `request-validation-status` message to that client with the `requestId` and `code`.
-      message:
-        type: object
-        properties:
-          requestId:
-            type: string
-            format: uuid
-            description: Request ID
-        required:
-          - requestId
-      response:
-        oneOf:
-          - type: object
-            description: Empty acknowledgment object
-            properties: {}
-          - $ref: '#/components/schemas/InvalidResponseMessage'
-      emits:
-        - description: Emitted to original requester (if request was made via WebSocket)
-          event: request-validation-status
-          message:
-            type: object
-            properties:
-              requestId:
-                type: string
-                format: uuid
-              code:
-                type: number
-                description: Request verification code
-            required:
-              - requestId
-              - code
-  authentication:
-    type: ethereum-signature
-    description: |
-      Ethereum signature validation via @dcl/crypto Authenticator.
-      - For non-dcl_personal_sign methods, authChain is validated on request creation
-      - Signature validation ensures the request is authorized by the wallet owner
-  cors:
-    description: |
-      CORS configuration via environment variables:
-      - CORS_ORIGIN: Comma-separated list of allowed origins (supports regex patterns)
-      - CORS_METHODS: Allowed HTTP methods
-  expiration:
-    description: |
-      Request expiration configurable via `requestExpirationInSeconds` (default: 300 seconds / 5 minutes).
-      Requests cannot be consumed after expiration.
