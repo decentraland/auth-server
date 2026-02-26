@@ -1,12 +1,12 @@
 import type { InvalidResponseMessage, OutcomeResponseMessage } from '../../../ports/server/types'
-import { getPathParam } from '../../helpers'
+import { getRequiredPathParam } from '../../helpers'
 import type { HandlerContext } from '../../types'
 
 export async function getRequestOutcomeHandler(ctx: HandlerContext<'/requests/:requestId'>) {
   const { components, params } = ctx
   const { logs, requestOperations, storage } = components
   const logger = logs.getLogger('http-server')
-  const requestId = getPathParam(params.requestId, 'requestId')
+  const requestId = getRequiredPathParam(params.requestId, 'requestId')
   const request = await storage.getRequest(requestId)
 
   if (!request) {

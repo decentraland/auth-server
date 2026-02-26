@@ -1,12 +1,12 @@
 import type { InvalidResponseMessage } from '../../../ports/server/types'
-import { getPathParam } from '../../helpers'
+import { getRequiredPathParam } from '../../helpers'
 import type { HandlerContext } from '../../types'
 
 export async function notifyValidationHandler(ctx: HandlerContext<'/v2/requests/:requestId/validation'>) {
   const { components, params } = ctx
   const { logs, requestOperations, storage } = components
   const logger = logs.getLogger('http-server')
-  const requestId = getPathParam(params.requestId, 'requestId')
+  const requestId = getRequiredPathParam(params.requestId, 'requestId')
   const request = await storage.getRequest(requestId)
 
   if (!request) {

@@ -2,7 +2,7 @@ import type { IHttpServerComponent } from '@well-known-components/interfaces'
 import type { IpHeaders } from '../utils/ip.types'
 import type { HandlerContext } from './types'
 
-export function getPathParam(value: string | string[], param: string): string {
+export function getRequiredPathParam(value: string | string[], param: string): string {
   if (Array.isArray(value)) {
     if (value.length === 0) {
       throw new Error(`Path param "${param}" is empty`)
