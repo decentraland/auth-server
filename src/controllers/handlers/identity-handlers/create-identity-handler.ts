@@ -2,7 +2,7 @@ import { v4 as uuid } from 'uuid'
 import { isErrorWithMessage } from '../../../logic/error-handling'
 import { EphemeralAddressMismatchError, EphemeralPrivateKeyMismatchError, RequestSenderMismatchError } from '../../../logic/errors'
 import type { IdentityResponse, InvalidResponseMessage } from '../../../ports/server/types'
-import { getIpHeaders, redactIp } from '../../helpers'
+import { getIpHeaders } from '../../helpers'
 import type { HandlerContext } from '../../types'
 import { validateIdentityRequest } from '../../validations'
 
@@ -89,7 +89,7 @@ export async function createIdentityHandler(ctx: HandlerContext<'/identities'>) 
     identityLogger.log(
       `[IID:${identityId}][EXP:${storageIdentity.expiration.getTime()}][Mobile:${
         storageIdentity.isMobile === true
-      }] Successfully created identity from IP: ${redactIp(clientIp)}`
+      }] Successfully created identity from IP: ${clientIp}`
     )
 
     return {

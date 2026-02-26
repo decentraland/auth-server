@@ -20,23 +20,3 @@ export function getIpHeaders(request: IHttpServerComponent.IRequest): IpHeaders 
 export function getJsonBody(ctx: HandlerContext): Promise<unknown> {
   return ctx.request.json()
 }
-
-export function redactIp(ip: string): string {
-  if (!ip || ip === 'unknown') {
-    return 'unknown'
-  }
-
-  if (ip.includes('.')) {
-    const parts = ip.split('.')
-    if (parts.length === 4) {
-      return `${parts[0]}.${parts[1]}.${parts[2]}.x`
-    }
-  }
-
-  if (ip.includes(':')) {
-    const parts = ip.split(':')
-    return `${parts.slice(0, 4).join(':')}:x`
-  }
-
-  return `${ip.slice(0, 6)}***`
-}
