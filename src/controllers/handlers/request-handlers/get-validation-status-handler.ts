@@ -5,7 +5,7 @@ import type { HandlerContext } from '../../types'
 export async function getValidationStatusHandler(ctx: HandlerContext<'/v2/requests/:requestId/validation'>) {
   const { components, params } = ctx
   const { requestOperations, storage } = components
-  const requestId = getPathParam(params.requestId)
+  const requestId = getPathParam(params.requestId, 'requestId')
   const request = await storage.getRequest(requestId)
 
   if (!request) {

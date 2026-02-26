@@ -24,6 +24,10 @@ type TestOverrides = {
   metricsBearerToken?: string
 }
 
+function parseCorsOrigins(value: string): RegExp[] {
+  return value.split(';').map(pattern => new RegExp(pattern))
+}
+
 /**
  * Finds an open port using the node net library.
  * It works by starting a server on a random port, saving the port, and stopping the server.
@@ -93,7 +97,7 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     .split(',')
     .map(method => method.trim())
     .filter(method => method.length > 0)
-  const corsOrigin = (await config.requireString('CORS_ORIGIN')).split(';').map(origin => new RegExp(origin))
+  const corsOrigin = parseCorsOrigins(await config.requireString('CORS_ORIGIN'))
   const server = await createServerComponent<GlobalContext>(
     {
       config,

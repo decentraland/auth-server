@@ -6,7 +6,7 @@ export async function notifyValidationHandler(ctx: HandlerContext<'/v2/requests/
   const { components, params } = ctx
   const { logs, requestOperations, storage } = components
   const logger = logs.getLogger('http-server')
-  const requestId = getPathParam(params.requestId)
+  const requestId = getPathParam(params.requestId, 'requestId')
   const request = await storage.getRequest(requestId)
 
   if (!request) {

@@ -8,7 +8,7 @@ export async function submitOutcomeHandler(ctx: HandlerContext<'/v2/requests/:re
   const { components, params } = ctx
   const { logs, requestOperations, storage } = components
   const logger = logs.getLogger('http-server')
-  const requestId = getPathParam(params.requestId)
+  const requestId = getPathParam(params.requestId, 'requestId')
 
   let msg: HttpOutcomeMessage
 
@@ -56,6 +56,7 @@ export async function submitOutcomeHandler(ctx: HandlerContext<'/v2/requests/:re
   }
 
   if (requestOperations.isRequestExpired(request)) {
+    // This cleanup is intentionally idempotent; concurrent expired submissions may call it more than once.
     await storage.setRequest(requestId, null)
     logger.log(`[RID:${requestId}] Received an outcome message for an expired request`)
     return {

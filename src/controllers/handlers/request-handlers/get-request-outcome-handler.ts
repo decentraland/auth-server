@@ -6,7 +6,7 @@ export async function getRequestOutcomeHandler(ctx: HandlerContext<'/requests/:r
   const { components, params } = ctx
   const { logs, requestOperations, storage } = components
   const logger = logs.getLogger('http-server')
-  const requestId = getPathParam(params.requestId)
+  const requestId = getPathParam(params.requestId, 'requestId')
   const request = await storage.getRequest(requestId)
 
   if (!request) {

@@ -1,15 +1,14 @@
 import { Router } from '@dcl/http-server'
 import { wellKnownComponents } from 'decentraland-crypto-middleware'
 import type { GlobalContext } from '../types/components'
-import { createIdentityHandler, getIdentityHandler } from './handlers/identity-handlers'
-import {
-  createRequestHandler,
-  getRequestHandler,
-  getRequestOutcomeHandler,
-  getValidationStatusHandler,
-  notifyValidationHandler,
-  submitOutcomeHandler
-} from './handlers/request-handlers'
+import { createIdentityHandler } from './handlers/identity-handlers/create-identity-handler'
+import { getIdentityHandler } from './handlers/identity-handlers/get-identity-handler'
+import { createRequestHandler } from './handlers/request-handlers/create-request-handler'
+import { getRequestHandler } from './handlers/request-handlers/get-request-handler'
+import { getRequestOutcomeHandler } from './handlers/request-handlers/get-request-outcome-handler'
+import { getValidationStatusHandler } from './handlers/request-handlers/get-validation-status-handler'
+import { notifyValidationHandler } from './handlers/request-handlers/notify-validation-handler'
+import { submitOutcomeHandler } from './handlers/request-handlers/submit-outcome-handler'
 
 export function setupRouter(): Router<GlobalContext> {
   const router = new Router<GlobalContext>()

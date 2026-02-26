@@ -8,7 +8,7 @@ export async function getIdentityHandler(ctx: HandlerContext<'/identities/:id'>)
   const { components, params, request } = ctx
   const { identityOperations, ipUtils, logs, storage } = components
   const identityLogger = logs.getLogger('identity-endpoints')
-  const identityId = getPathParam(params.id)
+  const identityId = getPathParam(params.id, 'id')
   identityLogger.log(`Received a request to retrieve identity: ${identityId}`)
 
   if (!isValidIdentityId(identityId)) {
