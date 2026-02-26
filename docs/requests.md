@@ -1,168 +1,109 @@
 # Requests
 
-Requests are the main entity this server handles. Requests contain the wallet methods that the desktop client want to execute.
+Requests are the main entity handled by this service. A request contains a wallet method that the client wants to execute on the auth dapp.
 
-They are created on the auth server on demand by the desktop client. The server then provides a request id, which can then be used to recover that request on a browser (which in this case it is intended to be opened on the auth dapp).
+This service is **polling-only**. WebSocket/Socket.IO is no longer supported.
 
-On the auth dapp, the user can execute said request by using the connected wallet, and communicate the result back to the auth server, which in turn will communicate it back to the desktop client.
+## Request lifecycle
 
-For example, if the desktop client needs to send a transaction, it would create a transaction for the `eth_sendTransaction` method, and await for the result, which would be a transaction hash, to be returned after the flow is complete.
+1. Client creates a request with `POST /requests`.
+2. Server returns `{ requestId, expiration, code }`.
+3. Auth dapp recovers request details with `GET /v2/requests/:requestId`.
+4. Auth dapp executes the wallet action and submits outcome with `POST /v2/requests/:requestId/outcome`.
+5. Original client polls `GET /requests/:requestId` until it gets the final outcome.
 
-Requests have the following characteristics:
+Key behavior:
 
-1. Only one request can exist at a time per connected socket. A new request will invalidate a previous one if it existed.
-2. Requests have an expiration, and cannot be consumed after it.
-3. If the socket disconnects, any request made by that socket will be deleted.
+1. Requests expire and cannot be consumed after expiration.
+2. `GET /requests/:requestId` returns:
+   - `204` while pending
+   - `200` with outcome when completed
+   - `404` if not found
+   - `410` if expired or already fulfilled
 
-# Usage
-
-This section will explain the ways in which the service can be used.
-
-[Socket.IO](https://socket.io/) is required to connect to the auth server (https://auth-api.decentraland.org).
-
-The next example will show how a `personal_sign` can be requested by the desktop client.
-
-1. The desktop client has to connect to the auth server through web sockets.
-
-```ts
-const socket = io('https://auth-api.decentraland.org')
-```
-
-2. The desktop client has to send a request message with the method information to the auth server, and wait for the response.
-
-```ts
-const { requestId, expiration, code } = await socket.emitWithAck('request', {
-  method: 'personal_sign',
-  params: ['message to sign', 'signer address']
-})
-```
-
-The expiration shows when the request will become unavailable. The request must be consumed before it expires.
-
-The code can be used as an easy visual help to be displayed on both the desktop client and the auth dapp for the user to see that if they match, they have a really high chance of being for the same request.
-
-The request id is necessary for the next step.
-
-4. Once the request id is obtained, the client has to listen for the corresponding outcome message that will provide the result of the request that will be executed on the auth dapp.
-
-```ts
-const outcome = await new Promise((resolve, reject) => {
-  socket.on('outcome', msg => {
-    if (msg.requestId === requestId) {
-      socket.off('message', onMessage)
-      if (msg.error) {
-        reject(msg.error)
-      } else {
-        resolve(msg)
-      }
-    }
-  })
-})
-```
-
-5. Get the `result` and the `sender` from the outcome message and do with them whatever is necessary.
-
-#### Using http-polling without Socket.IO
-
-It is possible avoid using `SocketIO` as a request maker (client-side). In the next example, the same flow as below is presented but using http-polling:
-
-1. The desktop client has to send a request message with the method information to the auth server by directly sending a http POST to the `/requests` path.
+## Polling flow example
 
 ```ts
 const authServerUrl = 'https://auth-api.decentraland.org'
-const response = await fetch(`${authServerUrl}/requests`, {
+
+const createRequestResponse = await fetch(`${authServerUrl}/requests`, {
   method: 'POST',
-  headers: [['Content-type', 'application/json']],
+  headers: [['Content-Type', 'application/json']],
   body: JSON.stringify({
     method: 'personal_sign',
-    params: ['message to sign', 'signer address']
+    params: ['message to sign', '0xSignerAddress']
   })
 })
-const { requestId, expiration, code } = await response.json()
-```
 
-2. Once the request id is obtained, the client has to polling periodically for the corresponding outcome message that will provide the result of the request that will be executed on the auth dapp.
+const { requestId, expiration, code } = await createRequestResponse.json()
 
-```ts
-async function getResponse(requestId: string) {
+async function pollOutcome(requestId: string) {
   while (true) {
     const response = await fetch(`${authServerUrl}/requests/${requestId}`)
-    if (response.statusCode === 204) {
-      // Result is not ready yet, wait a second
+
+    if (response.status === 204) {
       await new Promise(resolve => setTimeout(resolve, 1000))
       continue
     }
+
+    if (!response.ok) {
+      throw await response.json()
+    }
+
     return await response.json()
   }
 }
-const outcome = await getResponse(requestId)
+
+const outcome = await pollOutcome(requestId)
 ```
 
-3. Get the `result` and the `sender` from the outcome message and do with them whatever is necessary.
+## Validation status endpoints
 
-### Authentication Flow
+For flows that require additional user validation:
 
-For the sign in flow in the desktop client, we will need to use a special method called `dcl_personal_sign`.
+1. Auth dapp notifies: `POST /v2/requests/:requestId/validation`
+2. Client checks status: `GET /v2/requests/:requestId/validation`
 
-This methods works similarly to `personal_sign` but with a little difference.
+Response shape:
 
-For this example we'll be using `ethers v6` and `@dcl/crypto`
-
-1. The desktop client will need to generate and store an epheremeral wallet.
-
-```ts
-const ephemeralAccount = ethers.Wallet.createRandom()
+```json
+{
+  "requiresValidation": true
+}
 ```
 
-2. The desktop client has to set a date in which the identity that will be created, expires.
+## `dcl_personal_sign` authentication flow
+
+`dcl_personal_sign` works like `personal_sign` with one difference: the initial request only includes the ephemeral message.
+
+1. Create ephemeral wallet.
+2. Build ephemeral message with expiration.
+3. Create request:
 
 ```ts
-const expiration = new Date(Date.now() + 24 * 60 * 60 * 1000) // 1 day in the future as an example.
-```
-
-3. Generate the ephemeral message to be signed using the address of the ephemeral account and the expiration.
-
-```ts
-const ephemeralMessage = Authenticator.getEphemeralMessage(ephemeralAccount.address, expiration)
-```
-
-4. Follow the steps decribed on the [Usage](#usage) section, initializing the flow with the following message.
-
-```ts
-await socket.emitWithAck('request', {
-  method: 'dcl_personal_sign',
-  params: [ephemeralMessage]
+await fetch(`${authServerUrl}/requests`, {
+  method: 'POST',
+  headers: [['Content-Type', 'application/json']],
+  body: JSON.stringify({
+    method: 'dcl_personal_sign',
+    params: [ephemeralMessage]
+  })
 })
 ```
 
-As you can see, there is a simple difference with the previous example. That is that personal_sign requires a second parameter that is the address that will sign the message, but we don't know it yet, so only the ephemeral message is sent. The auth dApp will fill the signing address for us.
+4. Poll outcome and use `{ sender, result }` to build the auth identity.
 
-If the signer is sent as a param in the request, the auth dapp will use that instead of using the one of the connected wallet, and execute it as a normal personal_sign.
+## Migration guide: WebSocket to polling
 
-5. Once the flow is complete, and the desktop client receives the outcome message. The `sender` and the `result` that come with it are necessary to create an auth identity, which will be used to authorize the user into the platform.
+If your client used Socket.IO, migrate using this mapping:
 
-```ts
-const signer = outcome.sender
-const signature = outcome.result
+1. `socket.emitWithAck('request', payload)` -> `POST /requests`
+2. `socket.on('outcome')` -> poll `GET /requests/:requestId`
+3. `socket.emitWithAck('request-validation-status')` -> `POST /v2/requests/:requestId/validation`
+4. `socket.on('request-validation-status')` -> poll `GET /v2/requests/:requestId/validation`
 
-const identity = {
-  expiration,
-  ephemeralIdentity: {
-    address: ephemeralAccount.address,
-    privateKey: ephemeralAccount.privateKey,
-    publicKey: ephemeralAccount.publicKey
-  },
-  authChain: [
-    {
-      type: AuthLinkType.SIGNER,
-      payload: signer,
-      signature: ''
-    },
-    {
-      type: signature.length === 132 ? AuthLinkType.ECDSA_PERSONAL_EPHEMERAL : AuthLinkType.ECDSA_EIP_1654_EPHEMERAL,
-      payload: ephemeralMessage,
-      signature: signature
-    }
-  ]
-}
-```
+Recommended client behavior:
+
+1. Poll every 1 second while request is pending (`204`).
+2. Stop polling immediately on `200`, `404`, or `410`.
+3. Keep client-side timeout lower than request expiration.

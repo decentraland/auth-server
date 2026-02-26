@@ -19,8 +19,7 @@ This server facilitates communication between the Decentraland client and the au
 ## Features
 
 - **Authentication Request Management**: Creates, stores, and manages authentication requests with automatic expiration (default: 5 minutes).
-- **WebSocket Real-Time Communication**: Provides Socket.IO-based real-time communication for instant request/response handling between clients and the auth dapp.
-- **HTTP Polling Support**: Offers REST endpoints as an alternative to WebSocket for environments where WebSocket is not available.
+- **HTTP Polling Request Flow**: Provides polling-first request/response handling through HTTP endpoints.
 - **Identity Management**: Supports temporary identity creation and retrieval for auto-login flows.
 - **Signature Validation**: Validates Ethereum signatures using `@dcl/crypto` Authenticator to ensure requests are authorized.
 - **Verification Codes**: Generates random verification codes (0-99) for visual confirmation between client and auth dapp.
@@ -36,11 +35,14 @@ External dependencies:
 
 - **@dcl/crypto**: For Ethereum signature validation
 - **@dcl/schemas**: For Decentraland schema types and validation
-- **Socket.IO**: For WebSocket real-time communication
 
 ## API Documentation
 
 The API is fully documented using the [OpenAPI standard](https://swagger.io/specification/). Its schema is located at [docs/openapi.yaml](docs/openapi.yaml).
+
+Breaking change note:
+
+- WebSocket support was removed. Client integrations must use HTTP polling. See [docs/requests.md](docs/requests.md) for the migration guide.
 
 ## Getting Started
 
