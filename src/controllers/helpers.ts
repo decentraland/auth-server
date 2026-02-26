@@ -45,5 +45,5 @@ export function redactIp(ip: string): string {
     return `${parts.slice(0, 4).join(':')}:x`
   }
 
-  return `${ip.slice(0, 6)}...`
+  return `${ip.slice(0, 6)}***`
 }
