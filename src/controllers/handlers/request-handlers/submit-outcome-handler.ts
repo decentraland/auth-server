@@ -1,6 +1,6 @@
 import { isErrorWithMessage } from '../../../logic/error-handling'
 import type { HttpOutcomeMessage, InvalidResponseMessage } from '../../../ports/server/types'
-import { getJsonBody, getRequiredPathParam } from '../../helpers'
+import { getJsonBody, getPathParam } from '../../helpers'
 import type { HandlerContext } from '../../types'
 import { validateHttpOutcomeMessage } from '../../validations'
 
@@ -8,7 +8,16 @@ export async function submitOutcomeHandler(ctx: HandlerContext<'/v2/requests/:re
   const { components, params } = ctx
   const { logs, requestOperations, storage } = components
   const logger = logs.getLogger('http-server')
-  const requestId = getRequiredPathParam(params.requestId, 'requestId')
+  const requestId = getPathParam(params.requestId)
+
+  if (!requestId) {
+    return {
+      status: 400,
+      body: {
+        error: 'Invalid requestId path param'
+      } satisfies InvalidResponseMessage
+    }
+  }
 
   let msg: HttpOutcomeMessage
 

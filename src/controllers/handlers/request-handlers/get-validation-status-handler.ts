@@ -1,11 +1,21 @@
 import type { InvalidResponseMessage, RequestValidationStatusMessage } from '../../../ports/server/types'
-import { getRequiredPathParam } from '../../helpers'
+import { getPathParam } from '../../helpers'
 import type { HandlerContext } from '../../types'
 
 export async function getValidationStatusHandler(ctx: HandlerContext<'/v2/requests/:requestId/validation'>) {
   const { components, params } = ctx
   const { requestOperations, storage } = components
-  const requestId = getRequiredPathParam(params.requestId, 'requestId')
+  const requestId = getPathParam(params.requestId)
+
+  if (!requestId) {
+    return {
+      status: 400,
+      body: {
+        error: 'Invalid requestId path param'
+      } satisfies InvalidResponseMessage
+    }
+  }
+
   const request = await storage.getRequest(requestId)
 
   if (!request) {

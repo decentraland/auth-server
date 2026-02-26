@@ -2,16 +2,9 @@ import type { IHttpServerComponent } from '@well-known-components/interfaces'
 import type { IpHeaders } from '../utils/ip.types'
 import type { HandlerContext } from './types'
 
-export function getRequiredPathParam(value: string | string[], param: string): string {
-  if (Array.isArray(value)) {
-    if (value.length === 0) {
-      throw new Error(`Path param "${param}" is empty`)
-    }
-
-    return value[0]
-  }
-
-  return value
+export function getPathParam(value: string | string[]): string | undefined {
+  const pathParam = Array.isArray(value) ? value[0] : value
+  return pathParam && pathParam.length > 0 ? pathParam : undefined
 }
 
 export function getIpHeaders(request: IHttpServerComponent.IRequest): IpHeaders {

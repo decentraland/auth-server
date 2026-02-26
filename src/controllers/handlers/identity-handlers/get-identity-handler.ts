@@ -1,14 +1,25 @@
 import { isErrorWithMessage } from '../../../logic/error-handling'
 import type { IdentityIdValidationResponse, InvalidResponseMessage } from '../../../ports/server/types'
 import { isValidIdentityId } from '../../../utils/identity-id'
-import { getIpHeaders, getRequiredPathParam } from '../../helpers'
+import { getIpHeaders, getPathParam } from '../../helpers'
 import type { HandlerContext } from '../../types'
 
 export async function getIdentityHandler(ctx: HandlerContext<'/identities/:id'>) {
   const { components, params, request } = ctx
   const { identityOperations, ipUtils, logs, storage } = components
   const identityLogger = logs.getLogger('identity-endpoints')
-  const identityId = getRequiredPathParam(params.id, 'id')
+  const identityId = getPathParam(params.id)
+
+  if (!identityId) {
+    identityLogger.log('[IID:missing] Received a request to retrieve identity with missing id path param')
+    return {
+      status: 400,
+      body: {
+        error: 'Invalid identity format'
+      } satisfies InvalidResponseMessage
+    }
+  }
+
   identityLogger.log(`Received a request to retrieve identity: ${identityId}`)
 
   if (!isValidIdentityId(identityId)) {
