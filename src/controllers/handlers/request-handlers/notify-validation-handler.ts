@@ -7,6 +7,16 @@ export async function notifyValidationHandler(ctx: HandlerContext<'/v2/requests/
   const { logs, requestOperations, storage } = components
   const logger = logs.getLogger('http-server')
   const requestId = getPathParam(params.requestId)
+
+  if (!requestId) {
+    return {
+      status: 400,
+      body: {
+        error: 'Invalid requestId path param'
+      } satisfies InvalidResponseMessage
+    }
+  }
+
   const request = await storage.getRequest(requestId)
 
   if (!request) {

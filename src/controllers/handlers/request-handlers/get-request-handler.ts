@@ -6,6 +6,16 @@ export async function getRequestHandler(ctx: HandlerContext<'/v2/requests/:reque
   const { components, params } = ctx
   const { requestOperations, storage } = components
   const requestId = getPathParam(params.requestId)
+
+  if (!requestId) {
+    return {
+      status: 400,
+      body: {
+        error: 'Invalid requestId path param'
+      } satisfies InvalidResponseMessage
+    }
+  }
+
   const request = await storage.getRequest(requestId)
 
   if (!request) {

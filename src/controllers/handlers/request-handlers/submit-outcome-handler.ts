@@ -10,6 +10,15 @@ export async function submitOutcomeHandler(ctx: HandlerContext<'/v2/requests/:re
   const logger = logs.getLogger('http-server')
   const requestId = getPathParam(params.requestId)
 
+  if (!requestId) {
+    return {
+      status: 400,
+      body: {
+        error: 'Invalid requestId path param'
+      } satisfies InvalidResponseMessage
+    }
+  }
+
   let msg: HttpOutcomeMessage
 
   try {
@@ -56,6 +65,7 @@ export async function submitOutcomeHandler(ctx: HandlerContext<'/v2/requests/:re
   }
 
   if (requestOperations.isRequestExpired(request)) {
+    // This cleanup is intentionally idempotent; concurrent expired submissions may call it more than once.
     await storage.setRequest(requestId, null)
     logger.log(`[RID:${requestId}] Received an outcome message for an expired request`)
     return {

@@ -89,7 +89,7 @@ export async function createIdentityHandler(ctx: HandlerContext<'/identities'>) 
     identityLogger.log(
       `[IID:${identityId}][EXP:${storageIdentity.expiration.getTime()}][Mobile:${
         storageIdentity.isMobile === true
-      }] Successfully created identity from IP: ${clientIp}. Headers: ${ipUtils.formatIpHeaders(ipHeaders)}`
+      }] Successfully created identity from IP: ${clientIp}`
     )
 
     return {

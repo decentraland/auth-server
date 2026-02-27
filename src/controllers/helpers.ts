@@ -2,8 +2,9 @@ import type { IHttpServerComponent } from '@well-known-components/interfaces'
 import type { IpHeaders } from '../utils/ip.types'
 import type { HandlerContext } from './types'
 
-export function getPathParam(value: string | string[]): string {
-  return Array.isArray(value) ? value[0] : value
+export function getPathParam(value: string | string[]): string | undefined {
+  const pathParam = Array.isArray(value) ? value[0] : value
+  return pathParam && pathParam.length > 0 ? pathParam : undefined
 }
 
 export function getIpHeaders(request: IHttpServerComponent.IRequest): IpHeaders {

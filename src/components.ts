@@ -13,6 +13,18 @@ import { createStorageComponent } from './ports/storage/component'
 import { AppComponents, GlobalContext } from './types/components'
 import { createIpUtilsComponent } from './utils/ip'
 
+function parseCorsOrigins(value: string): RegExp[] {
+  // CORS_ORIGIN expects semicolon-separated regular expressions.
+  return value.split(';').map(pattern => {
+    try {
+      return new RegExp(pattern)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      throw new Error(`Invalid CORS_ORIGIN regex "${pattern}": ${message}`)
+    }
+  })
+}
+
 // Initialize all the components of the app
 export async function initComponents(): Promise<AppComponents> {
   const config = await createDotEnvConfigComponent({ path: ['.env.default', '.env'] })
@@ -30,7 +42,7 @@ export async function initComponents(): Promise<AppComponents> {
     .split(',')
     .map(method => method.trim())
     .filter(method => method.length > 0)
-  const corsOrigin = (await config.requireString('CORS_ORIGIN')).split(';').map(origin => new RegExp(origin))
+  const corsOrigin = parseCorsOrigins(await config.requireString('CORS_ORIGIN'))
   const server = await createServerComponent<GlobalContext>(
     {
       config,
