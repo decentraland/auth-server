@@ -37,18 +37,22 @@ import {
   validateRequestMessage,
   validateRequestValidationMessage,
   validateIdentityId,
-  validateIdentityRequest
+  validateIdentityRequest,
+  validateCheckpointRequest
 } from './validations'
 
 export async function createServerComponent({
   config,
   logs,
   metrics,
+  onboarding,
+  email,
+  nudgeJob,
   storage,
   tracer,
   requestExpirationInSeconds,
   dclPersonalSignExpirationInSeconds
-}: Pick<AppComponents, 'config' | 'logs' | 'metrics' | 'storage' | 'tracer'> & {
+}: Pick<AppComponents, 'config' | 'logs' | 'metrics' | 'onboarding' | 'email' | 'nudgeJob' | 'storage' | 'tracer'> & {
   requestExpirationInSeconds: number
   dclPersonalSignExpirationInSeconds: number
 }): Promise<IServerComponent> {
@@ -68,6 +72,7 @@ export async function createServerComponent({
   // Metrics configuration
   const metricsPath = (await config.getString('WKC_METRICS_PUBLIC_PATH')) || '/metrics'
   const metricsBearerToken = await config.getString('WKC_METRICS_BEARER_TOKEN')
+  const onboardingApiKey = await config.requireString('ONBOARDING_API_KEY')
 
   const sockets: Record<string, Socket> = {}
 
@@ -1092,6 +1097,112 @@ export async function createServerComponent({
         })
       }
     })
+
+    // Record onboarding checkpoint event
+    app.post('/onboarding/checkpoint', async (req: Request, res: Response) => {
+      const onboardingLogger = logs.getLogger('onboarding-endpoint')
+
+      const authHeader = req.headers['authorization'] ?? ''
+      const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
+      if (provided !== onboardingApiKey) {
+        sendResponse(res, 401, { error: 'Unauthorized' })
+        return
+      }
+
+      let checkpointReq
+      try {
+        checkpointReq = validateCheckpointRequest(req.body)
+      } catch (e) {
+        return sendResponse<InvalidResponseMessage>(res, 400, {
+          error: isErrorWithMessage(e) ? e.message : 'Unknown error'
+        })
+      }
+
+      try {
+        await onboarding.recordCheckpoint({
+          userIdentifier: checkpointReq.userIdentifier,
+          identifierType: checkpointReq.identifierType,
+          checkpointId: checkpointReq.checkpointId,
+          action: checkpointReq.action,
+          email: checkpointReq.email,
+          source: checkpointReq.source,
+          metadata: checkpointReq.metadata
+        })
+      } catch (e) {
+        onboardingLogger.error(
+          `[CP:${checkpointReq.checkpointId}][USER:${checkpointReq.userIdentifier}] Failed to record checkpoint: ${
+            isErrorWithMessage(e) ? e.message : 'Unknown error'
+          }`
+        )
+        return sendResponse<InvalidResponseMessage>(res, 500, { error: 'Internal server error' })
+      }
+
+      res.status(200).json({ success: true })
+    })
+
+    // Admin endpoints — only mounted when ONBOARDING_ADMIN_ENABLED=true (local dev / staging)
+    const adminEnabled = (await config.getString('ONBOARDING_ADMIN_ENABLED')) === 'true'
+    if (adminEnabled) {
+      const adminLogger = logs.getLogger('onboarding-admin')
+      adminLogger.log('Admin endpoints enabled')
+
+      // Run the nudge evaluator manually (same as what cron does every 15 min)
+      app.post('/admin/onboarding/run-evaluator', async (_req: Request, res: Response) => {
+        try {
+          await nudgeJob.runEvaluator()
+          res.status(200).json({ success: true })
+        } catch (e) {
+          adminLogger.error(`Failed to run evaluator: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
+          res.status(500).json({ error: 'Failed to run evaluator' })
+        }
+      })
+
+      // Send a test nudge email directly (bypasses DB — just calls SendGrid)
+      app.post('/admin/onboarding/send-test-email', async (req: Request, res: Response) => {
+        const { to, checkpointId, sequence } = req.body
+
+        if (!to || !checkpointId || !sequence) {
+          sendResponse(res, 400, { error: 'Missing required fields: to, checkpointId, sequence' })
+          return
+        }
+
+        if (sequence < 1 || sequence > 3) {
+          sendResponse(res, 400, { error: 'sequence must be 1, 2, or 3' })
+          return
+        }
+
+        if (checkpointId < 1 || checkpointId > 7) {
+          sendResponse(res, 400, { error: 'checkpointId must be 1-7' })
+          return
+        }
+
+        try {
+          const messageId = await email.sendNudge({ to, checkpointId, sequence })
+          res.status(200).json({ success: true, messageId: messageId ?? null })
+        } catch (e) {
+          adminLogger.error(`Failed to send test email: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
+          res.status(500).json({ error: 'Failed to send email' })
+        }
+      })
+
+      // List pending nudges for a given sequence (what the cron would send next)
+      app.get('/admin/onboarding/pending-nudges/:sequence', async (req: Request, res: Response) => {
+        const sequence = parseInt(req.params.sequence, 10) as 1 | 2 | 3
+
+        if (![1, 2, 3].includes(sequence)) {
+          sendResponse(res, 400, { error: 'sequence must be 1, 2, or 3' })
+          return
+        }
+
+        try {
+          const nudges = await onboarding.getPendingNudges(sequence)
+          res.status(200).json({ sequence, count: nudges.length, nudges })
+        } catch (e) {
+          adminLogger.error(`Failed to get pending nudges: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
+          res.status(500).json({ error: 'Failed to query pending nudges' })
+        }
+      })
+    }
 
     // PROM metrics endpoint
     app.get(metricsPath, async (req: Request, res: Response) => {

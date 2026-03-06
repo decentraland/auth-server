@@ -5,6 +5,10 @@ import { createTracerComponent } from '@well-known-components/tracer-component'
 import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
 import { createRedisComponent } from '@dcl/redis-component'
 import { metricDeclarations } from './metrics'
+import { createPgComponent } from './ports/db/component'
+import { createEmailComponent } from './ports/email/component'
+import { createNudgeJobComponent } from './ports/nudge-job/component'
+import { createOnboardingComponent } from './ports/onboarding/component'
 import { createServerComponent } from './ports/server/component'
 import { createStorageComponent } from './ports/storage/component'
 import { AppComponents } from './types'
@@ -19,11 +23,18 @@ export async function initComponents(): Promise<AppComponents> {
   const metrics = await createMetricsComponent(metricDeclarations, { config })
   const redisHostUrl = await config.getString('REDIS_HOST')
   const cache = redisHostUrl ? await createRedisComponent(redisHostUrl, { logs }) : createInMemoryCacheComponent()
+  const db = await createPgComponent({ config, logs, metrics }, {})
   const storage = createStorageComponent({ cache })
+  const onboarding = createOnboardingComponent({ db, logs })
+  const email = await createEmailComponent({ config, logs })
+  const nudgeJob = createNudgeJobComponent({ onboarding, email, logs })
   const server = await createServerComponent({
     config,
     logs,
     metrics,
+    onboarding,
+    email,
+    nudgeJob,
     storage,
     tracer,
     requestExpirationInSeconds,
@@ -33,8 +44,12 @@ export async function initComponents(): Promise<AppComponents> {
   return {
     cache,
     config,
+    nudgeJob,
+    db,
+    email,
     logs,
     metrics,
+    onboarding,
     server,
     storage,
     tracer
