@@ -1,14 +1,14 @@
 import path from 'path'
 import { IBaseComponent } from '@well-known-components/interfaces'
-import { createPgComponent as createBasePgComponent, Options } from '@well-known-components/pg-component'
-import { PoolClient } from 'pg'
-import { IPgComponent } from './types'
+import { createPgComponent as createBasePgComponent, IPgComponent, Options } from '@dcl/pg-component'
+
+type NeededComponents = Parameters<typeof createBasePgComponent>[0]
 
 export async function createPgComponent(
-  components: createBasePgComponent.NeededComponents,
+  components: NeededComponents,
   options: { migrations?: boolean } & Options = {}
 ): Promise<IPgComponent & IBaseComponent> {
-  const { config, logs, metrics } = components
+  const { config } = components
   const { migrations = true } = options
 
   let databaseUrl: string | undefined = await config.getString('PG_COMPONENT_PSQL_CONNECTION_STRING')
@@ -24,48 +24,23 @@ export async function createPgComponent(
 
   const schema = await config.getString('PG_COMPONENT_PSQL_SCHEMA')
 
-  const pg = await createBasePgComponent(
-    { config, logs, metrics },
-    {
-      ...options,
-      pool: {
-        connectionString: databaseUrl,
-        query_timeout: 40000,
-        statement_timeout: 40000
-      },
-      ...(migrations
-        ? {
-            migration: {
-              databaseUrl,
-              ...(schema ? { schema } : {}),
-              dir: path.resolve(__dirname, '../../migrations'),
-              migrationsTable: 'pgmigrations',
-              ignorePattern: '.*\\.map',
-              direction: 'up'
-            }
+  return createBasePgComponent(components, {
+    ...options,
+    pool: {
+      connectionString: databaseUrl,
+      query_timeout: 40000,
+      statement_timeout: 40000
+    },
+    ...(migrations
+      ? {
+          migration: {
+            ...(schema ? { schema } : {}),
+            dir: path.resolve(__dirname, '../../migrations'),
+            migrationsTable: 'pgmigrations',
+            ignorePattern: '.*\\.map',
+            direction: 'up'
           }
-        : {})
-    }
-  )
-
-  async function withTransaction<T>(callback: (client: PoolClient) => Promise<T>, onError?: (error: unknown) => Promise<void>): Promise<T> {
-    const client = await pg.getPool().connect()
-
-    try {
-      await client.query('BEGIN')
-      const result = await callback(client)
-      await client.query('COMMIT')
-
-      return result
-    } catch (error) {
-      await client.query('ROLLBACK')
-      if (onError) await onError(error)
-      throw error
-    } finally {
-      // eslint-disable-next-line @typescript-eslint/await-thenable
-      await client.release()
-    }
-  }
-
-  return { ...pg, withTransaction }
+        }
+      : {})
+  })
 }

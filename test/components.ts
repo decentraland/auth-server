@@ -49,7 +49,7 @@ function findOpenPort() {
  */
 export function createMockDbComponent(): IPgComponent {
   return {
-    query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
+    query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0, notices: [] }),
     getPool: jest.fn(),
     withTransaction: jest.fn(),
     start: jest.fn().mockResolvedValue(undefined),

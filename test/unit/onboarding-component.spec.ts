@@ -18,7 +18,7 @@ function createMockDb(): jest.Mocked<Pick<IPgComponent, 'query'>> & IPgComponent
   } as unknown as jest.Mocked<Pick<IPgComponent, 'query'>> & IPgComponent
 }
 
-const emptyResult = { rows: [], rowCount: 0 }
+const emptyResult = { rows: [], rowCount: 0, notices: [] }
 
 let onboarding: IOnboardingComponent
 let mockDb: ReturnType<typeof createMockDb>
@@ -108,7 +108,7 @@ describe('when recording a checkpoint with action reached', () => {
 
 describe('when recording a checkpoint with action completed', () => {
   beforeEach(() => {
-    mockDb.query.mockResolvedValue({ rows: [], rowCount: 1 })
+    mockDb.query.mockResolvedValue({ rows: [], rowCount: 1, notices: [] })
   })
 
   it('should update completed_at on the matching checkpoint row', async () => {
@@ -161,7 +161,8 @@ describe('when getting pending nudges', () => {
           { user_id: 'stuck@test.com', checkpoint: 3, email: 'stuck@test.com' },
           { user_id: '0xabc', checkpoint: 2, email: 'wallet-user@test.com' }
         ],
-        rowCount: 2
+        rowCount: 2,
+        notices: []
       })
     })
 
@@ -224,7 +225,7 @@ describe('when getting pending nudges', () => {
 
 describe('when marking a nudge as sent', () => {
   beforeEach(() => {
-    mockDb.query.mockResolvedValue({ rows: [], rowCount: 1 })
+    mockDb.query.mockResolvedValue({ rows: [], rowCount: 1, notices: [] })
   })
 
   it('should insert into email_nudges table', async () => {

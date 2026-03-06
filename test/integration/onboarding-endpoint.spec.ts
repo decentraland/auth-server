@@ -10,7 +10,7 @@ test('when calling POST /onboarding/checkpoint with a valid reached payload', ar
   beforeEach(async () => {
     port = await args.components.config.requireString('HTTP_SERVER_PORT')
     mockDb = args.components.db as unknown as jest.Mocked<Pick<IPgComponent, 'query'>>
-    mockDb.query = jest.fn().mockResolvedValue({ rows: [], rowCount: 0 })
+    mockDb.query = jest.fn().mockResolvedValue({ rows: [], rowCount: 0, notices: [] })
   })
 
   it('should respond with 200 and success true', async () => {
@@ -41,7 +41,7 @@ test('when calling POST /onboarding/checkpoint with a completed action', args =>
   beforeEach(async () => {
     port = await args.components.config.requireString('HTTP_SERVER_PORT')
     mockDb = args.components.db as unknown as jest.Mocked<Pick<IPgComponent, 'query'>>
-    mockDb.query = jest.fn().mockResolvedValue({ rows: [], rowCount: 1 })
+    mockDb.query = jest.fn().mockResolvedValue({ rows: [], rowCount: 1, notices: [] })
   })
 
   it('should respond with 200 and success true', async () => {
@@ -183,7 +183,7 @@ test('when calling POST /onboarding/checkpoint and the nudge evaluator is run', 
   beforeEach(async () => {
     port = await args.components.config.requireString('HTTP_SERVER_PORT')
     mockDb = args.components.db as unknown as jest.Mocked<Pick<IPgComponent, 'query'>>
-    mockDb.query = jest.fn().mockResolvedValue({ rows: [], rowCount: 0 })
+    mockDb.query = jest.fn().mockResolvedValue({ rows: [], rowCount: 0, notices: [] })
   })
 
   it('should record the checkpoint and allow cron to query pending nudges', async () => {

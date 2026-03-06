@@ -56,6 +56,8 @@ tags:
     description: Authentication request management endpoints
     - name: Identities
       description: Temporary identity endpoints used for auto-login flows
+  - name: Onboarding
+    description: Onboarding checkpoint tracking for email nudge campaigns (internal, requires API key)
   - name: WebSocket
     description: Socket.IO WebSocket events for real-time communication
 paths:
@@ -555,7 +557,96 @@ paths:
                 $ref: '#/components/schemas/InvalidResponseMessage'
               example:
                 error: "Request with id \"550e8400-e29b-41d4-a716-446655440000\" has expired"
+  /onboarding/checkpoint:
+    post:
+      tags:
+        - Onboarding
+      summary: Record an onboarding checkpoint
+      description: |
+        Records that a user has reached or completed an onboarding checkpoint.
+
+        Called by events-notifier after validating a Segment webhook. Not intended to be called directly from the browser.
+
+        **Checkpoints (1–7):**
+        1. Authentication Started
+        2. Auth Method Selected
+        3. Profile Creation
+        4. Avatar Creator Started
+        5. Download Page Viewed
+        6. Download Clicked
+        7. Launcher Ready
+
+        **Implicit completion:** Recording checkpoint N automatically marks checkpoint N-1 as completed.
+      operationId: recordCheckpoint
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckpointPayload'
+            examples:
+              reached:
+                summary: User reached a checkpoint
+                value:
+                  checkpointId: 3
+                  userIdentifier: "user@example.com"
+                  identifierType: "email"
+                  action: "reached"
+                  email: "user@example.com"
+                  source: "auth"
+                  metadata:
+                    loginMethod: "email"
+              completed:
+                summary: Mark a checkpoint as completed
+                value:
+                  checkpointId: 2
+                  userIdentifier: "0x1234567890abcdef"
+                  identifierType: "wallet"
+                  action: "completed"
+      responses:
+        '200':
+          description: Checkpoint recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+              example:
+                success: true
+        '400':
+          description: Invalid payload (missing fields, invalid checkpointId, invalid identifierType)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+              example:
+                error: "Invalid checkpointId. Must be between 1 and 7."
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+              example:
+                error: "Unauthorized"
+        '500':
+          description: Internal server error (e.g. database failure)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: API key passed as Bearer token. Required for onboarding endpoints.
   schemas:
     LiveResponseMessage:
       type: object
@@ -773,6 +864,41 @@ components:
       oneOf:
         - required: [result]
         - required: [error]
+    CheckpointPayload:
+      type: object
+      properties:
+        checkpointId:
+          type: integer
+          minimum: 1
+          maximum: 7
+          description: Onboarding checkpoint identifier (1–7)
+        userIdentifier:
+          type: string
+          description: User identifier (email address or wallet address)
+        identifierType:
+          type: string
+          enum: [email, wallet]
+          description: Type of user identifier
+        action:
+          type: string
+          enum: [reached, completed]
+          description: Whether the user reached or completed this checkpoint
+        email:
+          type: string
+          format: email
+          description: User's email address (used for nudge emails)
+        source:
+          type: string
+          description: Source of the checkpoint event (e.g. "auth", "website", "launcher")
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional context (e.g. loginMethod)
+      required:
+        - checkpointId
+        - userIdentifier
+        - identifierType
+        - action
     InvalidResponseMessage:
       type: object
       properties:
