@@ -23,6 +23,7 @@ info:
     - Requests are identified by `requestId` and can be consumed once.
     - Requests have an expiration (default: 5 minutes), and cannot be consumed after it.
     - Polling clients should handle `204` responses while requests are pending.
+    - Polling clients should handle `410 Gone` responses for already consumed or fulfilled requests.
     
     ### Authentication
     
