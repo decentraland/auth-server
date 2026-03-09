@@ -180,7 +180,7 @@ Returns users that would receive an email on the next cron run for a given seque
 curl http://localhost:8080/admin/onboarding/pending-nudges/1
 
 # Response:
-# {"sequence":1,"count":2,"nudges":[{"userId":"user@test.com","checkpointId":3,"email":"user@test.com"},...]}}
+# {"sequence":1,"count":2,"nudges":[{"userId":"user@test.com","checkpointId":2,"email":"user@test.com"},...]}}
 ```
 
 ## Working with authentication and blockchain requests
