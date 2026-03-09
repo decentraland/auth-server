@@ -1,15 +1,10 @@
 import { v4 as uuid } from 'uuid'
 import { isErrorWithMessage } from '../../../logic/error-handling'
-import {
-  EphemeralAddressMismatchError,
-  EphemeralKeyExpiredError,
-  EphemeralPrivateKeyMismatchError,
-  RequestSenderMismatchError
-} from '../../../logic/errors'
 import { validateIdentityRequest } from '../../../logic/validations'
 import type { IdentityResponse, InvalidResponseMessage } from '../../../ports/server/types'
 import { getIpHeaders } from '../../helpers'
 import type { HandlerContextWithPath } from '../../types'
+import { handleIdentityValidationError } from './identity-error-handler'
 
 export async function createIdentityHandler({
   components: { authChain, identityOperations, ipUtils, logs, storage },
@@ -37,54 +32,7 @@ export async function createIdentityHandler({
       const authChainValidation = await authChain.validateAuthChain(identity.authChain)
       identitySender = identityOperations.validateIdentityChain(identity, authChainValidation, verification?.auth)
     } catch (error) {
-      if (error instanceof EphemeralKeyExpiredError) {
-        identityLogger.log(`Ephemeral key has expired for sender: ${identitySender ?? 'unknown'}`)
-        return {
-          status: 401,
-          body: {
-            error: error.message
-          } satisfies InvalidResponseMessage
-        }
-      }
-
-      if (error instanceof EphemeralAddressMismatchError) {
-        identityLogger.log(`Ephemeral wallet address does not match auth chain final authority for sender: ${identitySender ?? 'unknown'}`)
-        return {
-          status: 403,
-          body: {
-            error: error.message
-          } satisfies InvalidResponseMessage
-        }
-      }
-
-      if (error instanceof RequestSenderMismatchError) {
-        identityLogger.log(`Request sender (${verification?.auth}) does not match identity owner (${identitySender ?? 'unknown'})`)
-        return {
-          status: 403,
-          body: {
-            error: error.message
-          } satisfies InvalidResponseMessage
-        }
-      }
-
-      if (error instanceof EphemeralPrivateKeyMismatchError) {
-        identityLogger.log(`Ephemeral private key does not match the provided address for sender: ${identitySender ?? 'unknown'}`)
-        return {
-          status: 403,
-          body: {
-            error: error.message
-          } satisfies InvalidResponseMessage
-        }
-      }
-
-      const errorMessage = isErrorWithMessage(error) ? error.message : 'Unknown error'
-      identityLogger.log(`Received a request to create identity with invalid auth chain: ${errorMessage}`)
-      return {
-        status: 400,
-        body: {
-          error: errorMessage
-        } satisfies InvalidResponseMessage
-      }
+      return handleIdentityValidationError(error, identityLogger, identitySender)
     }
 
     const identityId = uuid()
