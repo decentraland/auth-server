@@ -8,7 +8,6 @@ on:
         type: choice
         options:
           - dev
-          - stg
           - prd
         default: prd
         description: Environment
@@ -25,8 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.deployment-environment }}
     steps:
-      - name: Trigger deployment
-        id: deploy
+      - name: Trigger Auth Server deployment
+        id: deploy-server
         uses: decentraland/dcl-deploy-action@main
         with:
           dockerImage: 'quay.io/decentraland/auth-server:${{ inputs.tag }}'

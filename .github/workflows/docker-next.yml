@@ -1,0 +1,15 @@
+name: CI/CD on main branch
+
+on:
+  push:
+    branches:
+      - 'main'
+
+jobs:
+  auth-server-deployment:
+    uses: decentraland/platform-actions/.github/workflows/apps-docker-next.yml@main
+    with:
+      service-name: auth-server
+      image-name: auth-server
+      deployment-environment: dev
+    secrets: inherit

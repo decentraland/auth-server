@@ -1,0 +1,15 @@
+name: Publish 'latest' image
+
+on:
+  release:
+    types:
+      - 'created'
+
+jobs:
+  auth-server-deployment:
+    uses: decentraland/platform-actions/.github/workflows/apps-docker-release.yml@main
+    with:
+      service-name: auth-server
+      image-name: auth-server
+      deployment-environment: prd
+    secrets: inherit
