@@ -1,18 +1,18 @@
 import { v4 as uuid } from 'uuid'
 import { isErrorWithMessage } from '../../../logic/error-handling'
+import { validateRequestMessage } from '../../../logic/validations'
 import { METHOD_DCL_PERSONAL_SIGN } from '../../../ports/server/constants'
 import type { InvalidResponseMessage, RequestMessage, RequestResponseMessage } from '../../../ports/server/types'
-import { getJsonBody } from '../../helpers'
-import type { HandlerContext } from '../../types'
-import { validateRequestMessage } from '../../validations'
+import type { HandlerContextWithPath } from '../../types'
 
-export async function createRequestHandler(ctx: HandlerContext<'/requests'>) {
-  const { components } = ctx
-  const { authChain, config, requestOperations, storage } = components
+export async function createRequestHandler({
+  components: { authChain, config, requestOperations, storage },
+  request
+}: HandlerContextWithPath<'authChain' | 'config' | 'requestOperations' | 'storage', '/requests'>) {
   let msg: RequestMessage
 
   try {
-    msg = validateRequestMessage(await getJsonBody(ctx))
+    msg = validateRequestMessage(await request.json())
   } catch (error) {
     return {
       status: 400,

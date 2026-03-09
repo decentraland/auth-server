@@ -1,14 +1,21 @@
 import { v4 as uuid } from 'uuid'
 import { isErrorWithMessage } from '../../../logic/error-handling'
-import { EphemeralAddressMismatchError, EphemeralPrivateKeyMismatchError, RequestSenderMismatchError } from '../../../logic/errors'
+import {
+  EphemeralAddressMismatchError,
+  EphemeralKeyExpiredError,
+  EphemeralPrivateKeyMismatchError,
+  RequestSenderMismatchError
+} from '../../../logic/errors'
+import { validateIdentityRequest } from '../../../logic/validations'
 import type { IdentityResponse, InvalidResponseMessage } from '../../../ports/server/types'
 import { getIpHeaders } from '../../helpers'
-import type { HandlerContext } from '../../types'
-import { validateIdentityRequest } from '../../validations'
+import type { HandlerContextWithPath } from '../../types'
 
-export async function createIdentityHandler(ctx: HandlerContext<'/identities'>) {
-  const { components, request, verification } = ctx
-  const { authChain, identityOperations, ipUtils, logs, storage } = components
+export async function createIdentityHandler({
+  components: { authChain, identityOperations, ipUtils, logs, storage },
+  request,
+  verification
+}: HandlerContextWithPath<'authChain' | 'identityOperations' | 'ipUtils' | 'logs' | 'storage', '/identities'>) {
   const identityLogger = logs.getLogger('identity-endpoints')
   identityLogger.log('Received a request to create identity')
 
@@ -33,6 +40,16 @@ export async function createIdentityHandler(ctx: HandlerContext<'/identities'>) 
       identityOperations.assertRequestSenderMatchesIdentityOwner(verification?.auth, identitySender)
       identityOperations.assertEphemeralPrivateKeyMatchesAddress(identity)
     } catch (error) {
+      if (error instanceof EphemeralKeyExpiredError) {
+        identityLogger.log(`Ephemeral key has expired for sender: ${identitySender ?? 'unknown'}`)
+        return {
+          status: 401,
+          body: {
+            error: error.message
+          } satisfies InvalidResponseMessage
+        }
+      }
+
       if (error instanceof EphemeralAddressMismatchError) {
         identityLogger.log(`Ephemeral wallet address does not match auth chain final authority for sender: ${identitySender ?? 'unknown'}`)
         return {

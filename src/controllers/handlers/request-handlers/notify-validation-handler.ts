@@ -1,10 +1,11 @@
 import type { InvalidResponseMessage } from '../../../ports/server/types'
 import { getPathParam } from '../../helpers'
-import type { HandlerContext } from '../../types'
+import type { HandlerContextWithPath } from '../../types'
 
-export async function notifyValidationHandler(ctx: HandlerContext<'/v2/requests/:requestId/validation'>) {
-  const { components, params } = ctx
-  const { logs, requestOperations, storage } = components
+export async function notifyValidationHandler({
+  components: { logs, requestOperations, storage },
+  params
+}: HandlerContextWithPath<'logs' | 'requestOperations' | 'storage', '/v2/requests/:requestId/validation'>) {
   const logger = logs.getLogger('http-server')
   const requestId = getPathParam(params.requestId)
 
@@ -44,7 +45,7 @@ export async function notifyValidationHandler(ctx: HandlerContext<'/v2/requests/
     await storage.setRequest(requestId, null)
 
     return {
-      status: 410,
+      status: 404,
       body: {
         error: `Request with id "${requestId}" has expired`
       } satisfies InvalidResponseMessage

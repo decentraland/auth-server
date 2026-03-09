@@ -1,10 +1,11 @@
 import type { InvalidResponseMessage, OutcomeResponseMessage } from '../../../ports/server/types'
 import { getPathParam } from '../../helpers'
-import type { HandlerContext } from '../../types'
+import type { HandlerContextWithPath } from '../../types'
 
-export async function getRequestOutcomeHandler(ctx: HandlerContext<'/requests/:requestId'>) {
-  const { components, params } = ctx
-  const { logs, requestOperations, storage } = components
+export async function getRequestOutcomeHandler({
+  components: { logs, requestOperations, storage },
+  params
+}: HandlerContextWithPath<'logs' | 'requestOperations' | 'storage', '/requests/:requestId'>) {
   const logger = logs.getLogger('http-server')
   const requestId = getPathParam(params.requestId)
 
@@ -40,7 +41,7 @@ export async function getRequestOutcomeHandler(ctx: HandlerContext<'/requests/:r
   if (requestOperations.isRequestExpired(request)) {
     await storage.setRequest(requestId, null)
     return {
-      status: 410,
+      status: 404,
       body: {
         error: `Request with id "${requestId}" has expired`
       } satisfies InvalidResponseMessage

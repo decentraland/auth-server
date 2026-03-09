@@ -1,10 +1,11 @@
 import type { InvalidResponseMessage, RequestValidationStatusMessage } from '../../../ports/server/types'
 import { getPathParam } from '../../helpers'
-import type { HandlerContext } from '../../types'
+import type { HandlerContextWithPath } from '../../types'
 
-export async function getValidationStatusHandler(ctx: HandlerContext<'/v2/requests/:requestId/validation'>) {
-  const { components, params } = ctx
-  const { requestOperations, storage } = components
+export async function getValidationStatusHandler({
+  components: { requestOperations, storage },
+  params
+}: HandlerContextWithPath<'requestOperations' | 'storage', '/v2/requests/:requestId/validation'>) {
   const requestId = getPathParam(params.requestId)
 
   if (!requestId) {

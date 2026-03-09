@@ -1,10 +1,11 @@
 import type { InvalidResponseMessage, RecoverResponseMessage } from '../../../ports/server/types'
 import { getPathParam } from '../../helpers'
-import type { HandlerContext } from '../../types'
+import type { HandlerContextWithPath } from '../../types'
 
-export async function getRequestHandler(ctx: HandlerContext<'/v2/requests/:requestId'>) {
-  const { components, params } = ctx
-  const { requestOperations, storage } = components
+export async function getRequestHandler({
+  components: { requestOperations, storage },
+  params
+}: HandlerContextWithPath<'requestOperations' | 'storage', '/v2/requests/:requestId'>) {
   const requestId = getPathParam(params.requestId)
 
   if (!requestId) {

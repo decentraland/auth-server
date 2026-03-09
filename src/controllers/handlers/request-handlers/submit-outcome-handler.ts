@@ -1,12 +1,14 @@
 import { isErrorWithMessage } from '../../../logic/error-handling'
+import { validateHttpOutcomeMessage } from '../../../logic/validations'
 import type { HttpOutcomeMessage, InvalidResponseMessage } from '../../../ports/server/types'
-import { getJsonBody, getPathParam } from '../../helpers'
-import type { HandlerContext } from '../../types'
-import { validateHttpOutcomeMessage } from '../../validations'
+import { getPathParam } from '../../helpers'
+import type { HandlerContextWithPath } from '../../types'
 
-export async function submitOutcomeHandler(ctx: HandlerContext<'/v2/requests/:requestId/outcome'>) {
-  const { components, params } = ctx
-  const { logs, requestOperations, storage } = components
+export async function submitOutcomeHandler({
+  components: { logs, requestOperations, storage },
+  params,
+  request: httpRequest
+}: HandlerContextWithPath<'logs' | 'requestOperations' | 'storage', '/v2/requests/:requestId/outcome'>) {
   const logger = logs.getLogger('http-server')
   const requestId = getPathParam(params.requestId)
 
@@ -22,7 +24,7 @@ export async function submitOutcomeHandler(ctx: HandlerContext<'/v2/requests/:re
   let msg: HttpOutcomeMessage
 
   try {
-    msg = validateHttpOutcomeMessage(await getJsonBody(ctx))
+    msg = validateHttpOutcomeMessage(await httpRequest.json())
   } catch (error) {
     return {
       status: 400,

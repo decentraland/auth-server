@@ -2,11 +2,13 @@ import { isErrorWithMessage } from '../../../logic/error-handling'
 import type { IdentityIdValidationResponse, InvalidResponseMessage } from '../../../ports/server/types'
 import { isValidIdentityId } from '../../../utils/identity-id'
 import { getIpHeaders, getPathParam } from '../../helpers'
-import type { HandlerContext } from '../../types'
+import type { HandlerContextWithPath } from '../../types'
 
-export async function getIdentityHandler(ctx: HandlerContext<'/identities/:id'>) {
-  const { components, params, request } = ctx
-  const { identityOperations, ipUtils, logs, storage } = components
+export async function getIdentityHandler({
+  components: { identityOperations, ipUtils, logs, storage },
+  params,
+  request
+}: HandlerContextWithPath<'identityOperations' | 'ipUtils' | 'logs' | 'storage', '/identities/:id'>) {
   const identityLogger = logs.getLogger('identity-endpoints')
   const identityId = getPathParam(params.id)
 
