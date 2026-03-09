@@ -1,5 +1,5 @@
-import type { FullHttpServerComponent } from '@dcl/http-server'
 import { AuthIdentity } from '@dcl/crypto'
+import type { FullHttpServerComponent } from '@dcl/http-server'
 import { AuthChain } from '@dcl/schemas'
 
 export type IServerComponent<Context extends object> = FullHttpServerComponent<Context>
