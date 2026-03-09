@@ -1,3 +1,4 @@
+import type { ILoggerComponent } from '@well-known-components/interfaces'
 import { isErrorWithMessage } from '../../../logic/error-handling'
 import {
   EphemeralAddressMismatchError,
@@ -6,7 +7,6 @@ import {
   RequestSenderMismatchError
 } from '../../../logic/errors'
 import type { InvalidResponseMessage } from '../../../ports/server/types'
-import type { ILoggerComponent } from '@well-known-components/interfaces'
 
 type IdentityErrorResponse = { status: number; body: InvalidResponseMessage }
 
