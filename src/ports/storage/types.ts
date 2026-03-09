@@ -3,7 +3,7 @@ import { OutcomeResponseMessage, Request } from '../server/types'
 
 export type IStorageComponent = {
   getRequest(requestId: string): Promise<StorageRequest | null>
-  setRequest(requestId: string, request: StorageRequest | null): void
+  setRequest(requestId: string, request: StorageRequest | null): Promise<void>
   getIdentity(identityId: string): Promise<StorageIdentity | null>
   setIdentity(identityId: string, identityData: StorageIdentity | null): Promise<void>
   deleteIdentity(identityId: string): Promise<void>

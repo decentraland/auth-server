@@ -7,11 +7,15 @@ export function getPathParam(value: string | string[]): string | undefined {
   return pathParam && pathParam.length > 0 ? pathParam : undefined
 }
 
+const IP_HEADER_KEYS = new Set(['true-client-ip', 'x-real-ip', 'cf-connecting-ip', 'x-forwarded-for'])
+
 export function getIpHeaders(request: IHttpServerComponent.IRequest): IpHeaders {
   const headers: IpHeaders = {}
 
   request.headers.forEach((value, key) => {
-    headers[key] = value
+    if (IP_HEADER_KEYS.has(key)) {
+      headers[key] = value
+    }
   })
 
   return headers

@@ -18,3 +18,10 @@ export class EphemeralPrivateKeyMismatchError extends Error {
     this.name = 'EphemeralPrivateKeyMismatchError'
   }
 }
+
+export class EphemeralKeyExpiredError extends Error {
+  constructor() {
+    super('Ephemeral key has expired')
+    this.name = 'EphemeralKeyExpiredError'
+  }
+}
