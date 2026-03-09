@@ -3,12 +3,17 @@
 import net from 'net'
 import path from 'node:path'
 import { createDotEnvConfigComponent } from '@well-known-components/env-config-provider'
+import { ILoggerComponent } from '@well-known-components/interfaces'
 import { createLogComponent } from '@well-known-components/logger'
 import { createTestMetricsComponent } from '@well-known-components/metrics'
 import { createRunner } from '@well-known-components/test-helpers'
 import { createTracerComponent } from '@well-known-components/tracer-component'
 import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
 import { metricDeclarations } from '../src/metrics'
+import { IPgComponent } from '../src/ports/db/types'
+import { IEmailComponent } from '../src/ports/email/types'
+import { createNudgeJobComponent } from '../src/ports/nudge-job/component'
+import { createOnboardingComponent } from '../src/ports/onboarding/component'
 import { createServerComponent } from '../src/ports/server/component'
 import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
@@ -36,6 +41,36 @@ function findOpenPort() {
       })
     })
   })
+}
+
+/**
+ * Creates a no-op DB component suitable for unit/integration tests that don't need a real DB.
+ * Tests that need real DB behavior should mock this component's methods.
+ */
+export function createMockDbComponent(): IPgComponent {
+  return {
+    query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0, notices: [] }),
+    getPool: jest.fn(),
+    withTransaction: jest.fn(),
+    start: jest.fn().mockResolvedValue(undefined),
+    stop: jest.fn().mockResolvedValue(undefined)
+  } as unknown as IPgComponent
+}
+
+/**
+ * Creates a no-op email component for tests — never actually sends emails.
+ */
+export function createMockEmailComponent(): IEmailComponent {
+  return {
+    sendNudge: jest.fn().mockResolvedValue('mock-sg-message-id'),
+    start: jest.fn().mockResolvedValue(undefined),
+    stop: jest.fn().mockResolvedValue(undefined)
+  } as unknown as IEmailComponent
+}
+
+function createMockLogs(): ILoggerComponent {
+  const logger = { log: jest.fn(), error: jest.fn(), debug: jest.fn(), warn: jest.fn(), info: jest.fn() }
+  return { getLogger: () => logger } as unknown as ILoggerComponent
 }
 
 /**
@@ -71,11 +106,18 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
   const logs = await createLogComponent({ tracer })
   const metrics = createTestMetricsComponent(metricDeclarations)
   const cache = createInMemoryCacheComponent()
+  const db = createMockDbComponent()
   const storage = createStorageComponent({ cache })
+  const onboarding = createOnboardingComponent({ db, logs })
+  const email = createMockEmailComponent()
+  const nudgeJob = createNudgeJobComponent({ onboarding, email, logs: createMockLogs() })
   const server = await createServerComponent({
     config,
     logs,
     metrics,
+    onboarding,
+    email,
+    nudgeJob,
     tracer,
     storage,
     requestExpirationInSeconds: overrides.requestExpirationInSeconds ?? 5 * 60, // 5 Minutes
@@ -84,9 +126,13 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
 
   return {
     config,
+    nudgeJob,
+    db,
+    email,
     tracer,
     logs,
     metrics,
+    onboarding,
     server,
     storage
   }
