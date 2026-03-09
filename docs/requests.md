@@ -2,7 +2,7 @@
 
 Requests are the main entity handled by this service. A request contains a wallet method that the client wants to execute on the auth dapp.
 
-This service is **polling-only**. WebSocket/Socket.IO is no longer supported.
+This service is **polling-only** and only exposes an HTTP API. WebSocket/Socket.IO is no longer supported — see the [migration guide](#migration-guide-websocket-to-polling) if you are migrating from a previous version.
 
 ## Request lifecycle
 
