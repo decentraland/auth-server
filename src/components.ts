@@ -7,11 +7,11 @@ import { createMetricsComponent } from '@dcl/metrics'
 import { createRedisComponent } from '@dcl/redis-component'
 import { createAuthChainComponent } from './logic/auth-chain'
 import { createIdentityOperationsComponent } from './logic/identity-operations'
+import { createIpUtilsComponent } from './logic/ip'
 import { createRequestOperationsComponent } from './logic/request-operations'
 import { metricDeclarations } from './metrics'
 import { createStorageComponent } from './ports/storage/component'
 import { AppComponents, GlobalContext } from './types/components'
-import { createIpUtilsComponent } from './logic/ip'
 
 function parseCorsOrigins(value: string): RegExp[] {
   // CORS_ORIGIN expects semicolon-separated regular expressions.

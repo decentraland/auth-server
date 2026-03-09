@@ -11,12 +11,12 @@ import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
 import { createTestMetricsComponent } from '@dcl/metrics'
 import { createAuthChainComponent } from '../src/logic/auth-chain'
 import { createIdentityOperationsComponent } from '../src/logic/identity-operations'
+import { createIpUtilsComponent } from '../src/logic/ip'
 import { createRequestOperationsComponent } from '../src/logic/request-operations'
 import { metricDeclarations } from '../src/metrics'
 import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
 import { GlobalContext, TestComponents } from '../src/types/components'
-import { createIpUtilsComponent } from '../src/logic/ip'
 
 type TestOverrides = {
   requestExpirationInSeconds?: number
