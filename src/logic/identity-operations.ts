@@ -4,6 +4,7 @@ import { FIFTEEN_MINUTES_IN_MILLISECONDS } from '../ports/server/constants'
 import type { StorageIdentity } from '../ports/storage/types'
 import type { AppComponents, IIdentityOperationsComponent } from '../types/components'
 import { EphemeralAddressMismatchError, EphemeralPrivateKeyMismatchError, RequestSenderMismatchError } from './errors'
+import type { ValidateAuthChainResult } from './auth-chain.types'
 import type {
   BuildStorageIdentityParams,
   ValidateIdentityIpAccessParams,
@@ -34,6 +35,13 @@ export async function createIdentityOperationsComponent({ logs }: Pick<AppCompon
       logger.log('Ephemeral private key does not match the provided address')
       throw new EphemeralPrivateKeyMismatchError(identity.ephemeralIdentity.address)
     }
+  }
+
+  const validateIdentityChain = (identity: AuthIdentity, authChainResult: ValidateAuthChainResult, requestSender?: string): string => {
+    assertEphemeralAddressMatchesFinalAuthority(identity, authChainResult.finalAuthority)
+    assertRequestSenderMatchesIdentityOwner(requestSender, authChainResult.sender)
+    assertEphemeralPrivateKeyMatchesAddress(identity)
+    return authChainResult.sender
   }
 
   const buildStorageIdentity = (params: BuildStorageIdentityParams): StorageIdentity => {
@@ -73,6 +81,7 @@ export async function createIdentityOperationsComponent({ logs }: Pick<AppCompon
     assertEphemeralAddressMatchesFinalAuthority,
     assertRequestSenderMatchesIdentityOwner,
     assertEphemeralPrivateKeyMatchesAddress,
+    validateIdentityChain,
     buildStorageIdentity,
     isIdentityExpired,
     validateIdentityIpAccess

@@ -35,10 +35,7 @@ export async function createIdentityHandler({
     let identitySender: string | undefined
     try {
       const authChainValidation = await authChain.validateAuthChain(identity.authChain)
-      identitySender = authChainValidation.sender
-      identityOperations.assertEphemeralAddressMatchesFinalAuthority(identity, authChainValidation.finalAuthority)
-      identityOperations.assertRequestSenderMatchesIdentityOwner(verification?.auth, identitySender)
-      identityOperations.assertEphemeralPrivateKeyMatchesAddress(identity)
+      identitySender = identityOperations.validateIdentityChain(identity, authChainValidation, verification?.auth)
     } catch (error) {
       if (error instanceof EphemeralKeyExpiredError) {
         identityLogger.log(`Ephemeral key has expired for sender: ${identitySender ?? 'unknown'}`)

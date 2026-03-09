@@ -80,6 +80,7 @@ export interface IIdentityOperationsComponent {
   assertEphemeralAddressMatchesFinalAuthority: (identity: AuthIdentity, finalAuthority: string) => void
   assertRequestSenderMatchesIdentityOwner: (requestSender: string | undefined, identitySender: string) => void
   assertEphemeralPrivateKeyMatchesAddress: (identity: AuthIdentity) => void
+  validateIdentityChain: (identity: AuthIdentity, authChainResult: ValidateAuthChainResult, requestSender?: string) => string
   buildStorageIdentity: (params: BuildStorageIdentityParams) => StorageIdentity
   isIdentityExpired: (identity: Pick<StorageIdentity, 'expiration'>, now?: Date) => boolean
   validateIdentityIpAccess: (params: ValidateIdentityIpAccessParams) => ValidateIdentityIpAccessResult
