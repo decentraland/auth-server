@@ -1,6 +1,7 @@
 import type {
   IBaseComponent,
   IConfigComponent,
+  IHttpServerComponent,
   ILoggerComponent,
   IMetricsComponent,
   ITracerComponent
@@ -15,6 +16,7 @@ import type {
   ValidateIdentityIpAccessParams,
   ValidateIdentityIpAccessResult
 } from '../logic/identity-operations.types'
+import type { GetClientIpInput, IpHeaders } from '../logic/ip.types'
 import type {
   BuildRequestRecordParams,
   ComputeRequestExpirationParams,
@@ -23,7 +25,6 @@ import type {
 import type { metricDeclarations } from '../metrics'
 import type { HttpOutcomeMessage, IServerComponent, OutcomeResponseMessage, RecoverResponseMessage } from '../ports/server/types'
 import type { IStorageComponent, StorageIdentity, StorageRequest } from '../ports/storage/types'
-import type { GetClientIpInput, IpHeaders } from '../utils/ip.types'
 
 export type GlobalContext = DecentralandSignatureContext & {
   components: BaseComponents
@@ -60,6 +61,7 @@ export interface IAuthChainComponent {
 }
 
 export interface IIpUtilsComponent {
+  getIpHeaders: (request: IHttpServerComponent.IRequest) => IpHeaders
   normalizeIp: (ip: string) => string
   getClientIp: (input: GetClientIpInput) => string
   ipsMatch: (ip1: string, ip2: string) => boolean

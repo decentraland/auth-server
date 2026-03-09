@@ -16,7 +16,7 @@ import { metricDeclarations } from '../src/metrics'
 import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
 import { GlobalContext, TestComponents } from '../src/types/components'
-import { createIpUtilsComponent } from '../src/utils/ip'
+import { createIpUtilsComponent } from '../src/logic/ip'
 
 type TestOverrides = {
   requestExpirationInSeconds?: number

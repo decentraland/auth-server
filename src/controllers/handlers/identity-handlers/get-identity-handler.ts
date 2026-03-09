@@ -1,7 +1,6 @@
 import { isErrorWithMessage } from '../../../logic/error-handling'
 import type { IdentityIdValidationResponse, InvalidResponseMessage } from '../../../ports/server/types'
 import { isValidIdentityId } from '../../../utils/identity-id'
-import { getIpHeaders, getPathParam } from '../../helpers'
 import type { HandlerContextWithPath } from '../../types'
 
 export async function getIdentityHandler({
@@ -10,17 +9,7 @@ export async function getIdentityHandler({
   request
 }: HandlerContextWithPath<'identityOperations' | 'ipUtils' | 'logs' | 'storage', '/identities/:id'>) {
   const identityLogger = logs.getLogger('identity-endpoints')
-  const identityId = getPathParam(params.id)
-
-  if (!identityId) {
-    identityLogger.log('[IID:missing] Received a request to retrieve identity with missing id path param')
-    return {
-      status: 400,
-      body: {
-        error: 'Invalid identity format'
-      } satisfies InvalidResponseMessage
-    }
-  }
+  const identityId = params.id
 
   identityLogger.log(`Received a request to retrieve identity: ${identityId}`)
 
@@ -57,7 +46,7 @@ export async function getIdentityHandler({
     }
   }
 
-  const ipHeaders = getIpHeaders(request)
+  const ipHeaders = ipUtils.getIpHeaders(request)
   const clientIp = ipUtils.getClientIp({
     headers: ipHeaders
   })

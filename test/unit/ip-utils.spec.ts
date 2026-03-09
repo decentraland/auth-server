@@ -1,7 +1,20 @@
-import { formatIpHeaders, getClientIp, ipsMatch, normalizeIp } from '../../src/utils/ip'
-import { IpHeaders } from '../../src/utils/ip.types'
+import { createIpUtilsComponent } from '../../src/logic/ip'
+import { IpHeaders } from '../../src/logic/ip.types'
+import { AppComponents, IIpUtilsComponent } from '../../src/types/components'
 
 describe('when using ip utility functions', () => {
+  let ipUtils: IIpUtilsComponent
+
+  beforeEach(async () => {
+    const logs = {
+      getLogger: jest.fn(() => ({
+        log: jest.fn(),
+        error: jest.fn()
+      }))
+    } as unknown as AppComponents['logs']
+    ipUtils = await createIpUtilsComponent({ logs })
+  })
+
   afterEach(() => {
     jest.restoreAllMocks()
     jest.resetAllMocks()
@@ -14,7 +27,7 @@ describe('when using ip utility functions', () => {
 
       beforeEach(() => {
         inputIp = '::ffff:192.168.0.1'
-        normalizedIp = normalizeIp(inputIp)
+        normalizedIp = ipUtils.normalizeIp(inputIp)
       })
 
       it('should strip the ipv6 mapped prefix', () => {
@@ -28,7 +41,7 @@ describe('when using ip utility functions', () => {
 
       beforeEach(() => {
         inputIp = ' 192.168.0.1 '
-        normalizedIp = normalizeIp(inputIp)
+        normalizedIp = ipUtils.normalizeIp(inputIp)
       })
 
       it('should return the trimmed ip value', () => {
@@ -49,7 +62,7 @@ describe('when using ip utility functions', () => {
           'cf-connecting-ip': '3.3.3.3',
           'x-forwarded-for': '4.4.4.4'
         }
-        clientIp = getClientIp({ headers })
+        clientIp = ipUtils.getClientIp({ headers })
       })
 
       it('should prioritize true-client-ip over other headers', () => {
@@ -67,7 +80,7 @@ describe('when using ip utility functions', () => {
           'cf-connecting-ip': '3.3.3.3',
           'x-forwarded-for': '4.4.4.4'
         }
-        clientIp = getClientIp({ headers })
+        clientIp = ipUtils.getClientIp({ headers })
       })
 
       it('should return x-real-ip', () => {
@@ -84,7 +97,7 @@ describe('when using ip utility functions', () => {
           'cf-connecting-ip': '3.3.3.3',
           'x-forwarded-for': '4.4.4.4'
         }
-        clientIp = getClientIp({ headers })
+        clientIp = ipUtils.getClientIp({ headers })
       })
 
       it('should return cf-connecting-ip', () => {
@@ -100,7 +113,7 @@ describe('when using ip utility functions', () => {
         headers = {
           'x-forwarded-for': '5.5.5.5, 6.6.6.6'
         }
-        clientIp = getClientIp({ headers })
+        clientIp = ipUtils.getClientIp({ headers })
       })
 
       it('should return the first forwarded ip', () => {
@@ -116,7 +129,7 @@ describe('when using ip utility functions', () => {
         headers = {
           'true-client-ip': ['::ffff:7.7.7.7']
         }
-        clientIp = getClientIp({ headers })
+        clientIp = ipUtils.getClientIp({ headers })
       })
 
       it('should normalize and use the first array value', () => {
@@ -132,7 +145,7 @@ describe('when using ip utility functions', () => {
       beforeEach(() => {
         headers = {}
         requestIp = '8.8.8.8'
-        clientIp = getClientIp({ headers, ip: requestIp })
+        clientIp = ipUtils.getClientIp({ headers, ip: requestIp })
       })
 
       it('should fall back to request ip', () => {
@@ -148,7 +161,7 @@ describe('when using ip utility functions', () => {
       beforeEach(() => {
         headers = {}
         remoteAddress = '9.9.9.9'
-        clientIp = getClientIp({ headers, remoteAddress })
+        clientIp = ipUtils.getClientIp({ headers, remoteAddress })
       })
 
       it('should fall back to remote address', () => {
@@ -162,7 +175,7 @@ describe('when using ip utility functions', () => {
 
       beforeEach(() => {
         headers = {}
-        clientIp = getClientIp({ headers })
+        clientIp = ipUtils.getClientIp({ headers })
       })
 
       it('should return unknown', () => {
@@ -180,7 +193,7 @@ describe('when using ip utility functions', () => {
       beforeEach(() => {
         firstIp = '1.1.1.1'
         secondIp = '1.1.1.1'
-        result = ipsMatch(firstIp, secondIp)
+        result = ipUtils.ipsMatch(firstIp, secondIp)
       })
 
       it('should return true', () => {
@@ -196,7 +209,7 @@ describe('when using ip utility functions', () => {
       beforeEach(() => {
         firstIp = '::ffff:10.0.16.1'
         secondIp = '10.0.16.1'
-        result = ipsMatch(firstIp, secondIp)
+        result = ipUtils.ipsMatch(firstIp, secondIp)
       })
 
       it('should return true after normalization', () => {
@@ -212,7 +225,7 @@ describe('when using ip utility functions', () => {
       beforeEach(() => {
         firstIp = '10.0.16.1'
         secondIp = '10.0.16.200'
-        result = ipsMatch(firstIp, secondIp)
+        result = ipUtils.ipsMatch(firstIp, secondIp)
       })
 
       it('should return true', () => {
@@ -228,7 +241,7 @@ describe('when using ip utility functions', () => {
       beforeEach(() => {
         firstIp = '10.0.16.1'
         secondIp = '10.0.17.1'
-        result = ipsMatch(firstIp, secondIp)
+        result = ipUtils.ipsMatch(firstIp, secondIp)
       })
 
       it('should return false', () => {
@@ -244,7 +257,7 @@ describe('when using ip utility functions', () => {
       beforeEach(() => {
         firstIp = 'unknown'
         secondIp = '10.0.16.1'
-        result = ipsMatch(firstIp, secondIp)
+        result = ipUtils.ipsMatch(firstIp, secondIp)
       })
 
       it('should return false', () => {
@@ -260,7 +273,7 @@ describe('when using ip utility functions', () => {
       beforeEach(() => {
         firstIp = ''
         secondIp = '10.0.16.1'
-        result = ipsMatch(firstIp, secondIp)
+        result = ipUtils.ipsMatch(firstIp, secondIp)
       })
 
       it('should return false', () => {
@@ -280,7 +293,7 @@ describe('when using ip utility functions', () => {
         'cf-connecting-ip': '3.3.3.3',
         'x-forwarded-for': '4.4.4.4'
       }
-      formattedHeaders = formatIpHeaders(headers)
+      formattedHeaders = ipUtils.formatIpHeaders(headers)
     })
 
     it('should include all expected headers in the output', () => {

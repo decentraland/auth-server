@@ -2,7 +2,6 @@ import { v4 as uuid } from 'uuid'
 import { isErrorWithMessage } from '../../../logic/error-handling'
 import { validateIdentityRequest } from '../../../logic/validations'
 import type { IdentityResponse, InvalidResponseMessage } from '../../../ports/server/types'
-import { getIpHeaders } from '../../helpers'
 import type { HandlerContextWithPath } from '../../types'
 import { handleIdentityValidationError } from './identity-error-handler'
 
@@ -36,7 +35,7 @@ export async function createIdentityHandler({
     }
 
     const identityId = uuid()
-    const ipHeaders = getIpHeaders(request)
+    const ipHeaders = ipUtils.getIpHeaders(request)
     const clientIp = ipUtils.getClientIp({
       headers: ipHeaders
     })

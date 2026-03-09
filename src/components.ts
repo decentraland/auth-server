@@ -11,7 +11,7 @@ import { createRequestOperationsComponent } from './logic/request-operations'
 import { metricDeclarations } from './metrics'
 import { createStorageComponent } from './ports/storage/component'
 import { AppComponents, GlobalContext } from './types/components'
-import { createIpUtilsComponent } from './utils/ip'
+import { createIpUtilsComponent } from './logic/ip'
 
 function parseCorsOrigins(value: string): RegExp[] {
   // CORS_ORIGIN expects semicolon-separated regular expressions.

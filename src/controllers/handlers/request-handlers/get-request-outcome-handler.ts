@@ -1,5 +1,4 @@
 import type { InvalidResponseMessage, OutcomeResponseMessage } from '../../../ports/server/types'
-import { getPathParam } from '../../helpers'
 import type { HandlerContextWithPath } from '../../types'
 
 export async function getRequestOutcomeHandler({
@@ -7,16 +6,7 @@ export async function getRequestOutcomeHandler({
   params
 }: HandlerContextWithPath<'logs' | 'requestOperations' | 'storage', '/requests/:requestId'>) {
   const logger = logs.getLogger('http-server')
-  const requestId = getPathParam(params.requestId)
-
-  if (!requestId) {
-    return {
-      status: 400,
-      body: {
-        error: 'Invalid requestId path param'
-      } satisfies InvalidResponseMessage
-    }
-  }
+  const { requestId } = params
 
   const request = await storage.getRequest(requestId)
 
