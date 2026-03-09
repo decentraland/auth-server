@@ -29,7 +29,7 @@ export async function getRequestOutcomeHandler({
   }
 
   if (requestOperations.isRequestExpired(request)) {
-    await storage.setRequest(requestId, null)
+    await storage.deleteRequest(requestId)
     return {
       status: 404,
       body: {

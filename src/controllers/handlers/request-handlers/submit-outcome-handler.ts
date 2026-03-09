@@ -58,7 +58,7 @@ export async function submitOutcomeHandler({
 
   if (requestOperations.isRequestExpired(request)) {
     // This cleanup is intentionally idempotent; concurrent expired submissions may call it more than once.
-    await storage.setRequest(requestId, null)
+    await storage.deleteRequest(requestId)
     logger.log(`[RID:${requestId}] Received an outcome message for an expired request`)
     return {
       status: 410,

@@ -34,13 +34,13 @@ export function createStorageComponent({ cache }: Pick<AppComponents, 'cache'>):
     }
   }
 
-  const setRequest = async (requestId: string, request: StorageRequest | null): Promise<void> => {
-    if (request) {
-      const ttlSeconds = secondsUntilExpiration(request.expiration)
-      await cache.set(getRequestCacheKey(requestId), request, ttlSeconds)
-    } else {
-      await cache.remove(getRequestCacheKey(requestId))
-    }
+  const setRequest = async (requestId: string, request: StorageRequest): Promise<void> => {
+    const ttlSeconds = secondsUntilExpiration(request.expiration)
+    await cache.set(getRequestCacheKey(requestId), request, ttlSeconds)
+  }
+
+  const deleteRequest = async (requestId: string): Promise<void> => {
+    await cache.remove(getRequestCacheKey(requestId))
   }
 
   const getIdentity = async (identityId: string): Promise<StorageIdentity | null> => {
@@ -67,6 +67,7 @@ export function createStorageComponent({ cache }: Pick<AppComponents, 'cache'>):
   return {
     getRequest,
     setRequest,
+    deleteRequest,
     getIdentity,
     setIdentity,
     deleteIdentity

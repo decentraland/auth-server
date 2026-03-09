@@ -32,7 +32,7 @@ export async function notifyValidationHandler({
 
   if (requestOperations.isRequestExpired(request)) {
     logger.log(`[RID:${requestId}] Received a validation request message for an expired request`)
-    await storage.setRequest(requestId, null)
+    await storage.deleteRequest(requestId)
 
     return {
       status: 404,
