@@ -1,8 +1,8 @@
-import { IBaseComponent, IHttpServerComponent, IStatusCheckCapableComponent } from '@well-known-components/interfaces'
+import type { FullHttpServerComponent } from '@dcl/http-server'
 import { AuthIdentity } from '@dcl/crypto'
 import { AuthChain } from '@dcl/schemas'
 
-export type IServerComponent = IHttpServerComponent<any> & IBaseComponent & IStatusCheckCapableComponent
+export type IServerComponent<Context extends object> = FullHttpServerComponent<Context>
 
 export type Request = {
   method: string

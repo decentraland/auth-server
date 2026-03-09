@@ -1,5 +1,5 @@
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
-import { validateOutcomeMessage } from '../../src/controllers/validations'
+import { validateOutcomeMessage } from '../../src/logic/validations'
 import { OutcomeResponseMessage } from '../../src/ports/server/types'
 import { generateRandomIdentityId } from '../utils/test-identity'
 

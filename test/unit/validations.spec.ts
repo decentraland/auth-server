@@ -6,7 +6,7 @@ import {
   validateRequestValidationMessage,
   validateHttpOutcomeMessage,
   validateIdentityRequest
-} from '../../src/controllers/validations'
+} from '../../src/logic/validations'
 import { MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from '../../src/ports/server/constants'
 import {
   RequestMessage,

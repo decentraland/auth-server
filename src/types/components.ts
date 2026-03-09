@@ -38,7 +38,7 @@ export type BaseComponents = {
   logs: ILoggerComponent
   metrics: IMetricsComponent<Extract<keyof typeof metricDeclarations, string>>
   requestOperations: IRequestOperationsComponent
-  server: IServerComponent
+  server: IServerComponent<GlobalContext>
   statusChecks: IBaseComponent
   storage: IStorageComponent
   tracer: ITracerComponent
