@@ -138,18 +138,19 @@ Used in `createRequestHandler` (for all methods except `dcl_personal_sign`) and 
 
 All are plain `Error` subclasses with a `.name` property:
 
-| Error | When | HTTP |
-|---|---|---|
-| `EphemeralKeyExpiredError` | Auth chain ephemeral key has expired | 401 |
-| `EphemeralAddressMismatchError` | `ephemeralIdentity.address` ≠ auth chain `finalAuthority` | 403 |
-| `RequestSenderMismatchError` | HTTP request signer ≠ auth chain owner | 403 |
-| `EphemeralPrivateKeyMismatchError` | Private key doesn't derive to the provided address | 403 |
+| Error                              | When                                                      | HTTP |
+| ---------------------------------- | --------------------------------------------------------- | ---- |
+| `EphemeralKeyExpiredError`         | Auth chain ephemeral key has expired                      | 401  |
+| `EphemeralAddressMismatchError`    | `ephemeralIdentity.address` ≠ auth chain `finalAuthority` | 403  |
+| `RequestSenderMismatchError`       | HTTP request signer ≠ auth chain owner                    | 403  |
+| `EphemeralPrivateKeyMismatchError` | Private key doesn't derive to the provided address        | 403  |
 
 These are mapped to HTTP responses in `identity-error-handler.ts` (`handleIdentityValidationError`).
 
 ### IP access control for identities
 
 When `GET /identities/:identityId` is called:
+
 - The request IP is extracted via `ipUtils.getIpHeaders` + `ipUtils.getClientIp`.
 - It is compared to `identity.ipAddress` (stored at creation time) using `ipUtils.ipsMatch`.
 - If `identity.isMobile === true`: IP mismatch is **allowed** (logged as a warning but proceeds). Mobile networks frequently change IPs.

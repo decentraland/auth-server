@@ -102,7 +102,7 @@ describe('when validating an auth chain', () => {
     })
 
     it('should propagate the ephemeral expiration error', async () => {
-      await expect(authChainComponent.validateAuthChain(expiredIdentity.authChain)).rejects.toThrow('Ephemeral key expired')
+      await expect(authChainComponent.validateAuthChain(expiredIdentity.authChain)).rejects.toThrow('Ephemeral key has expired')
     })
   })
 })
