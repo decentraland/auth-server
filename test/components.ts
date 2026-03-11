@@ -9,6 +9,7 @@ import { createTestMetricsComponent } from '@well-known-components/metrics'
 import { createRunner } from '@well-known-components/test-helpers'
 import { createTracerComponent } from '@well-known-components/tracer-component'
 import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
+import { ISlackComponent } from '@dcl/slack-component'
 import { metricDeclarations } from '../src/metrics'
 import { IPgComponent } from '../src/ports/db/types'
 import { IEmailComponent } from '../src/ports/email/types'
@@ -110,7 +111,10 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
   const storage = createStorageComponent({ cache })
   const onboarding = createOnboardingComponent({ db, logs })
   const email = createMockEmailComponent()
-  const nudgeJob = createNudgeJobComponent({ onboarding, email, logs: createMockLogs() })
+  const slack: ISlackComponent = {
+    sendMessage: jest.fn().mockResolvedValue(undefined)
+  } as unknown as ISlackComponent
+  const nudgeJob = createNudgeJobComponent({ onboarding, email, slack, logs: createMockLogs(), config })
   const server = await createServerComponent({
     config,
     logs,
@@ -134,6 +138,7 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     metrics,
     onboarding,
     server,
+    slack,
     storage
   }
 }

@@ -1,4 +1,5 @@
 import type { ICacheStorageComponent } from '@dcl/core-commons'
+import type { ISlackComponent } from '@dcl/slack-component'
 import type { metricDeclarations } from './metrics'
 import type { IPgComponent } from './ports/db/types'
 import type { IEmailComponent } from './ports/email/types'
@@ -22,6 +23,7 @@ export type BaseComponents = {
   metrics: IMetricsComponent<keyof typeof metricDeclarations>
   onboarding: IOnboardingComponent
   server: IServerComponent
+  slack: ISlackComponent
   storage: IStorageComponent
   tracer: ITracerComponent
 }

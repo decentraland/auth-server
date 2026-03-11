@@ -8,14 +8,55 @@ const SEQUENCE_HOURS = [0, 12, 24, 36]
 export function createOnboardingComponent({ db, logs }: Pick<AppComponents, 'db' | 'logs'>): IOnboardingComponent {
   const logger = logs.getLogger('onboarding-component')
 
+  /**
+   * When a checkpoint arrives with identifierType='wallet', try to find an
+   * earlier checkpoint row that has the same wallet and an email. If found,
+   * rewrite the identifier to the email-based user_id so all checkpoints
+   * for this user share the same user_id and the nudge system works.
+   */
+  const resolveWalletIdentity = async (walletAddress: string): Promise<{ userId: string; email: string } | null> => {
+    const result = await db.query<{ user_id: string; email: string }>(SQL`
+      SELECT user_id, email
+      FROM onboarding_checkpoints
+      WHERE wallet = ${walletAddress}
+        AND email IS NOT NULL
+      ORDER BY checkpoint ASC
+      LIMIT 1
+    `)
+    return result.rows.length > 0 ? { userId: result.rows[0].user_id, email: result.rows[0].email } : null
+  }
+
   const recordCheckpoint = async (payload: CheckpointPayload): Promise<void> => {
-    const { userIdentifier, identifierType, checkpointId, action, email, source, metadata } = payload
+    let { userIdentifier, identifierType, email, wallet } = payload
+    const { checkpointId, action, source, metadata } = payload
+
+    // Normalize wallet to lowercase
+    if (wallet) {
+      wallet = wallet.toLowerCase()
+    }
+
+    // When identifier is a wallet, try to resolve to the email-based user_id
+    // so all checkpoints for this user share the same user_id.
+    if (identifierType === 'wallet' && !email) {
+      const resolved = await resolveWalletIdentity(userIdentifier.toLowerCase())
+      if (resolved) {
+        logger.log(`[CP:${checkpointId}][WALLET:${userIdentifier}] Resolved wallet to user_id=${resolved.userId}`)
+        wallet = wallet ?? userIdentifier.toLowerCase()
+        userIdentifier = resolved.userId
+        identifierType = 'email'
+        email = resolved.email
+      } else {
+        // No earlier checkpoint with this wallet — store with wallet as user_id
+        wallet = wallet ?? userIdentifier.toLowerCase()
+      }
+    }
 
     if (action === 'completed') {
       await db.query(SQL`
         UPDATE onboarding_checkpoints
         SET completed_at = NOW(),
-            email = COALESCE(${email ?? null}, email)
+            email = COALESCE(${email ?? null}, email),
+            wallet = COALESCE(${wallet ?? null}, wallet)
         WHERE user_id = ${userIdentifier}
           AND checkpoint = ${checkpointId}
           AND completed_at IS NULL
@@ -26,17 +67,19 @@ export function createOnboardingComponent({ db, logs }: Pick<AppComponents, 'db'
 
     // action === 'reached': upsert the checkpoint record
     await db.query(SQL`
-      INSERT INTO onboarding_checkpoints (user_id, id_type, email, checkpoint, source, metadata)
+      INSERT INTO onboarding_checkpoints (user_id, id_type, email, wallet, checkpoint, source, metadata)
       VALUES (
         ${userIdentifier},
         ${identifierType},
         ${email ?? null},
+        ${wallet ?? null},
         ${checkpointId},
         ${source ?? null},
         ${metadata ? JSON.stringify(metadata) : null}
       )
       ON CONFLICT (user_id, checkpoint) DO UPDATE
         SET email = COALESCE(${email ?? null}, onboarding_checkpoints.email),
+            wallet = COALESCE(${wallet ?? null}, onboarding_checkpoints.wallet),
             metadata = COALESCE(${metadata ? JSON.stringify(metadata) : null}::jsonb, onboarding_checkpoints.metadata)
     `)
 

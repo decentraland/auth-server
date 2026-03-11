@@ -160,6 +160,10 @@ const checkpointRequestSchema = {
       format: 'email',
       maxLength: 255
     },
+    wallet: {
+      type: 'string',
+      maxLength: 255
+    },
     source: {
       type: 'string',
       maxLength: 50
