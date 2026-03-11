@@ -9,6 +9,7 @@ import type {
 import type { ICacheStorageComponent } from '@dcl/core-commons'
 import type { AuthIdentity } from '@dcl/crypto'
 import type { AuthChain } from '@dcl/schemas'
+import type { ISlackComponent } from '@dcl/slack-component'
 import type { DecentralandSignatureContext } from 'decentraland-crypto-middleware'
 import type { ValidateAuthChainResult } from '../logic/auth-chain.types'
 import type {
@@ -25,7 +26,6 @@ import type {
 import type { metricDeclarations } from '../metrics'
 import type { IPgComponent } from '../ports/db/types'
 import type { IEmailComponent } from '../ports/email/types'
-import type { ISlackComponent } from '@dcl/slack-component'
 import type { INudgeJobComponent } from '../ports/nudge-job/types'
 import type { IOnboardingComponent } from '../ports/onboarding/types'
 import type { HttpOutcomeMessage, IServerComponent, OutcomeResponseMessage, RecoverResponseMessage } from '../ports/server/types'
@@ -65,7 +65,6 @@ export type AppComponents = BaseComponents & {
 export type TestComponents = BaseComponents & {
   // Add components that are only used on tests.
 }
-
 
 export interface IAuthChainComponent {
   validateAuthChain: (authChain: AuthChain) => Promise<ValidateAuthChainResult>

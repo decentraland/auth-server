@@ -1,28 +1,28 @@
 // This file is the "test-environment" analogous for src/components.ts
 // Here we define the test components to be used in the testing environment
-import net from "net"
-import path from "node:path"
-import { createDotEnvConfigComponent } from "@well-known-components/env-config-provider"
-import { ILoggerComponent } from "@well-known-components/interfaces"
-import { createLogComponent } from "@well-known-components/logger"
-import { createRunner } from "@well-known-components/test-helpers"
-import { createTracerComponent } from "@well-known-components/tracer-component"
-import { createServerComponent, createStatusCheckComponent, instrumentHttpServerWithPromClientRegistry } from "@dcl/http-server"
-import { createInMemoryCacheComponent } from "@dcl/memory-cache-component"
-import { createTestMetricsComponent } from "@dcl/metrics"
-import type { ISlackComponent } from "@dcl/slack-component"
-import { createAuthChainComponent } from "../src/logic/auth-chain"
-import { createIdentityOperationsComponent } from "../src/logic/identity-operations"
-import { createIpUtilsComponent } from "../src/logic/ip"
-import { createRequestOperationsComponent } from "../src/logic/request-operations"
-import { metricDeclarations } from "../src/metrics"
-import { IPgComponent } from "../src/ports/db/types"
-import { IEmailComponent } from "../src/ports/email/types"
-import { createNudgeJobComponent } from "../src/ports/nudge-job/component"
-import { createOnboardingComponent } from "../src/ports/onboarding/component"
-import { createStorageComponent } from "../src/ports/storage/component"
-import { main } from "../src/service"
-import { GlobalContext, TestComponents } from "../src/types/components"
+import net from 'net'
+import path from 'node:path'
+import { createDotEnvConfigComponent } from '@well-known-components/env-config-provider'
+import { ILoggerComponent } from '@well-known-components/interfaces'
+import { createLogComponent } from '@well-known-components/logger'
+import { createRunner } from '@well-known-components/test-helpers'
+import { createTracerComponent } from '@well-known-components/tracer-component'
+import { createServerComponent, createStatusCheckComponent, instrumentHttpServerWithPromClientRegistry } from '@dcl/http-server'
+import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
+import { createTestMetricsComponent } from '@dcl/metrics'
+import type { ISlackComponent } from '@dcl/slack-component'
+import { createAuthChainComponent } from '../src/logic/auth-chain'
+import { createIdentityOperationsComponent } from '../src/logic/identity-operations'
+import { createIpUtilsComponent } from '../src/logic/ip'
+import { createRequestOperationsComponent } from '../src/logic/request-operations'
+import { metricDeclarations } from '../src/metrics'
+import { IPgComponent } from '../src/ports/db/types'
+import { IEmailComponent } from '../src/ports/email/types'
+import { createNudgeJobComponent } from '../src/ports/nudge-job/component'
+import { createOnboardingComponent } from '../src/ports/onboarding/component'
+import { createStorageComponent } from '../src/ports/storage/component'
+import { main } from '../src/service'
+import { GlobalContext, TestComponents } from '../src/types/components'
 
 type TestOverrides = {
   requestExpirationInSeconds?: number
@@ -31,7 +31,7 @@ type TestOverrides = {
 }
 
 function parseCorsOrigins(value: string): RegExp[] {
-  return value.split(";").map(pattern => new RegExp(pattern))
+  return value.split(';').map(pattern => new RegExp(pattern))
 }
 
 /**
@@ -43,7 +43,7 @@ function findOpenPort() {
   return new Promise<number>((resolve, reject) => {
     const server = net.createServer()
     server.unref()
-    server.on("error", reject)
+    server.on('error', reject)
     server.listen(() => {
       const info = server.address() as { port: number }
       server.close(() => {
@@ -72,7 +72,7 @@ export function createMockDbComponent(): IPgComponent {
  */
 export function createMockEmailComponent(): IEmailComponent {
   return {
-    sendNudge: jest.fn().mockResolvedValue("mock-sg-message-id"),
+    sendNudge: jest.fn().mockResolvedValue('mock-sg-message-id'),
     start: jest.fn().mockResolvedValue(undefined),
     stop: jest.fn().mockResolvedValue(undefined)
   } as unknown as IEmailComponent
@@ -110,10 +110,10 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
   const dclPersonalSignExpirationInSeconds = overrides.dclPersonalSignExpirationInSeconds ?? 5 * 60
 
   const config = await createDotEnvConfigComponent(
-    { path: [path.resolve(__dirname, "../.env.spec")] },
+    { path: [path.resolve(__dirname, '../.env.spec')] },
     {
       HTTP_SERVER_PORT: httpServerPort.toString(),
-      CORS_ORIGIN: "https://test-*.org;https://test-*.zone",
+      CORS_ORIGIN: 'https://test-*.org;https://test-*.zone',
       REQUEST_EXPIRATION_IN_SECONDS: requestExpirationInSeconds.toString(),
       DCL_PERSONAL_SIGN_REQUEST_EXPIRATION_IN_SECONDS: dclPersonalSignExpirationInSeconds.toString(),
       ...(overrides.metricsBearerToken ? { WKC_METRICS_BEARER_TOKEN: overrides.metricsBearerToken } : {})
@@ -136,11 +136,11 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     sendMessage: jest.fn().mockResolvedValue(undefined)
   } as unknown as ISlackComponent
   const nudgeJob = createNudgeJobComponent({ onboarding, email, slack, logs: createMockLogs(), config })
-  const corsMethods = (await config.requireString("CORS_METHODS"))
-    .split(",")
+  const corsMethods = (await config.requireString('CORS_METHODS'))
+    .split(',')
     .map(method => method.trim())
     .filter(method => method.length > 0)
-  const corsOrigin = parseCorsOrigins(await config.requireString("CORS_ORIGIN"))
+  const corsOrigin = parseCorsOrigins(await config.requireString('CORS_ORIGIN'))
   const server = await createServerComponent<GlobalContext>(
     {
       config,
@@ -159,7 +159,7 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
   })
   const metricsRegistry = metrics.registry
   if (!metricsRegistry) {
-    throw new Error("Metrics registry is required to instrument HTTP server metrics")
+    throw new Error('Metrics registry is required to instrument HTTP server metrics')
   }
   await instrumentHttpServerWithPromClientRegistry({ config, metrics, registry: metricsRegistry, server })
 

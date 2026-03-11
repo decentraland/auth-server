@@ -169,6 +169,7 @@ curl -X POST http://localhost:8080/admin/onboarding/send-test-email \
 ```
 
 Parameters:
+
 - `to` (string) — recipient email address
 - `checkpointId` (1–7) — which checkpoint's content to use
 - `sequence` (1, 2, 3) — which SendGrid template to use
