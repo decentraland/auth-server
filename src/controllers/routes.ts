@@ -3,6 +3,7 @@ import { wellKnownComponents } from 'decentraland-crypto-middleware'
 import type { GlobalContext } from '../types/components'
 import { createIdentityHandler } from './handlers/identity-handlers/create-identity-handler'
 import { getIdentityHandler } from './handlers/identity-handlers/get-identity-handler'
+import { createCheckpointHandler } from './handlers/onboarding-handlers/create-checkpoint-handler'
 import { createRequestHandler } from './handlers/request-handlers/create-request-handler'
 import { getRequestHandler } from './handlers/request-handlers/get-request-handler'
 import { getRequestOutcomeHandler } from './handlers/request-handlers/get-request-outcome-handler'
@@ -30,6 +31,8 @@ export function setupRouter(): Router<GlobalContext> {
 
   router.post('/identities', requireSignedFetch, createIdentityHandler)
   router.get('/identities/:id', getIdentityHandler)
+
+  router.post('/onboarding/checkpoint', createCheckpointHandler)
 
   return router
 }

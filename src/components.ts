@@ -5,11 +5,16 @@ import { createServerComponent, createStatusCheckComponent, instrumentHttpServer
 import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
 import { createMetricsComponent } from '@dcl/metrics'
 import { createRedisComponent } from '@dcl/redis-component'
+import { createSlackComponent } from '@dcl/slack-component'
 import { createAuthChainComponent } from './logic/auth-chain'
 import { createIdentityOperationsComponent } from './logic/identity-operations'
 import { createIpUtilsComponent } from './logic/ip'
 import { createRequestOperationsComponent } from './logic/request-operations'
 import { metricDeclarations } from './metrics'
+import { createPgComponent } from './ports/db/component'
+import { createEmailComponent } from './ports/email/component'
+import { createNudgeJobComponent } from './ports/nudge-job/component'
+import { createOnboardingComponent } from './ports/onboarding/component'
 import { createStorageComponent } from './ports/storage/component'
 import { AppComponents, GlobalContext } from './types/components'
 
@@ -33,11 +38,17 @@ export async function initComponents(): Promise<AppComponents> {
   const metrics = await createMetricsComponent(metricDeclarations, { config })
   const redisHostUrl = await config.getString('REDIS_HOST')
   const cache = redisHostUrl ? await createRedisComponent(redisHostUrl, { logs }) : createInMemoryCacheComponent()
+  const db = await createPgComponent({ config, logs, metrics }, {})
   const storage = createStorageComponent({ cache })
   const authChain = await createAuthChainComponent({ logs })
   const identityOperations = await createIdentityOperationsComponent({ logs })
   const ipUtils = await createIpUtilsComponent({ logs })
   const requestOperations = await createRequestOperationsComponent({ config })
+  const onboarding = createOnboardingComponent({ db, logs })
+  const email = await createEmailComponent({ config, logs })
+  const slackToken = await config.getString('SLACK_BOT_TOKEN')
+  const slack = createSlackComponent({ logs }, { token: slackToken ?? '' })
+  const nudgeJob = createNudgeJobComponent({ onboarding, email, slack, logs, config })
   const corsMethods = (await config.requireString('CORS_METHODS'))
     .split(',')
     .map(method => method.trim())
@@ -69,12 +80,17 @@ export async function initComponents(): Promise<AppComponents> {
     authChain,
     cache,
     config,
+    db,
+    email,
     identityOperations,
     ipUtils,
     logs,
     metrics,
+    nudgeJob,
+    onboarding,
     requestOperations,
     server,
+    slack,
     statusChecks,
     storage,
     tracer

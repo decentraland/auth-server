@@ -82,6 +82,17 @@ export type IdentityIdValidationResponse = {
   identity: AuthIdentity
 }
 
+export type CheckpointRequest = {
+  checkpointId: number
+  userIdentifier: string
+  identifierType: 'email' | 'wallet'
+  action: 'reached' | 'completed'
+  email?: string
+  wallet?: string
+  source?: string
+  metadata?: Record<string, unknown>
+}
+
 export type InputMessage = RequestMessage | RecoverMessage | OutcomeMessage | IdentityRequest
 
 export type ResponseMessage = RequestResponseMessage | RecoverResponseMessage | OutcomeResponseMessage | InvalidResponseMessage
