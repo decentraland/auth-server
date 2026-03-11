@@ -8,7 +8,8 @@ import {
   RecoverMessage,
   RequestMessage,
   RequestValidationMessage,
-  IdentityRequest
+  IdentityRequest,
+  CheckpointRequest
 } from '../ports/server/types'
 
 const ajv = new AjvLib({ allowUnionTypes: true })
@@ -133,12 +134,55 @@ const identityRequestSchema = {
   additionalProperties: false
 }
 
+const checkpointRequestSchema = {
+  type: 'object',
+  properties: {
+    checkpointId: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 7
+    },
+    userIdentifier: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 255
+    },
+    identifierType: {
+      type: 'string',
+      enum: ['email', 'wallet']
+    },
+    action: {
+      type: 'string',
+      enum: ['reached', 'completed']
+    },
+    email: {
+      type: 'string',
+      format: 'email',
+      maxLength: 255
+    },
+    wallet: {
+      type: 'string',
+      maxLength: 255
+    },
+    source: {
+      type: 'string',
+      maxLength: 50
+    },
+    metadata: {
+      type: 'object'
+    }
+  },
+  required: ['checkpointId', 'userIdentifier', 'identifierType', 'action'],
+  additionalProperties: false
+}
+
 const requestMessageValidator = ajv.compile(requestMessageSchema)
 const recoverMessageValidator = ajv.compile(recoverMessageSchema)
 const outcomeMessageValidator = ajv.compile(outcomeMessageSchema)
 const httpOutcomeMessageValidator = ajv.compile(httpOutcomeMessageSchema)
 const requestValidationMessageValidator = ajv.compile(requestValidationMessageSchema)
 const identityIdRequestValidator = ajv.compile(identityRequestSchema)
+const checkpointRequestValidator = ajv.compile(checkpointRequestSchema)
 
 export function validateRequestMessage(msg: unknown) {
   if (!requestMessageValidator(msg)) {
@@ -186,4 +230,12 @@ export function validateHttpOutcomeMessage(msg: unknown) {
   }
 
   return msg as HttpOutcomeMessage
+}
+
+export function validateCheckpointRequest(msg: unknown) {
+  if (!checkpointRequestValidator(msg)) {
+    throw new Error(JSON.stringify(checkpointRequestValidator.errors))
+  }
+
+  return msg as CheckpointRequest
 }

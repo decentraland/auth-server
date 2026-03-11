@@ -9,6 +9,7 @@ import { getRequestOutcomeHandler } from './handlers/request-handlers/get-reques
 import { getValidationStatusHandler } from './handlers/request-handlers/get-validation-status-handler'
 import { notifyValidationHandler } from './handlers/request-handlers/notify-validation-handler'
 import { submitOutcomeHandler } from './handlers/request-handlers/submit-outcome-handler'
+import { createCheckpointHandler } from './handlers/onboarding-handlers/create-checkpoint-handler'
 
 export function setupRouter(): Router<GlobalContext> {
   const router = new Router<GlobalContext>()
@@ -30,6 +31,8 @@ export function setupRouter(): Router<GlobalContext> {
 
   router.post('/identities', requireSignedFetch, createIdentityHandler)
   router.get('/identities/:id', getIdentityHandler)
+
+  router.post('/onboarding/checkpoint', createCheckpointHandler)
 
   return router
 }

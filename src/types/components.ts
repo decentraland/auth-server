@@ -23,6 +23,11 @@ import type {
   ToFulfilledRequestRecordParams
 } from '../logic/request-operations.types'
 import type { metricDeclarations } from '../metrics'
+import type { IPgComponent } from '../ports/db/types'
+import type { IEmailComponent } from '../ports/email/types'
+import type { ISlackComponent } from '@dcl/slack-component'
+import type { INudgeJobComponent } from '../ports/nudge-job/types'
+import type { IOnboardingComponent } from '../ports/onboarding/types'
 import type { HttpOutcomeMessage, IServerComponent, OutcomeResponseMessage, RecoverResponseMessage } from '../ports/server/types'
 import type { IStorageComponent, StorageIdentity, StorageRequest } from '../ports/storage/types'
 
@@ -34,12 +39,17 @@ export type GlobalContext = DecentralandSignatureContext & {
 export type BaseComponents = {
   authChain: IAuthChainComponent
   config: IConfigComponent
+  db: IPgComponent
+  email: IEmailComponent
   identityOperations: IIdentityOperationsComponent
   ipUtils: IIpUtilsComponent
   logs: ILoggerComponent
   metrics: IMetricsComponent<Extract<keyof typeof metricDeclarations, string>>
+  nudgeJob: INudgeJobComponent
+  onboarding: IOnboardingComponent
   requestOperations: IRequestOperationsComponent
   server: IServerComponent<GlobalContext>
+  slack: ISlackComponent
   statusChecks: IBaseComponent
   storage: IStorageComponent
   tracer: ITracerComponent
@@ -55,6 +65,7 @@ export type AppComponents = BaseComponents & {
 export type TestComponents = BaseComponents & {
   // Add components that are only used on tests.
 }
+
 
 export interface IAuthChainComponent {
   validateAuthChain: (authChain: AuthChain) => Promise<ValidateAuthChainResult>

@@ -8,9 +8,9 @@ info:
     This server facilitates communication between the Decentraland clients and the auth dapp on the browser.
     It allows the desktop client to execute wallet methods (eth_sendTransaction, personal_sign, etc.) using the wallet 
     the user has on their browser.
-    
+
     ### Request Lifecycle
-    
+
     1. A request is created with a method and parameters
     2. The server returns a request ID, expiration time, and verification code
     3. The auth dapp recovers the request using the request ID
@@ -26,7 +26,7 @@ info:
     - Polling clients should handle `410 Gone` responses for already consumed or fulfilled requests.
     
     ### Authentication
-    
+
     - For methods other than `dcl_personal_sign`, an `authChain` is required and will be validated.
     - For `dcl_personal_sign`, no `authChain` is required initially.
     - Signature validation is performed using `@dcl/crypto` Authenticator.
@@ -57,6 +57,8 @@ tags:
     description: Authentication request management endpoints
   - name: Identities
     description: Temporary identity endpoints used for auto-login flows
+  - name: Onboarding
+    description: Onboarding checkpoint tracking for email nudge campaigns (internal, requires API key)
 paths:
   /health/ready:
     get:
@@ -142,7 +144,7 @@ paths:
       summary: Create authentication request
       description: |
         Creates a new authentication request that can be executed by the auth dapp.
-        
+
         **Important:**
         - For methods other than `dcl_personal_sign`, the `authChain` field is **required** and will be validated.
         - For `dcl_personal_sign`, the `authChain` field is **optional**.
@@ -162,15 +164,15 @@ paths:
                 value:
                   method: personal_sign
                   params:
-                    - "Message to sign"
-                    - "0x1234567890123456789012345678901234567890"
+                    - 'Message to sign'
+                    - '0x1234567890123456789012345678901234567890'
                   authChain:
                     - type: SIGNER
-                      payload: "0x1234567890123456789012345678901234567890"
-                      signature: ""
+                      payload: '0x1234567890123456789012345678901234567890'
+                      signature: ''
                     - type: ECDSA_EPHEMERAL
-                      payload: "..."
-                      signature: "..."
+                      payload: '...'
+                      signature: '...'
               dclPersonalSign:
                 summary: DCL personal sign request (no authChain required)
                 value:
@@ -185,8 +187,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/RequestResponseMessage'
               example:
-                requestId: "550e8400-e29b-41d4-a716-446655440000"
-                expiration: "2024-01-01T12:10:00.000Z"
+                requestId: '550e8400-e29b-41d4-a716-446655440000'
+                expiration: '2024-01-01T12:10:00.000Z'
                 code: 42
         '400':
           description: Invalid request (missing required fields, invalid authChain, signature validation failed)
@@ -198,15 +200,15 @@ paths:
                 missingAuthChain:
                   summary: Missing auth chain for non-dcl_personal_sign method
                   value:
-                    error: "Auth chain is required"
+                    error: 'Auth chain is required'
                 invalidSignature:
                   summary: Signature validation failed
                   value:
-                    error: "Signature validation failed"
+                    error: 'Signature validation failed'
                 invalidPayload:
                   summary: Invalid request payload
                   value:
-                    error: "[{\"instancePath\":\"/method\",\"schemaPath\":\"#/required\",\"keyword\":\"required\",\"params\":{\"missingProperty\":\"method\"},\"message\":\"must have required property 'method'\"}]"
+                    error: '[{"instancePath":"/method","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"method"},"message":"must have required property ''method''"}]'
   /requests/{requestId}:
     get:
       tags:
@@ -215,7 +217,7 @@ paths:
       description: |
         Polls for the outcome of an authentication request. 
         The client should poll this endpoint periodically until a result is returned.
-        
+
         **Status Codes:**
         - `200`: Request completed, outcome returned
         - `204`: Request not yet completed, continue polling
@@ -231,7 +233,7 @@ paths:
             type: string
             format: uuid
           description: Request ID to poll for
-          example: "550e8400-e29b-41d4-a716-446655440000"
+          example: '550e8400-e29b-41d4-a716-446655440000'
       responses:
         '200':
           description: Request completed with outcome
@@ -240,9 +242,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/OutcomeResponseMessage'
               example:
-                requestId: "550e8400-e29b-41d4-a716-446655440000"
-                sender: "0x1234567890123456789012345678901234567890"
-                result: "0xabcdef1234567890..."
+                requestId: '550e8400-e29b-41d4-a716-446655440000'
+                sender: '0x1234567890123456789012345678901234567890'
+                result: '0xabcdef1234567890...'
         '204':
           description: Request not yet completed (continue polling)
         '404':
@@ -252,7 +254,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/InvalidResponseMessage'
               example:
-                error: "Request with id \"550e8400-e29b-41d4-a716-446655440000\" not found"
+                error: 'Request with id "550e8400-e29b-41d4-a716-446655440000" not found'
         '410':
           description: Request expired
           content:
@@ -260,7 +262,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/InvalidResponseMessage'
               example:
-                error: "Request with id \"550e8400-e29b-41d4-a716-446655440000\" has expired"
+                error: 'Request with id "550e8400-e29b-41d4-a716-446655440000" has expired'
   /v2/requests/{requestId}/outcome:
     post:
       tags:
@@ -288,15 +290,15 @@ paths:
               success:
                 summary: Successful outcome
                 value:
-                  sender: "0x1234567890123456789012345678901234567890"
-                  result: "0xabcdef1234567890..."
+                  sender: '0x1234567890123456789012345678901234567890'
+                  result: '0xabcdef1234567890...'
               failure:
                 summary: Failed outcome
                 value:
-                  sender: "0x1234567890123456789012345678901234567890"
+                  sender: '0x1234567890123456789012345678901234567890'
                   error:
                     code: 4001
-                    message: "User rejected the request"
+                    message: 'User rejected the request'
       responses:
         '200':
           description: Outcome accepted
@@ -402,18 +404,18 @@ paths:
               $ref: '#/components/schemas/IdentityRequest'
             example:
               identity:
-                expiration: "2024-01-01T12:10:00.000Z"
+                expiration: '2024-01-01T12:10:00.000Z'
                 ephemeralIdentity:
-                  address: "0x1234567890123456789012345678901234567890"
-                  publicKey: "0x..."
-                  privateKey: "0x..."
+                  address: '0x1234567890123456789012345678901234567890'
+                  publicKey: '0x...'
+                  privateKey: '0x...'
                 authChain:
-                  - type: "SIGNER"
-                    payload: "0x1234567890123456789012345678901234567890"
-                    signature: "0x..."
-                  - type: "ECDSA_EPHEMERAL"
-                    payload: "..."
-                    signature: "0x..."
+                  - type: 'SIGNER'
+                    payload: '0x1234567890123456789012345678901234567890'
+                    signature: '0x...'
+                  - type: 'ECDSA_EPHEMERAL'
+                    payload: '...'
+                    signature: '0x...'
       responses:
         '201':
           description: Identity created
@@ -496,7 +498,7 @@ paths:
       summary: Get request details
       description: |
         Retrieves the details of an authentication request for execution.
-        
+
         This endpoint is used by the auth dapp to recover request information before executing it.
         The request must exist, not be expired, and pass IP address validation (if applicable).
       operationId: getRequestDetails
@@ -509,7 +511,7 @@ paths:
             type: string
             format: uuid
           description: Request ID to retrieve
-          example: "550e8400-e29b-41d4-a716-446655440000"
+          example: '550e8400-e29b-41d4-a716-446655440000'
       responses:
         '200':
           description: Request details retrieved successfully
@@ -518,13 +520,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/RecoverResponseMessage'
               example:
-                expiration: "2024-01-01T12:10:00.000Z"
+                expiration: '2024-01-01T12:10:00.000Z'
                 code: 42
-                method: "personal_sign"
+                method: 'personal_sign'
                 params:
-                  - "Message to sign"
-                  - "0x1234567890123456789012345678901234567890"
-                sender: "0x1234567890123456789012345678901234567890"
+                  - 'Message to sign'
+                  - '0x1234567890123456789012345678901234567890'
+                sender: '0x1234567890123456789012345678901234567890'
         '403':
           description: IP validation failed
           content:
@@ -532,7 +534,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/InvalidResponseMessage'
               example:
-                error: "IP validation failed"
+                error: 'IP validation failed'
         '404':
           description: Request not found
           content:
@@ -540,7 +542,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/InvalidResponseMessage'
               example:
-                error: "Request with id \"550e8400-e29b-41d4-a716-446655440000\" not found"
+                error: 'Request with id "550e8400-e29b-41d4-a716-446655440000" not found'
         '410':
           description: Request expired
           content:
@@ -548,8 +550,97 @@ paths:
               schema:
                 $ref: '#/components/schemas/InvalidResponseMessage'
               example:
-                error: "Request with id \"550e8400-e29b-41d4-a716-446655440000\" has expired"
+                error: 'Request with id "550e8400-e29b-41d4-a716-446655440000" has expired'
+  /onboarding/checkpoint:
+    post:
+      tags:
+        - Onboarding
+      summary: Record an onboarding checkpoint
+      description: |
+        Records that a user has reached or completed an onboarding checkpoint.
+
+        Called by events-notifier after validating a Segment webhook. Not intended to be called directly from the browser.
+
+        **Checkpoints (1–7):**
+        1. Authentication Started
+        2. Auth Method Selected
+        3. Profile Creation
+        4. Avatar Creator Started
+        5. Download Page Viewed
+        6. Download Clicked
+        7. Launcher Ready
+
+        **Implicit completion:** Recording checkpoint N automatically marks checkpoint N-1 as completed.
+      operationId: recordCheckpoint
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckpointPayload'
+            examples:
+              reached:
+                summary: User reached a checkpoint
+                value:
+                  checkpointId: 3
+                  userIdentifier: 'user@example.com'
+                  identifierType: 'email'
+                  action: 'reached'
+                  email: 'user@example.com'
+                  source: 'auth'
+                  metadata:
+                    loginMethod: 'email'
+              completed:
+                summary: Mark a checkpoint as completed
+                value:
+                  checkpointId: 2
+                  userIdentifier: '0x1234567890abcdef'
+                  identifierType: 'wallet'
+                  action: 'completed'
+      responses:
+        '200':
+          description: Checkpoint recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+              example:
+                success: true
+        '400':
+          description: Invalid payload (missing fields, invalid checkpointId, invalid identifierType)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+              example:
+                error: 'Invalid checkpointId. Must be between 1 and 7.'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+              example:
+                error: 'Unauthorized'
+        '500':
+          description: Internal server error (e.g. database failure)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: API key passed as Bearer token. Required for onboarding endpoints.
   schemas:
     HealthStatusMessage:
       type: object
@@ -574,12 +665,12 @@ components:
         method:
           type: string
           description: Wallet method to execute (e.g., 'eth_sendTransaction', 'personal_sign', 'dcl_personal_sign')
-          example: "personal_sign"
+          example: 'personal_sign'
         params:
           type: array
           items: {}
           description: Method parameters (any JSON-serializable type)
-          example: ["Message to sign", "0x1234567890123456789012345678901234567890"]
+          example: ['Message to sign', '0x1234567890123456789012345678901234567890']
         authChain:
           $ref: '#/components/schemas/AuthChain'
           description: |
@@ -650,7 +741,7 @@ components:
         sender:
           type: string
           description: Sender address derived from auth chain (if applicable)
-          example: "0x1234567890123456789012345678901234567890"
+          example: '0x1234567890123456789012345678901234567890'
       required:
         - expiration
         - code
@@ -670,7 +761,7 @@ components:
         sender:
           type: string
           description: Address that executed the request
-          example: "0x1234567890123456789012345678901234567890"
+          example: '0x1234567890123456789012345678901234567890'
         result:
           description: Success result (any JSON-serializable type). Required if error is not present.
         error:
@@ -764,7 +855,7 @@ components:
         sender:
           type: string
           description: Address that executed the request
-          example: "0x1234567890123456789012345678901234567890"
+          example: '0x1234567890123456789012345678901234567890'
         result:
           description: Success result (any JSON-serializable type). Present when request succeeded.
         error:
@@ -776,6 +867,41 @@ components:
       oneOf:
         - required: [result]
         - required: [error]
+    CheckpointPayload:
+      type: object
+      properties:
+        checkpointId:
+          type: integer
+          minimum: 1
+          maximum: 7
+          description: Onboarding checkpoint identifier (1–7)
+        userIdentifier:
+          type: string
+          description: User identifier (email address or wallet address)
+        identifierType:
+          type: string
+          enum: [email, wallet]
+          description: Type of user identifier
+        action:
+          type: string
+          enum: [reached, completed]
+          description: Whether the user reached or completed this checkpoint
+        email:
+          type: string
+          format: email
+          description: User's email address (used for nudge emails)
+        source:
+          type: string
+          description: Source of the checkpoint event (e.g. "auth", "website", "launcher")
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional context (e.g. loginMethod)
+      required:
+        - checkpointId
+        - userIdentifier
+        - identifierType
+        - action
     InvalidResponseMessage:
       type: object
       properties:

@@ -136,6 +136,55 @@ yarn test:integration
 
 For detailed testing guidelines and standards, refer to our [Testing Standards](https://github.com/decentraland/docs/tree/main/development-standards/testing-standards) documentation.
 
+## Onboarding Email Nudge System
+
+The server includes a backend-driven email nudge system that detects when users stall during onboarding and sends contextual recovery emails via SendGrid.
+
+### Admin Endpoints (dev/staging only)
+
+These endpoints are **only mounted** when `ONBOARDING_ADMIN_ENABLED=true` in `.env`. They are disabled by default in production.
+
+#### `POST /admin/onboarding/run-evaluator`
+
+Triggers the nudge evaluator manually (same logic the cron runs every 15 min). Finds users stuck at each checkpoint for 12h/24h/36h and sends the appropriate email.
+
+```bash
+curl -X POST http://localhost:8080/admin/onboarding/run-evaluator
+```
+
+#### `POST /admin/onboarding/send-test-email`
+
+Sends a nudge email directly to a specific address, bypassing the database. Useful for previewing SendGrid templates.
+
+```bash
+# Send CP3 sequence 1 email to your inbox
+curl -X POST http://localhost:8080/admin/onboarding/send-test-email \
+  -H 'Content-Type: application/json' \
+  -d '{"to": "you@example.com", "checkpointId": 3, "sequence": 1}'
+
+# Send CP1 sequence 2
+curl -X POST http://localhost:8080/admin/onboarding/send-test-email \
+  -H 'Content-Type: application/json' \
+  -d '{"to": "you@example.com", "checkpointId": 1, "sequence": 2}'
+```
+
+Parameters:
+- `to` (string) — recipient email address
+- `checkpointId` (1–7) — which checkpoint's content to use
+- `sequence` (1, 2, 3) — which SendGrid template to use
+
+#### `GET /admin/onboarding/pending-nudges/:sequence`
+
+Returns users that would receive an email on the next cron run for a given sequence.
+
+```bash
+# Check who's pending for sequence 1 (12h)
+curl http://localhost:8080/admin/onboarding/pending-nudges/1
+
+# Response:
+# {"sequence":1,"count":2,"nudges":[{"userId":"user@test.com","checkpointId":2,"email":"user@test.com"},...]}}
+```
+
 ## Working with authentication and blockchain requests
 
 To understand more about how the server works with this requests, see [docs/requests.md](docs/requests.md).
