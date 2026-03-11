@@ -4,6 +4,7 @@ import { createMetricsComponent } from '@well-known-components/metrics'
 import { createTracerComponent } from '@well-known-components/tracer-component'
 import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
 import { createRedisComponent } from '@dcl/redis-component'
+import { createSlackComponent } from '@dcl/slack-component'
 import { metricDeclarations } from './metrics'
 import { createPgComponent } from './ports/db/component'
 import { createEmailComponent } from './ports/email/component'
@@ -27,7 +28,9 @@ export async function initComponents(): Promise<AppComponents> {
   const storage = createStorageComponent({ cache })
   const onboarding = createOnboardingComponent({ db, logs })
   const email = await createEmailComponent({ config, logs })
-  const nudgeJob = createNudgeJobComponent({ onboarding, email, logs })
+  const slackToken = await config.getString('SLACK_BOT_TOKEN')
+  const slack = createSlackComponent({ logs }, { token: slackToken ?? '' })
+  const nudgeJob = createNudgeJobComponent({ onboarding, email, slack, logs, config })
   const server = await createServerComponent({
     config,
     logs,
@@ -51,6 +54,7 @@ export async function initComponents(): Promise<AppComponents> {
     metrics,
     onboarding,
     server,
+    slack,
     storage,
     tracer
   }

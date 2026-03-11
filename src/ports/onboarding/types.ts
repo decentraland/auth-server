@@ -9,6 +9,7 @@ export type CheckpointPayload = {
   checkpointId: number
   action: CheckpointAction
   email?: string
+  wallet?: string
   source?: string
   metadata?: Record<string, unknown>
 }

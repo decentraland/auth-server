@@ -8,9 +8,33 @@ const FIFTEEN_MINUTES_MS = 15 * 60 * 1000
 export function createNudgeJobComponent({
   onboarding,
   email,
-  logs
-}: Pick<AppComponents, 'onboarding' | 'email' | 'logs'>): INudgeJobComponent {
+  slack,
+  logs,
+  config
+}: Pick<AppComponents, 'onboarding' | 'email' | 'slack' | 'logs' | 'config'>): INudgeJobComponent {
   const logger = logs.getLogger('nudge-job')
+
+  let slackChannel: string | undefined
+
+  const getSlackChannel = async (): Promise<string | undefined> => {
+    if (slackChannel !== undefined) return slackChannel || undefined
+    slackChannel = (await config.getString('SLACK_NUDGE_CHANNEL')) ?? ''
+    return slackChannel || undefined
+  }
+
+  const notifySlack = async (nudge: { userId: string; checkpointId: number; email: string }, sequence: number): Promise<void> => {
+    const channel = await getSlackChannel()
+    if (!channel) return
+
+    try {
+      await slack.sendMessage({
+        channel,
+        text: `Onboarding nudge sent — user stuck at CP${nudge.checkpointId}, sending nudge email seq ${sequence} to ${nudge.email}`
+      })
+    } catch (e) {
+      logger.warn(`Failed to send Slack notification: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
+    }
+  }
 
   const runEvaluator = async (): Promise<void> => {
     logger.log('Running nudge evaluator...')
@@ -35,6 +59,7 @@ export function createNudgeJobComponent({
           })
 
           await onboarding.markNudgeSent(nudge.userId, nudge.checkpointId, sequence, messageId)
+          void notifySlack(nudge, sequence)
         } catch (e) {
           logger.error(
             `[CP:${nudge.checkpointId}][USER:${nudge.userId}][SEQ:${sequence}] Failed to process nudge: ${

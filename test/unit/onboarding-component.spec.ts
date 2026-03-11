@@ -82,9 +82,10 @@ describe('when recording a checkpoint with action reached', () => {
         action: 'reached'
       })
 
-      const [firstCall] = mockDb.query.mock.calls
-      // email value should be null in the query values
-      expect(firstCall[0].values).toContain(null)
+      // First call is the wallet resolution query, second is the upsert
+      const upsertCall = mockDb.query.mock.calls[1]
+      // email value should be null in the upsert query values
+      expect(upsertCall[0].values).toContain(null)
     })
   })
 
@@ -102,6 +103,160 @@ describe('when recording a checkpoint with action reached', () => {
       })
 
       expect(mockDb.query.mock.calls).toHaveLength(1) // only the upsert, no previous update
+    })
+  })
+
+  describe('and the user provides a wallet field', () => {
+    beforeEach(() => {
+      mockDb.query.mockResolvedValue(emptyResult)
+    })
+
+    it('should include wallet in the INSERT query', async () => {
+      await onboarding.recordCheckpoint({
+        userIdentifier: 'user@test.com',
+        identifierType: 'email',
+        checkpointId: 3,
+        action: 'reached',
+        email: 'user@test.com',
+        wallet: '0xABC123',
+        source: 'auth'
+      })
+
+      const [firstCall] = mockDb.query.mock.calls
+      const queryText = firstCall[0].text ?? firstCall[0]
+      expect(queryText).toContain('wallet')
+      // wallet should be lowercased
+      expect(firstCall[0].values).toContain('0xabc123')
+    })
+  })
+})
+
+describe('wallet-to-email resolution', () => {
+  describe('when identifierType is wallet and no email is provided', () => {
+    describe('and an earlier checkpoint with that wallet exists', () => {
+      beforeEach(() => {
+        // First call: resolveWalletIdentity query — returns a match
+        mockDb.query
+          .mockResolvedValueOnce({
+            rows: [{ user_id: 'user@test.com', email: 'user@test.com' }],
+            rowCount: 1,
+            notices: []
+          })
+          // Second call: INSERT (upsert)
+          .mockResolvedValueOnce(emptyResult)
+          // Third call: UPDATE previous checkpoint
+          .mockResolvedValueOnce(emptyResult)
+      })
+
+      it('should resolve wallet to the email-based user_id', async () => {
+        await onboarding.recordCheckpoint({
+          userIdentifier: '0xabc123',
+          identifierType: 'wallet',
+          checkpointId: 7,
+          action: 'reached',
+          source: 'explorer'
+        })
+
+        // Should have 3 queries: resolve + upsert + update previous
+        expect(mockDb.query.mock.calls).toHaveLength(3)
+
+        // First query should be the wallet lookup
+        const [resolveCall] = mockDb.query.mock.calls
+        const resolveText = resolveCall[0].text ?? resolveCall[0]
+        expect(resolveText).toContain('SELECT user_id, email')
+        expect(resolveText).toContain('WHERE wallet')
+
+        // Second query (upsert) should use the resolved email as user_id
+        const [, upsertCall] = mockDb.query.mock.calls
+        expect(upsertCall[0].values).toContain('user@test.com') // resolved user_id
+      })
+
+      it('should use the resolved email for the checkpoint row', async () => {
+        await onboarding.recordCheckpoint({
+          userIdentifier: '0xabc123',
+          identifierType: 'wallet',
+          checkpointId: 7,
+          action: 'reached',
+          source: 'explorer'
+        })
+
+        const [, upsertCall] = mockDb.query.mock.calls
+        // The resolved email should appear in the values
+        expect(upsertCall[0].values).toContain('user@test.com')
+      })
+    })
+
+    describe('and no earlier checkpoint with that wallet exists', () => {
+      beforeEach(() => {
+        // First call: resolveWalletIdentity query — no match
+        mockDb.query
+          .mockResolvedValueOnce(emptyResult)
+          // Second call: INSERT (upsert)
+          .mockResolvedValueOnce(emptyResult)
+          // Third call: UPDATE previous checkpoint
+          .mockResolvedValueOnce(emptyResult)
+      })
+
+      it('should use the wallet as-is for user_id', async () => {
+        await onboarding.recordCheckpoint({
+          userIdentifier: '0xabc123',
+          identifierType: 'wallet',
+          checkpointId: 7,
+          action: 'reached',
+          source: 'explorer'
+        })
+
+        // Should have 3 queries: resolve + upsert + update previous
+        expect(mockDb.query.mock.calls).toHaveLength(3)
+
+        // Upsert should use the original wallet as user_id
+        const [, upsertCall] = mockDb.query.mock.calls
+        expect(upsertCall[0].values).toContain('0xabc123')
+      })
+    })
+  })
+
+  describe('when identifierType is wallet but email IS provided', () => {
+    beforeEach(() => {
+      mockDb.query.mockResolvedValue(emptyResult)
+    })
+
+    it('should not attempt wallet resolution', async () => {
+      await onboarding.recordCheckpoint({
+        userIdentifier: '0xabc123',
+        identifierType: 'wallet',
+        checkpointId: 2,
+        action: 'reached',
+        email: 'already-known@test.com'
+      })
+
+      // Should have 2 queries: upsert + update previous (no resolve query)
+      expect(mockDb.query.mock.calls).toHaveLength(2)
+      const [firstCall] = mockDb.query.mock.calls
+      const queryText = firstCall[0].text ?? firstCall[0]
+      expect(queryText).toContain('INSERT INTO onboarding_checkpoints')
+    })
+  })
+
+  describe('when identifierType is email', () => {
+    beforeEach(() => {
+      mockDb.query.mockResolvedValue(emptyResult)
+    })
+
+    it('should not attempt wallet resolution', async () => {
+      await onboarding.recordCheckpoint({
+        userIdentifier: 'user@test.com',
+        identifierType: 'email',
+        checkpointId: 3,
+        action: 'reached',
+        email: 'user@test.com'
+      })
+
+      // Should have 2 queries: upsert + update previous (no resolve query)
+      expect(mockDb.query.mock.calls).toHaveLength(2)
+      const [firstCall] = mockDb.query.mock.calls
+      const queryText = firstCall[0].text ?? firstCall[0]
+      expect(queryText).toContain('INSERT INTO onboarding_checkpoints')
     })
   })
 })

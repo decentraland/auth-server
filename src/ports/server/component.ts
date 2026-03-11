@@ -1125,6 +1125,7 @@ export async function createServerComponent({
           checkpointId: checkpointReq.checkpointId,
           action: checkpointReq.action,
           email: checkpointReq.email,
+          wallet: checkpointReq.wallet,
           source: checkpointReq.source,
           metadata: checkpointReq.metadata
         })
