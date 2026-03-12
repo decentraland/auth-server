@@ -10,8 +10,9 @@ export function createNudgeJobComponent({
   email,
   slack,
   logs,
-  config
-}: Pick<AppComponents, 'onboarding' | 'email' | 'slack' | 'logs' | 'config'>): INudgeJobComponent {
+  config,
+  featureFlags
+}: Pick<AppComponents, 'onboarding' | 'email' | 'slack' | 'logs' | 'config' | 'featureFlags'>): INudgeJobComponent {
   const logger = logs.getLogger('nudge-job')
 
   let slackChannel: string | undefined
@@ -37,7 +38,14 @@ export function createNudgeJobComponent({
   }
 
   const runEvaluator = async (): Promise<void> => {
-    logger.log('Running nudge evaluator...')
+    if (!featureFlags.isNudgeEmailEnabled()) {
+      logger.log('Nudge emails disabled by feature flag, skipping evaluator')
+      return
+    }
+
+    const whitelist = featureFlags.getNudgeEmailWhitelist()
+
+    logger.log('Running nudge evaluator...', whitelist ? { whitelist: whitelist.join(', ') } : {})
 
     for (const sequence of [1, 2, 3] as const) {
       let pendingNudges
@@ -46,6 +54,11 @@ export function createNudgeJobComponent({
       } catch (e) {
         logger.error(`Failed to fetch pending nudges for sequence ${sequence}: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
         continue
+      }
+
+      // If whitelist is set, only send to whitelisted emails
+      if (whitelist) {
+        pendingNudges = pendingNudges.filter(n => whitelist.includes(n.email.toLowerCase()))
       }
 
       logger.log(`[SEQ:${sequence}] Found ${pendingNudges.length} pending nudges`)

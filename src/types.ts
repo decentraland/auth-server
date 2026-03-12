@@ -1,5 +1,6 @@
 import type { ICacheStorageComponent } from '@dcl/core-commons'
 import type { ISlackComponent } from '@dcl/slack-component'
+import type { IFeatureFlagsAdapter } from './adapters/feature-flags'
 import type { metricDeclarations } from './metrics'
 import type { IPgComponent } from './ports/db/types'
 import type { IEmailComponent } from './ports/email/types'
@@ -7,7 +8,14 @@ import type { INudgeJobComponent } from './ports/nudge-job/types'
 import type { IOnboardingComponent } from './ports/onboarding/types'
 import type { IServerComponent } from './ports/server/types'
 import type { IStorageComponent } from './ports/storage/types'
-import type { IConfigComponent, ILoggerComponent, IMetricsComponent, ITracerComponent } from '@well-known-components/interfaces'
+import type { IFeaturesComponent } from '@well-known-components/features-component'
+import type {
+  IConfigComponent,
+  IFetchComponent,
+  ILoggerComponent,
+  IMetricsComponent,
+  ITracerComponent
+} from '@well-known-components/interfaces'
 
 export type GlobalContext = {
   components: BaseComponents
@@ -16,6 +24,9 @@ export type GlobalContext = {
 // components used in every environment.
 export type BaseComponents = {
   config: IConfigComponent
+  fetch: IFetchComponent
+  features: IFeaturesComponent
+  featureFlags: IFeatureFlagsAdapter
   nudgeJob: INudgeJobComponent
   db: IPgComponent
   email: IEmailComponent
