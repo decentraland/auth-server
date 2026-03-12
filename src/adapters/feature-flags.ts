@@ -87,7 +87,7 @@ export function createFeatureFlagsAdapter({ logs, features }: Pick<AppComponents
     async [START_COMPONENT]() {
       await refresh()
       interval = setInterval(() => void refresh(), REFRESH_INTERVAL_MS)
-      logger.info('Feature flags adapter started', { refreshInterval: '5 minutes' })
+      logger.info('Feature flags adapter started', { refreshIntervalMs: REFRESH_INTERVAL_MS })
     },
     async [STOP_COMPONENT]() {
       if (interval) {
