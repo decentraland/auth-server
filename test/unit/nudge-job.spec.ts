@@ -1,5 +1,6 @@
 import { IConfigComponent, ILoggerComponent } from '@well-known-components/interfaces'
 import { ISlackComponent } from '@dcl/slack-component'
+import { IFeatureFlagsAdapter } from '../../src/adapters/feature-flags'
 import { IEmailComponent } from '../../src/ports/email/types'
 import { createNudgeJobComponent } from '../../src/ports/nudge-job/component'
 import { INudgeJobComponent } from '../../src/ports/nudge-job/types'
@@ -41,15 +42,24 @@ function createMockConfig(overrides: Record<string, string> = {}): IConfigCompon
   }
 }
 
+function createMockFeatureFlags(enabled = true, whitelist?: string[]): IFeatureFlagsAdapter {
+  return {
+    isNudgeEmailEnabled: jest.fn().mockReturnValue(enabled),
+    getNudgeEmailWhitelist: jest.fn().mockReturnValue(whitelist)
+  } as unknown as IFeatureFlagsAdapter
+}
+
 let nudgeJob: INudgeJobComponent
 let mockOnboarding: ReturnType<typeof createMockOnboarding>
 let mockEmail: ReturnType<typeof createMockEmail>
 let mockSlack: ReturnType<typeof createMockSlack>
+let mockFeatureFlags: IFeatureFlagsAdapter
 
 beforeEach(() => {
   mockOnboarding = createMockOnboarding()
   mockEmail = createMockEmail()
   mockSlack = createMockSlack()
+  mockFeatureFlags = createMockFeatureFlags()
 
   mockOnboarding.markNudgeSent.mockResolvedValue(undefined)
   mockEmail.sendNudge.mockResolvedValue('sg-msg-id-123')
@@ -59,7 +69,8 @@ beforeEach(() => {
     email: mockEmail as unknown as IEmailComponent,
     slack: mockSlack as unknown as ISlackComponent,
     logs: createMockLogs(),
-    config: createMockConfig({ SLACK_NUDGE_CHANNEL: 'test-channel' })
+    config: createMockConfig({ SLACK_NUDGE_CHANNEL: 'test-channel' }),
+    featureFlags: mockFeatureFlags
   })
 })
 
@@ -222,7 +233,8 @@ describe('slack notifications', () => {
         email: mockEmail as unknown as IEmailComponent,
         slack: mockSlack as unknown as ISlackComponent,
         logs: createMockLogs(),
-        config: createMockConfig()
+        config: createMockConfig(),
+        featureFlags: mockFeatureFlags
       })
     })
 
@@ -251,5 +263,66 @@ describe('slack notifications', () => {
       expect(mockEmail.sendNudge).toHaveBeenCalledTimes(1)
       expect(mockOnboarding.markNudgeSent).toHaveBeenCalledTimes(1)
     })
+  })
+})
+
+describe('when nudge emails feature flag is disabled', () => {
+  beforeEach(() => {
+    mockFeatureFlags = createMockFeatureFlags(false)
+    mockOnboarding.getPendingNudges.mockResolvedValue([{ userId: 'user@test.com', checkpointId: 3, email: 'user@test.com' }])
+
+    nudgeJob = createNudgeJobComponent({
+      onboarding: mockOnboarding as unknown as IOnboardingComponent,
+      email: mockEmail as unknown as IEmailComponent,
+      slack: mockSlack as unknown as ISlackComponent,
+      logs: createMockLogs(),
+      config: createMockConfig({ SLACK_NUDGE_CHANNEL: 'test-channel' }),
+      featureFlags: mockFeatureFlags
+    })
+  })
+
+  it('should skip the evaluator entirely', async () => {
+    await nudgeJob.runEvaluator()
+
+    expect(mockOnboarding.getPendingNudges).not.toHaveBeenCalled()
+    expect(mockEmail.sendNudge).not.toHaveBeenCalled()
+  })
+})
+
+describe('when nudge emails feature flag has a whitelist', () => {
+  beforeEach(() => {
+    mockFeatureFlags = createMockFeatureFlags(true, ['allowed@test.com', 'vip@test.com'])
+
+    mockOnboarding.getPendingNudges
+      .mockResolvedValueOnce([
+        { userId: 'allowed@test.com', checkpointId: 2, email: 'allowed@test.com' },
+        { userId: 'random@test.com', checkpointId: 3, email: 'random@test.com' },
+        { userId: 'vip@test.com', checkpointId: 1, email: 'VIP@test.com' }
+      ])
+      .mockResolvedValue([])
+
+    nudgeJob = createNudgeJobComponent({
+      onboarding: mockOnboarding as unknown as IOnboardingComponent,
+      email: mockEmail as unknown as IEmailComponent,
+      slack: mockSlack as unknown as ISlackComponent,
+      logs: createMockLogs(),
+      config: createMockConfig({ SLACK_NUDGE_CHANNEL: 'test-channel' }),
+      featureFlags: mockFeatureFlags
+    })
+  })
+
+  it('should only send nudges to whitelisted emails', async () => {
+    await nudgeJob.runEvaluator()
+
+    expect(mockEmail.sendNudge).toHaveBeenCalledTimes(2)
+    expect(mockEmail.sendNudge).toHaveBeenCalledWith(expect.objectContaining({ to: 'allowed@test.com' }))
+    expect(mockEmail.sendNudge).toHaveBeenCalledWith(expect.objectContaining({ to: 'VIP@test.com' }))
+  })
+
+  it('should not send nudges to non-whitelisted emails', async () => {
+    await nudgeJob.runEvaluator()
+
+    const sentEmails = mockEmail.sendNudge.mock.calls.map((call: unknown[]) => (call[0] as { to: string }).to)
+    expect(sentEmails).not.toContain('random@test.com')
   })
 })

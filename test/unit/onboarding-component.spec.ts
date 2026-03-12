@@ -44,7 +44,8 @@ describe('when recording a checkpoint with action reached', () => {
         source: 'auth'
       })
 
-      expect(mockDb.query.mock.calls).toHaveLength(2) // upsert + update previous
+      // No wallet resolution needed, so: upsert + update previous
+      expect(mockDb.query.mock.calls).toHaveLength(2)
       const [firstCall] = mockDb.query.mock.calls
       const queryText = firstCall[0].text ?? firstCall[0]
       expect(queryText).toContain('INSERT INTO onboarding_checkpoints')
@@ -69,12 +70,13 @@ describe('when recording a checkpoint with action reached', () => {
     })
   })
 
-  describe('and the user does not have an email', () => {
+  describe('and the user does not have an email (wallet-only)', () => {
     beforeEach(() => {
+      // resolveWalletIdentity does a SELECT to look up email for the wallet — returns empty
       mockDb.query.mockResolvedValue(emptyResult)
     })
 
-    it('should upsert the checkpoint with null email', async () => {
+    it('should look up email by wallet and fall back to wallet as user_id', async () => {
       await onboarding.recordCheckpoint({
         userIdentifier: '0xabc123',
         identifierType: 'wallet',
