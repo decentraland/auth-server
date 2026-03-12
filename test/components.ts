@@ -114,7 +114,15 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
   const slack: ISlackComponent = {
     sendMessage: jest.fn().mockResolvedValue(undefined)
   } as unknown as ISlackComponent
-  const nudgeJob = createNudgeJobComponent({ onboarding, email, slack, logs: createMockLogs(), config })
+  const featureFlags = {
+    isEnabled: jest.fn().mockReturnValue(true),
+    getVariant: jest.fn().mockReturnValue(undefined),
+    isNudgeEmailEnabled: jest.fn().mockReturnValue(true),
+    getNudgeEmailWhitelist: jest.fn().mockReturnValue(undefined)
+  } as unknown as TestComponents['featureFlags']
+  const fetch = { fetch: jest.fn() } as unknown as TestComponents['fetch']
+  const features = { getIsFeatureEnabled: jest.fn(), getFeatureVariant: jest.fn() } as unknown as TestComponents['features']
+  const nudgeJob = createNudgeJobComponent({ onboarding, email, slack, logs: createMockLogs(), config, featureFlags })
   const server = await createServerComponent({
     config,
     logs,
@@ -130,6 +138,9 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
 
   return {
     config,
+    fetch,
+    features,
+    featureFlags,
     nudgeJob,
     db,
     email,
