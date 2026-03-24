@@ -1,5 +1,5 @@
 export const METHOD_DCL_PERSONAL_SIGN = 'dcl_personal_sign'
-export const FIFTEEN_MINUTES_IN_MILLISECONDS = 15 * 60 * 1000
+export const ONE_HOUR_IN_MILLISECONDS = 60 * 60 * 1000
 
 // Max length constants for request/outcome validation
 export const MAX_METHOD_LENGTH = 256
