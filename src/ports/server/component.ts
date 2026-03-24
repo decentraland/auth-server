@@ -12,7 +12,7 @@ import { AuthChain } from '@dcl/schemas'
 import { express as authMiddleware, DecentralandSignatureData } from 'decentraland-crypto-middleware'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
-import { METHOD_DCL_PERSONAL_SIGN, FIFTEEN_MINUTES_IN_MILLISECONDS, MAX_BODY_SIZE } from './constants'
+import { METHOD_DCL_PERSONAL_SIGN, ONE_HOUR_IN_MILLISECONDS, MAX_BODY_SIZE } from './constants'
 import {
   HttpOutcomeMessage,
   IServerComponent,
@@ -993,7 +993,7 @@ export async function createServerComponent({
 
           const identityId = uuid()
           // Always use 15 minutes expiration for storage (controls when identity is removed from storage)
-          const storageExpiration = new Date(Date.now() + FIFTEEN_MINUTES_IN_MILLISECONDS)
+          const storageExpiration = new Date(Date.now() + ONE_HOUR_IN_MILLISECONDS)
           const clientIp = getClientIp(req)
 
           storage.setIdentity(identityId, {
