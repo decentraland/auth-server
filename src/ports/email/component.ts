@@ -36,21 +36,21 @@ const NUDGE_CONTENT = new Map<number, Map<number, NudgeContent>>([
     {
       subject: 'Trouble Signing In?',
       preheader: 'You started, but something may have interrupted the process.',
-      heading: `You started ${g('signing up,')}<br>but something cut the process short.`,
+      heading: `You started ${g('signing in,')}<br>but something cut the process short.`,
       body:
         '<p style="margin:0 0 14px 0;">That happens. A window might not have opened.</p>' +
-        '<p style="margin:0;">Continue with Google is the simplest path in.</p>',
+        '<p style="margin:0;">You can pick up where you left off and continue signing up.</p>',
       buttonText: 'Continue Sign Up',
       buttonUrl: 'https://decentraland.org/auth/login',
 
       tagline: 'One step gets you in.'
     },
     {
-      subject: 'Your Name Is Waiting',
+      subject: "You're Getting Closer",
       preheader: "Finish signing in and choose how you'll appear in Decentraland.",
       heading: `You're one step away<br>from ${g('choosing your name.')}`,
       body:
-        '<p style="margin:0 0 14px 0;">Once the sign-in finishes, the next step is creating your username.</p>' +
+        '<p style="margin:0 0 14px 0;">Once the sign up finishes, the next step is creating your username.</p>' +
         '<p style="margin:0 0 14px 0;">This is the name people will see when you explore places, join events, or run into someone in Decentraland.</p>' +
         '<p style="margin:0;">You can always change how you show up later. Right now, all you need to do is finish signing in.</p>',
       buttonText: 'Continue Sign Up',
@@ -63,9 +63,9 @@ const NUDGE_CONTENT = new Map<number, Map<number, NudgeContent>>([
       preheader: 'Events, games, and people are waiting inside.',
       heading: `The world is ${g('already active.')}`,
       body:
-        "<p style=\"margin:0 0 14px 0;\">Decentraland isn't just something you set up\u2014it's a place people drop into.</p>" +
+        "<p style=\"margin:0 0 14px 0;\">Decentraland isn't just something you set up\u2014it's a place you drop into.</p>" +
         '<p style="margin:0 0 14px 0;">Events are happening. Games are running. People are exploring together.</p>' +
-        '<p style="margin:0;">You were close to entering. Finish signing in and step into the world.</p>',
+        '<p style="margin:0;">You were close to entering. Finish signing in and come hang out.</p>',
       buttonText: 'Continue Sign Up',
       buttonUrl: 'https://decentraland.org/auth/login',
 
@@ -78,7 +78,7 @@ const NUDGE_CONTENT = new Map<number, Map<number, NudgeContent>>([
     {
       subject: 'Finish Choosing Your Name',
       preheader: "You started creating your profile but didn't finish.",
-      heading: `You were ${g('choosing your name,')}<br>but didn't finish.`,
+      heading: `You were ${g('choosing your name,')} but didn't finish.`,
       body:
         '<p style="margin:0 0 14px 0;">Your username is how people recognize you in Decentraland.</p>' +
         '<p style="margin:0 0 14px 0;">It appears above your avatar when you talk, explore places, or run into someone again later.</p>' +
@@ -92,7 +92,7 @@ const NUDGE_CONTENT = new Map<number, Map<number, NudgeContent>>([
     {
       subject: 'Your Name Is How People Find You',
       preheader: 'Finish creating your profile to continue.',
-      heading: `Every place ${g('needs a name.')}`,
+      heading: `Choose how ${g("you'll appear.")}`,
       body:
         '<p style="margin:0 0 14px 0;">In Decentraland, your username is how people recognize you.</p>' +
         "<p style=\"margin:0 0 14px 0;\">It's what appears when you speak, explore places, or return somewhere later and see familiar faces.</p>" +
@@ -129,7 +129,7 @@ const NUDGE_CONTENT = new Map<number, Map<number, NudgeContent>>([
         "<p style=\"margin:0 0 14px 0;\">You started creating your avatar but didn't complete it.</p>" +
         '<p style="margin:0 0 14px 0;">That\'s normal. This part can feel bigger than it is.</p>' +
         "<p style=\"margin:0 0 14px 0;\">Your first avatar doesn't have to be perfect. Many people change how they look later after they've spent time exploring.</p>" +
-        '<p style="margin:0;">For now, just choose something that gets you into the world.</p>',
+        '<p style="margin:0;">For now, just choose something that gets you into your first hangout.</p>',
       buttonText: 'Finish Your Avatar',
       buttonUrl: 'https://decentraland.org/auth/login',
 
@@ -150,7 +150,7 @@ const NUDGE_CONTENT = new Map<number, Map<number, NudgeContent>>([
       tagline: "You're closer than you think."
     },
     {
-      subject: 'Someone Might Recognize You Later',
+      subject: 'People Remember Who They Meet Here',
       preheader: 'Finish your avatar and join in.',
       heading: `Familiar faces ${g('appear over time.')}`,
       body:
@@ -172,7 +172,7 @@ const NUDGE_CONTENT = new Map<number, Map<number, NudgeContent>>([
       preheader: 'Download Decentraland to continue.',
       heading: `You're ${g('almost there.')}`,
       body:
-        '<p style="margin:0 0 14px 0;">You reached the point where Decentraland moves from the browser into the world itself.</p>' +
+        '<p style="margin:0 0 14px 0;">You reached the point where Decentraland moves from the browser into a place you can actually move around.</p>' +
         '<p style="margin:0 0 14px 0;">To continue, you just need to download the desktop app.</p>' +
         "<p style=\"margin:0 0 14px 0;\">Once it's installed, you'll be able to enter anytime without setting things up again.</p>" +
         '<p style="margin:0;">Download Decentraland and continue.</p>',
@@ -200,10 +200,9 @@ const NUDGE_CONTENT = new Map<number, Map<number, NudgeContent>>([
       preheader: 'Install Decentraland and step inside.',
       heading: `Something might be ${g('happening right now.')}`,
       body:
-        "<p style=\"margin:0 0 14px 0;\">Decentraland isn't just something you set up. It's somewhere people show up.</p>" +
+        "<p style=\"margin:0 0 14px 0;\">Decentraland isn't just something you set up. It's somewhere you show up.</p>" +
         '<p style="margin:0 0 14px 0;">Events happen. Conversations start. Crowds gather.</p>' +
-        '<p style="margin:0 0 14px 0;">Downloading the app is the step that lets you join in.</p>' +
-        '<p style="margin:0;">Install Decentraland and continue.</p>',
+        '<p style="margin:0;">Downloading the app is the step that lets you join in.</p>',
       buttonText: 'Download Decentraland',
       buttonUrl: 'https://decentraland.org/download',
 
