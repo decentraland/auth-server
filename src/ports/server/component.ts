@@ -1141,6 +1141,41 @@ export async function createServerComponent({
       res.status(200).json({ success: true })
     })
 
+    // Nudge queue dashboard — protected by ONBOARDING_API_KEY, safe for prod
+    app.get('/onboarding/pending-nudges', async (req: Request, res: Response) => {
+      const authHeader = req.headers['authorization'] ?? ''
+      const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
+      if (provided !== onboardingApiKey) {
+        sendResponse(res, 401, { error: 'Unauthorized' })
+        return
+      }
+
+      try {
+        const sequences = [1, 2, 3] as const
+        const results: Record<string, { count: number; emails: string[] }> = {}
+
+        for (const seq of sequences) {
+          const nudges = await onboarding.getPendingNudges(seq)
+          // Group by checkpoint
+          const byCheckpoint = new Map<number, string[]>()
+          for (const n of nudges) {
+            const list = byCheckpoint.get(n.checkpointId) ?? []
+            list.push(n.email)
+            byCheckpoint.set(n.checkpointId, list)
+          }
+          for (const [cp, emails] of byCheckpoint) {
+            results[`CP${cp} - seq ${seq}`] = { count: emails.length, emails }
+          }
+        }
+
+        res.status(200).json(results)
+      } catch (e) {
+        const logger = logs.getLogger('onboarding-admin')
+        logger.error(`Failed to get pending nudges dashboard: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
+        res.status(500).json({ error: 'Failed to query pending nudges' })
+      }
+    })
+
     // Admin endpoints — only mounted when ONBOARDING_ADMIN_ENABLED=true (local dev / staging)
     const adminEnabled = (await config.getString('ONBOARDING_ADMIN_ENABLED')) === 'true'
     if (adminEnabled) {
