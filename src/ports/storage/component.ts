@@ -1,9 +1,11 @@
 import { AppComponents } from '../../types'
-import { IStorageComponent, StorageRequest, StorageIdentity } from './types'
+import { IStorageComponent, StorageRequest, StorageIdentity, IdentityStatus } from './types'
 
 const REQUESTS_CACHE_KEY_PREFIX = 'request:'
 const REQUEST_IDS_BY_SOCKET_ID_CACHE_KEY_PREFIX = 'requestIdsBySocketId:'
 const IDENTITIES_BY_ID_CACHE_KEY_PREFIX = 'identity:'
+const IDENTITY_STATUS_CACHE_KEY_PREFIX = 'identity-status:'
+const TWO_WEEKS_IN_SECONDS = 14 * 24 * 60 * 60
 
 /** Normalize cache value to Date (Redis/JSON returns string; in-memory may return Date). */
 function toDate(value: unknown): Date {
@@ -90,12 +92,39 @@ export function createStorageComponent({ cache }: Pick<AppComponents, 'cache'>):
     await cache.remove(getIdentityCacheKey(identityId))
   }
 
+  const getIdentityStatusCacheKey = (identityId: string) => {
+    return `${IDENTITY_STATUS_CACHE_KEY_PREFIX}${identityId}`
+  }
+
+  const getIdentityStatus = async (identityId: string): Promise<IdentityStatus | null> => {
+    const raw = await cache.get<IdentityStatus>(getIdentityStatusCacheKey(identityId))
+    if (!raw) return null
+    return {
+      ...raw,
+      expiration: toDate(raw.expiration),
+      createdAt: toDate(raw.createdAt)
+    }
+  }
+
+  const setIdentityStatus = async (identityId: string, status: IdentityStatus): Promise<void> => {
+    await cache.set(getIdentityStatusCacheKey(identityId), status, TWO_WEEKS_IN_SECONDS)
+  }
+
+  const updateIdentityStatus = async (identityId: string, updates: Partial<IdentityStatus>): Promise<void> => {
+    const existing = await getIdentityStatus(identityId)
+    if (!existing) return
+    await cache.set(getIdentityStatusCacheKey(identityId), { ...existing, ...updates }, TWO_WEEKS_IN_SECONDS)
+  }
+
   return {
     getRequest,
     setRequest,
     getRequestIdForSocketId,
     getIdentity,
     setIdentity,
-    deleteIdentity
+    deleteIdentity,
+    getIdentityStatus,
+    setIdentityStatus,
+    updateIdentityStatus
   }
 }

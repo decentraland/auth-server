@@ -266,7 +266,7 @@ test('when testing identity endpoints', args => {
 
         const responseBody = await secondResponse.json()
         expect(responseBody).toEqual({
-          error: 'Identity not found'
+          error: 'Identity was already consumed'
         })
       })
     })
@@ -305,9 +305,127 @@ test('when testing identity endpoints', args => {
 
           const secondResponseBody = await secondResponse.json()
           expect(secondResponseBody).toEqual({
-            error: 'Identity not found'
+            error: 'Identity was deleted due to IP mismatch'
           })
         })
+      })
+    })
+
+    describe('and the identity has been consumed and is requested from a different IP', () => {
+      it('should still respond with 404 and consumed message', async () => {
+        // First request consumes the identity
+        const firstResponse = await fetch(`${baseUrl}/identities/${identityId}`, {
+          method: 'GET'
+        })
+        expect(firstResponse.status).toBe(200)
+
+        // Second request from a different IP should indicate it was consumed, not IP mismatch
+        const secondResponse = await fetch(`${baseUrl}/identities/${identityId}`, {
+          method: 'GET',
+          headers: {
+            'CF-Connecting-IP': '10.0.0.1'
+          }
+        })
+        expect(secondResponse.status).toBe(404)
+
+        const responseBody = await secondResponse.json()
+        expect(responseBody).toEqual({
+          error: 'Identity was already consumed'
+        })
+      })
+    })
+
+    describe('and the identity was deleted due to IP mismatch and is requested from the original IP', () => {
+      it('should respond with 404 and IP mismatch message', async () => {
+        // Trigger IP mismatch deletion
+        await fetch(`${baseUrl}/identities/${identityId}`, {
+          method: 'GET',
+          headers: {
+            'CF-Connecting-IP': '192.168.1.100'
+          }
+        })
+
+        // Request from the original IP should still show IP mismatch as the reason
+        const response = await fetch(`${baseUrl}/identities/${identityId}`, {
+          method: 'GET'
+        })
+        expect(response.status).toBe(404)
+
+        const responseBody = await response.json()
+        expect(responseBody).toEqual({
+          error: 'Identity was deleted due to IP mismatch'
+        })
+      })
+    })
+
+    describe('and the identity was deleted due to IP mismatch and is requested from a third IP', () => {
+      it('should respond with 404 and IP mismatch message', async () => {
+        // Trigger IP mismatch deletion from one IP
+        await fetch(`${baseUrl}/identities/${identityId}`, {
+          method: 'GET',
+          headers: {
+            'CF-Connecting-IP': '192.168.1.100'
+          }
+        })
+
+        // Request from a completely different third IP
+        const response = await fetch(`${baseUrl}/identities/${identityId}`, {
+          method: 'GET',
+          headers: {
+            'CF-Connecting-IP': '10.0.0.50'
+          }
+        })
+        expect(response.status).toBe(404)
+
+        const responseBody = await response.json()
+        expect(responseBody).toEqual({
+          error: 'Identity was deleted due to IP mismatch'
+        })
+      })
+    })
+
+    describe('and the identityId never existed and is requested multiple times', () => {
+      let nonExistentId: string
+
+      beforeEach(() => {
+        nonExistentId = generateRandomIdentityId()
+      })
+
+      it('should consistently respond with identity not found', async () => {
+        const firstResponse = await fetch(`${baseUrl}/identities/${nonExistentId}`, {
+          method: 'GET'
+        })
+        expect(firstResponse.status).toBe(404)
+        const firstBody = await firstResponse.json()
+        expect(firstBody).toEqual({ error: 'Identity not found' })
+
+        const secondResponse = await fetch(`${baseUrl}/identities/${nonExistentId}`, {
+          method: 'GET'
+        })
+        expect(secondResponse.status).toBe(404)
+        const secondBody = await secondResponse.json()
+        expect(secondBody).toEqual({ error: 'Identity not found' })
+      })
+    })
+
+    describe('and the identity was evicted by Redis TTL', () => {
+      it('should respond with 404 and evicted message including createdAt', async () => {
+        // Spy on getIdentity to return null, simulating Redis TTL eviction
+        // The tombstone (identity status) is still in Redis because it has a longer TTL
+        const spy = jest.spyOn(args.components.storage, 'getIdentity').mockResolvedValueOnce(null)
+
+        const response = await fetch(`${baseUrl}/identities/${identityId}`, {
+          method: 'GET'
+        })
+
+        expect(response.status).toBe(404)
+
+        const responseBody = await response.json()
+        expect(responseBody.error).toBe('Identity was evicted')
+        expect(responseBody).toHaveProperty('createdAt')
+        expect(new Date(responseBody.createdAt).getTime()).not.toBeNaN()
+
+        spy.mockRestore()
       })
     })
 

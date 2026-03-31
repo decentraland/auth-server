@@ -182,7 +182,7 @@ export async function createServerComponent({
               )
               const code = Math.floor(Math.random() * 100)
 
-              storage.setRequest(requestId, {
+              await storage.setRequest(requestId, {
                 requestId: requestId,
                 socketId: socket.id,
                 requiresValidation: false,
@@ -253,7 +253,7 @@ export async function createServerComponent({
               }
 
               if (request.expiration < new Date()) {
-                storage.setRequest(msg.requestId, null)
+                await storage.setRequest(msg.requestId, null)
 
                 ack<InvalidResponseMessage>(cb, {
                   error: `Request with id "${msg.requestId}" has expired`
@@ -338,7 +338,7 @@ export async function createServerComponent({
               }
 
               if (request.expiration < new Date()) {
-                storage.setRequest(msg.requestId, null)
+                await storage.setRequest(msg.requestId, null)
 
                 ack<InvalidResponseMessage>(cb, {
                   error: `Request with id "${msg.requestId}" has expired`
@@ -357,7 +357,7 @@ export async function createServerComponent({
                 const storedSocket = sockets[request.socketId]
 
                 // Mark as fulfilled instead of deleting — allows frontend to distinguish "consumed" from "never existed"
-                storage.setRequest(msg.requestId, {
+                await storage.setRequest(msg.requestId, {
                   requestId: msg.requestId,
                   socketId: request.socketId,
                   fulfilled: true,
@@ -376,7 +376,7 @@ export async function createServerComponent({
                 )
               } else {
                 // Socket gone or HTTP-created request — persist response for polling
-                storage.setRequest(msg.requestId, {
+                await storage.setRequest(msg.requestId, {
                   ...request,
                   response: outcomeMessage
                 })
@@ -434,7 +434,7 @@ export async function createServerComponent({
               }
 
               if (request.expiration < new Date()) {
-                storage.setRequest(msg.requestId, null)
+                await storage.setRequest(msg.requestId, null)
 
                 logger.log(`[RID:${msg.requestId}] Tried to communicate that the request must be validated but it has expired`)
                 return ack<InvalidResponseMessage>(cb, {
@@ -675,7 +675,7 @@ export async function createServerComponent({
       )
       const code = Math.floor(Math.random() * 100)
 
-      storage.setRequest(requestId, {
+      await storage.setRequest(requestId, {
         requestId: requestId,
         expiration,
         code,
@@ -710,7 +710,7 @@ export async function createServerComponent({
       }
 
       if (request.expiration < new Date()) {
-        storage.setRequest(requestId, null)
+        await storage.setRequest(requestId, null)
 
         return sendResponse<InvalidResponseMessage>(res, 410, {
           error: `Request with id "${requestId}" has expired`
@@ -750,7 +750,7 @@ export async function createServerComponent({
         logger.log(`[RID:${requestId}] Received a validation request message for an expired request`)
 
         // Remove the request from the storage as it is expired
-        storage.setRequest(requestId, null)
+        await storage.setRequest(requestId, null)
 
         return sendResponse<InvalidResponseMessage>(res, 410, {
           error: `Request with id "${requestId}" has expired`
@@ -788,7 +788,7 @@ export async function createServerComponent({
       }
 
       if (request.expiration < new Date()) {
-        storage.setRequest(requestId, null)
+        await storage.setRequest(requestId, null)
 
         return sendResponse<InvalidResponseMessage>(res, 410, {
           error: `Request with id "${requestId}" has expired`
@@ -816,7 +816,7 @@ export async function createServerComponent({
       }
 
       if (request.expiration < new Date()) {
-        storage.setRequest(requestId, null)
+        await storage.setRequest(requestId, null)
         return sendResponse<InvalidResponseMessage>(res, 410, {
           error: `Request with id "${requestId}" has expired`
         })
@@ -831,7 +831,7 @@ export async function createServerComponent({
       logger.log(`[RID:${requestId}] Successfully sent outcome message to the client via HTTP`)
 
       // Mark as fulfilled instead of deleting — allows frontend to distinguish "consumed" from "never existed"
-      storage.setRequest(requestId, {
+      await storage.setRequest(requestId, {
         requestId,
         fulfilled: true,
         expiration: request.expiration,
@@ -883,7 +883,7 @@ export async function createServerComponent({
       }
 
       if (request.expiration < new Date()) {
-        storage.setRequest(requestId, null)
+        await storage.setRequest(requestId, null)
 
         logger.log(`[RID:${requestId}] Received an outcome message for an expired request`)
         return sendResponse<InvalidResponseMessage>(res, 410, {
@@ -905,7 +905,7 @@ export async function createServerComponent({
           }][EXP:${request.expiration.getTime()}] Successfully sent outcome message to the client via socket`
         )
         // Mark as fulfilled instead of deleting — allows frontend to distinguish "consumed" from "never existed"
-        storage.setRequest(requestId, {
+        await storage.setRequest(requestId, {
           requestId,
           socketId: request.socketId,
           fulfilled: true,
@@ -917,7 +917,7 @@ export async function createServerComponent({
         })
       } else {
         // Socket gone or HTTP-created request — persist response for polling via GET /requests/:requestId
-        storage.setRequest(requestId, {
+        await storage.setRequest(requestId, {
           ...request,
           response: outcomeMessage
         })
@@ -956,8 +956,10 @@ export async function createServerComponent({
           }
 
           // Validate auth chain using the same logic as /requests endpoint
+          let identitySender: string
           try {
-            const { sender: identitySender, finalAuthority } = await validateAuthChain(identity.authChain)
+            const { sender, finalAuthority } = await validateAuthChain(identity.authChain)
+            identitySender = sender
             // Verify that the ephemeral wallet address matches the finalAuthority from auth chain
             if (identity.ephemeralIdentity.address.toLowerCase() !== finalAuthority.toLowerCase()) {
               identityLogger.log(`Ephemeral wallet address does not match auth chain final authority for sender: ${identitySender}`)
@@ -996,7 +998,7 @@ export async function createServerComponent({
           const storageExpiration = new Date(Date.now() + ONE_HOUR_IN_MILLISECONDS)
           const clientIp = getClientIp(req)
 
-          storage.setIdentity(identityId, {
+          await storage.setIdentity(identityId, {
             identityId,
             identity,
             expiration: storageExpiration,
@@ -1005,8 +1007,15 @@ export async function createServerComponent({
             isMobile: isMobile === true
           })
 
+          await storage.setIdentityStatus(identityId, {
+            expiration: storageExpiration,
+            createdAt: new Date(),
+            consumed: false,
+            signer: identitySender
+          })
+
           identityLogger.log(
-            `[IID:${identityId}][EXP:${storageExpiration.getTime()}][Mobile:${
+            `[IID:${identityId}][SIGNER:${identitySender}][EXP:${storageExpiration.getTime()}][Mobile:${
               isMobile === true
             }] Successfully created identity from IP: ${clientIp}. Headers: ${formatIpHeaders(req)}`
           )
@@ -1040,15 +1049,51 @@ export async function createServerComponent({
       const identity = await storage.getIdentity(identityId)
 
       if (!identity) {
+        const status = await storage.getIdentityStatus(identityId)
+        if (status) {
+          if (status.deletionReason === 'consumed') {
+            identityLogger.log(`[IID:${identityId}][SIGNER:${status.signer}] Received a request to retrieve an already consumed identity`)
+            return sendResponse<InvalidResponseMessage>(res, 404, {
+              error: 'Identity was already consumed'
+            })
+          }
+          if (status.deletionReason === 'expired') {
+            identityLogger.log(`[IID:${identityId}][SIGNER:${status.signer}] Received a request to retrieve an expired identity`)
+            return sendResponse<InvalidResponseMessage>(res, 404, {
+              error: 'Identity has expired'
+            })
+          }
+          if (status.deletionReason === 'ip_mismatch') {
+            identityLogger.log(
+              `[IID:${identityId}][SIGNER:${status.signer}] Received a request to retrieve an identity deleted due to IP mismatch`
+            )
+            return sendResponse<InvalidResponseMessage>(res, 404, {
+              error: 'Identity was deleted due to IP mismatch'
+            })
+          }
+          // Tombstone exists but no deletion reason → identity was evicted from cache by Redis TTL
+          identityLogger.log(
+            `[IID:${identityId}][SIGNER:${
+              status.signer
+            }][CREATED:${status.createdAt.toISOString()}] Received a request to retrieve an identity evicted by TTL`
+          )
+          return sendResponse(res, 404, {
+            error: 'Identity was evicted',
+            createdAt: status.createdAt.toISOString()
+          })
+        }
         identityLogger.log(`[IID:${identityId}] Received a request to retrieve a non-existent identity`)
         return sendResponse<InvalidResponseMessage>(res, 404, {
           error: 'Identity not found'
         })
       }
 
+      const signer = Authenticator.ownerAddress(identity.identity.authChain)
+
       if (identity.expiration < new Date()) {
-        storage.deleteIdentity(identityId)
-        identityLogger.log(`[IID:${identityId}] Received a request to retrieve an expired identity`)
+        await storage.deleteIdentity(identityId)
+        await storage.updateIdentityStatus(identityId, { consumed: false, deletionReason: 'expired' })
+        identityLogger.log(`[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve an expired identity`)
         return sendResponse<InvalidResponseMessage>(res, 410, {
           error: 'Identity has expired'
         })
@@ -1062,7 +1107,7 @@ export async function createServerComponent({
         // Log header details if IPs differ (for debugging), but allow the request
         if (!ipsMatch(identity.ipAddress, clientIp)) {
           identityLogger.log(
-            `[IID:${identityId}] Mobile IP mismatch (allowed). Stored: ${
+            `[IID:${identityId}][SIGNER:${signer}] Mobile IP mismatch (allowed). Stored: ${
               identity.ipAddress
             }, Request: ${clientIp}. Headers: ${formatIpHeaders(req)}`
           )
@@ -1070,9 +1115,10 @@ export async function createServerComponent({
         // Continue without blocking for mobile
       } else if (!ipsMatch(identity.ipAddress, clientIp)) {
         // Non-mobile: delete identity and return 403
-        storage.deleteIdentity(identityId)
+        await storage.deleteIdentity(identityId)
+        await storage.updateIdentityStatus(identityId, { consumed: false, deletionReason: 'ip_mismatch' })
         identityLogger.log(
-          `[IID:${identityId}] Received a request to retrieve identity from different IP. Stored: ${identity.ipAddress}, Request: ${clientIp}. Identity deleted.`
+          `[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve identity from different IP. Stored: ${identity.ipAddress}, Request: ${clientIp}. Identity deleted.`
         )
         return sendResponse<InvalidResponseMessage>(res, 403, {
           error: 'IP address mismatch'
@@ -1081,9 +1127,12 @@ export async function createServerComponent({
 
       try {
         // Delete the identity from the storage
-        storage.deleteIdentity(identityId)
+        await storage.deleteIdentity(identityId)
+        await storage.updateIdentityStatus(identityId, { consumed: true, deletionReason: 'consumed' })
 
-        identityLogger.log(`[IID:${identityId}][EXP:${identity.expiration.getTime()}] Successfully served identity to IP: ${clientIp}`)
+        identityLogger.log(
+          `[IID:${identityId}][SIGNER:${signer}][EXP:${identity.expiration.getTime()}] Successfully served identity to IP: ${clientIp}`
+        )
 
         // Return the identity for auto-login
         sendResponse<IdentityIdValidationResponse>(res, 200, {
@@ -1091,7 +1140,7 @@ export async function createServerComponent({
         })
       } catch (error) {
         const errorMessage = isErrorWithMessage(error) ? error.message : 'Unknown error'
-        identityLogger.error(`[IID:${identityId}] Error serving identity: ${errorMessage}`)
+        identityLogger.error(`[IID:${identityId}][SIGNER:${signer}] Error serving identity: ${errorMessage}`)
         return sendResponse<InvalidResponseMessage>(res, 500, {
           error: 'Internal server error'
         })
