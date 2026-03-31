@@ -1,7 +1,7 @@
 import { AuthIdentity } from '@dcl/crypto'
 import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
 import { createStorageComponent } from '../../src/ports/storage/component'
-import { IStorageComponent } from '../../src/ports/storage/types'
+import { IdentityStatus, IStorageComponent } from '../../src/ports/storage/types'
 import { createTestIdentity, generateRandomIdentityId } from '../utils/test-identity'
 
 let storage: IStorageComponent
@@ -268,6 +268,87 @@ describe('when managing multiple identity IDs', () => {
         createdAt,
         ipAddress
       })
+    })
+  })
+})
+
+describe('when managing identity status', () => {
+  let expiration: Date
+  let createdAt: Date
+  let status: IdentityStatus
+
+  beforeEach(() => {
+    expiration = new Date(Date.now() + 60000)
+    createdAt = new Date()
+    status = {
+      expiration,
+      createdAt,
+      consumed: false,
+      signer: '0x1234567890abcdef'
+    }
+  })
+
+  describe('when storing an identity status', () => {
+    it('should not throw an error', async () => {
+      await expect(storage.setIdentityStatus(identityId, status)).resolves.not.toThrow()
+    })
+  })
+
+  describe('when getting a stored identity status', () => {
+    beforeEach(async () => {
+      await storage.setIdentityStatus(identityId, status)
+    })
+
+    it('should return the stored status', async () => {
+      const result = await storage.getIdentityStatus(identityId)
+      expect(result).toEqual(status)
+    })
+  })
+
+  describe('when getting an identity status that does not exist', () => {
+    it('should return null', async () => {
+      const result = await storage.getIdentityStatus(generateRandomIdentityId())
+      expect(result).toBeNull()
+    })
+  })
+
+  describe('when updating an identity status', () => {
+    beforeEach(async () => {
+      await storage.setIdentityStatus(identityId, status)
+    })
+
+    it('should merge the updates into the existing status', async () => {
+      await storage.updateIdentityStatus(identityId, { consumed: true, deletionReason: 'consumed' })
+
+      const result = await storage.getIdentityStatus(identityId)
+      expect(result).toEqual({
+        ...status,
+        consumed: true,
+        deletionReason: 'consumed'
+      })
+    })
+
+    it('should preserve fields that are not updated', async () => {
+      await storage.updateIdentityStatus(identityId, { deletionReason: 'expired' })
+
+      const result = await storage.getIdentityStatus(identityId)
+      expect(result).toEqual({
+        ...status,
+        deletionReason: 'expired'
+      })
+    })
+  })
+
+  describe('when updating an identity status that does not exist', () => {
+    it('should not throw an error', async () => {
+      await expect(storage.updateIdentityStatus(generateRandomIdentityId(), { consumed: true })).resolves.not.toThrow()
+    })
+
+    it('should not create a new status', async () => {
+      const nonExistentId = generateRandomIdentityId()
+      await storage.updateIdentityStatus(nonExistentId, { consumed: true })
+      const result = await storage.getIdentityStatus(nonExistentId)
+      expect(result).toBeNull()
     })
   })
 })
