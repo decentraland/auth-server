@@ -1162,8 +1162,12 @@ export async function createServerComponent({
       try {
         checkpointReq = validateCheckpointRequest(req.body)
       } catch (e) {
+        const validationError = isErrorWithMessage(e) ? e.message : 'Unknown error'
+        onboardingLogger.warn(`Checkpoint validation failed: ${validationError}`, {
+          body: JSON.stringify(req.body)
+        })
         return sendResponse<InvalidResponseMessage>(res, 400, {
-          error: isErrorWithMessage(e) ? e.message : 'Unknown error'
+          error: validationError
         })
       }
 
