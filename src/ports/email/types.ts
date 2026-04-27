@@ -2,8 +2,7 @@ import { IBaseComponent } from '@well-known-components/interfaces'
 
 export type SendNudgeParams = {
   to: string
-  checkpointId: number
-  sequence: 1 | 2 | 3
+  sequence: 1 | 2
   metadata?: Record<string, unknown>
 }
 

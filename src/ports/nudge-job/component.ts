@@ -23,14 +23,14 @@ export function createNudgeJobComponent({
     return slackChannel || undefined
   }
 
-  const notifySlack = async (nudge: { userId: string; checkpointId: number; email: string }, sequence: number): Promise<void> => {
+  const notifySlack = async (nudge: { userId: string; email: string }, sequence: 1 | 2): Promise<void> => {
     const channel = await getSlackChannel()
     if (!channel) return
 
     try {
       await slack.sendMessage({
         channel,
-        text: `Onboarding nudge sent — user stuck at CP${nudge.checkpointId}, sending nudge email seq ${sequence} to ${nudge.email}`
+        text: `Onboarding nudge sent — user authenticated but not in-world, sending nudge email seq ${sequence} to ${nudge.email}`
       })
     } catch (e) {
       logger.warn(`Failed to send Slack notification: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
@@ -47,7 +47,7 @@ export function createNudgeJobComponent({
 
     logger.log('Running nudge evaluator...', whitelist ? { whitelist: whitelist.join(', ') } : {})
 
-    for (const sequence of [1, 2, 3] as const) {
+    for (const sequence of [1, 2] as const) {
       let pendingNudges
       try {
         pendingNudges = await onboarding.getPendingNudges(sequence)
@@ -56,7 +56,6 @@ export function createNudgeJobComponent({
         continue
       }
 
-      // If whitelist is set, only send to whitelisted emails
       if (whitelist) {
         pendingNudges = pendingNudges.filter(n => whitelist.includes(n.email.toLowerCase()))
       }
@@ -67,19 +66,17 @@ export function createNudgeJobComponent({
         try {
           const messageId = await email.sendNudge({
             to: nudge.email,
-            checkpointId: nudge.checkpointId,
             sequence
           })
 
-          await onboarding.markNudgeSent(nudge.userId, nudge.checkpointId, sequence, messageId)
+          await onboarding.markNudgeSent(nudge.userId, sequence, messageId)
           void notifySlack(nudge, sequence)
         } catch (e) {
           logger.error(
-            `[CP:${nudge.checkpointId}][USER:${nudge.userId}][SEQ:${sequence}] Failed to process nudge: ${
+            `[USER:${nudge.userId}][SEQ:${sequence}] Failed to process nudge: ${
               isErrorWithMessage(e) ? e.message : 'Unknown error'
             }`
           )
-          // Continue processing remaining nudges even if one fails
         }
       }
     }

@@ -140,7 +140,7 @@ const checkpointRequestSchema = {
     checkpointId: {
       type: 'integer',
       minimum: 1,
-      maximum: 7
+      maximum: 3
     },
     userIdentifier: {
       type: 'string',
@@ -149,7 +149,7 @@ const checkpointRequestSchema = {
     },
     identifierType: {
       type: 'string',
-      enum: ['email', 'wallet']
+      enum: ['anon', 'email', 'wallet']
     },
     action: {
       type: 'string',

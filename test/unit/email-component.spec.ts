@@ -38,35 +38,17 @@ beforeEach(async () => {
   email = await createEmailComponent({ config: createMockConfig(), logs: createMockLogs() })
 })
 
-describe('when sending a nudge for checkpoint 3, sequence 1', () => {
+describe('when sending a nudge for sequence 1', () => {
   it('should call sgMail.send with the configured template', async () => {
-    await email.sendNudge({ to: 'user@test.com', checkpointId: 3, sequence: 1 })
+    await email.sendNudge({ to: 'user@test.com', sequence: 1 })
 
     expect(sgMail.send).toHaveBeenCalledTimes(1)
     const [msg] = sgMail.send.mock.calls[0]
     expect(msg.templateId).toBe('d-template-id')
   })
 
-  it('should include checkpoint 3 context in template data', async () => {
-    await email.sendNudge({ to: 'user@test.com', checkpointId: 3, sequence: 1 })
-
-    const [msg] = sgMail.send.mock.calls[0]
-    expect(msg.dynamicTemplateData).toMatchObject({
-      checkpointId: 3,
-      subject: 'Finish Choosing Your Name',
-      heading: expect.stringContaining('choosing your name')
-    })
-  })
-
-  it('should include buttonUrl pointing to auth login', async () => {
-    await email.sendNudge({ to: 'user@test.com', checkpointId: 3, sequence: 1 })
-
-    const [msg] = sgMail.send.mock.calls[0]
-    expect(msg.dynamicTemplateData.buttonUrl).toBe('https://decentraland.org/auth/login')
-  })
-
-  it('should include subject, preheader, heading, body, buttonText, and tagline', async () => {
-    await email.sendNudge({ to: 'user@test.com', checkpointId: 3, sequence: 1 })
+  it('should include subject, preheader, heading, body, buttonText, buttonUrl and tagline', async () => {
+    await email.sendNudge({ to: 'user@test.com', sequence: 1 })
 
     const [msg] = sgMail.send.mock.calls[0]
     const data = msg.dynamicTemplateData
@@ -75,66 +57,41 @@ describe('when sending a nudge for checkpoint 3, sequence 1', () => {
     expect(data.heading).toBeDefined()
     expect(data.body).toBeDefined()
     expect(data.buttonText).toBeDefined()
+    expect(data.buttonUrl).toBeDefined()
     expect(data.tagline).toBeDefined()
   })
 
+  it('should point CTA to the download/launcher page', async () => {
+    await email.sendNudge({ to: 'user@test.com', sequence: 1 })
+
+    const [msg] = sgMail.send.mock.calls[0]
+    expect(msg.dynamicTemplateData.buttonUrl).toBe('https://decentraland.org/download')
+  })
+
   it('should return the SendGrid message id', async () => {
-    const messageId = await email.sendNudge({ to: 'user@test.com', checkpointId: 3, sequence: 1 })
+    const messageId = await email.sendNudge({ to: 'user@test.com', sequence: 1 })
     expect(messageId).toBe('sg-msg-id-123')
   })
 
   it('should send to the correct recipient', async () => {
-    await email.sendNudge({ to: 'specific@test.com', checkpointId: 3, sequence: 1 })
+    await email.sendNudge({ to: 'specific@test.com', sequence: 1 })
 
     const [msg] = sgMail.send.mock.calls[0]
     expect(msg.to).toBe('specific@test.com')
   })
 })
 
-describe('when sending a nudge for different sequences', () => {
-  it('should use different subjects for different sequences', async () => {
-    await email.sendNudge({ to: 'user@test.com', checkpointId: 3, sequence: 1 })
+describe('when sending nudges for different sequences', () => {
+  it('should use different subjects for sequence 1 vs sequence 2', async () => {
+    await email.sendNudge({ to: 'user@test.com', sequence: 1 })
     const [msg1] = sgMail.send.mock.calls[0]
 
     sgMail.send.mockClear()
 
-    await email.sendNudge({ to: 'user@test.com', checkpointId: 3, sequence: 3 })
-    const [msg3] = sgMail.send.mock.calls[0]
+    await email.sendNudge({ to: 'user@test.com', sequence: 2 })
+    const [msg2] = sgMail.send.mock.calls[0]
 
-    expect(msg1.dynamicTemplateData.subject).not.toBe(msg3.dynamicTemplateData.subject)
-  })
-})
-
-describe('when sending a nudge for checkpoint 5, sequence 2 (download page)', () => {
-  it('should include a CTA url pointing to download', async () => {
-    await email.sendNudge({ to: 'user@test.com', checkpointId: 5, sequence: 2 })
-
-    const [msg] = sgMail.send.mock.calls[0]
-    expect(msg.dynamicTemplateData.buttonUrl).toBe('https://decentraland.org/download')
-  })
-
-  it('should use the correct buttonText', async () => {
-    await email.sendNudge({ to: 'user@test.com', checkpointId: 5, sequence: 2 })
-
-    const [msg] = sgMail.send.mock.calls[0]
-    expect(msg.dynamicTemplateData.buttonText).toBe('Download Decentraland')
-  })
-})
-
-describe('when sending a nudge for an unmapped checkpoint (CP7 fallback)', () => {
-  it('should use the same template ID', async () => {
-    await email.sendNudge({ to: 'user@test.com', checkpointId: 7, sequence: 3 })
-
-    const [msg] = sgMail.send.mock.calls[0]
-    expect(msg.templateId).toBe('d-template-id')
-  })
-
-  it('should use fallback content with generic subject', async () => {
-    await email.sendNudge({ to: 'user@test.com', checkpointId: 7, sequence: 3 })
-
-    const [msg] = sgMail.send.mock.calls[0]
-    expect(msg.dynamicTemplateData.subject).toBe('Continue your Decentraland setup')
-    expect(msg.dynamicTemplateData.buttonUrl).toBe('decentraland://')
+    expect(msg1.dynamicTemplateData.subject).not.toBe(msg2.dynamicTemplateData.subject)
   })
 })
 
@@ -144,11 +101,11 @@ describe('when SendGrid returns an error', () => {
   })
 
   it('should not throw', async () => {
-    await expect(email.sendNudge({ to: 'user@test.com', checkpointId: 3, sequence: 1 })).resolves.not.toThrow()
+    await expect(email.sendNudge({ to: 'user@test.com', sequence: 1 })).resolves.not.toThrow()
   })
 
   it('should return undefined', async () => {
-    const result = await email.sendNudge({ to: 'user@test.com', checkpointId: 3, sequence: 1 })
+    const result = await email.sendNudge({ to: 'user@test.com', sequence: 1 })
     expect(result).toBeUndefined()
   })
 })

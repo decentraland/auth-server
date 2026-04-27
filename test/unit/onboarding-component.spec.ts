@@ -29,36 +29,51 @@ beforeEach(() => {
 })
 
 describe('when recording a checkpoint with action reached', () => {
-  describe('and the user has an email', () => {
+  describe('and identifierType is anon (CP1)', () => {
     beforeEach(() => {
       mockDb.query.mockResolvedValue(emptyResult)
     })
 
-    it('should upsert the checkpoint with the provided email', async () => {
+    it('should upsert the checkpoint with id_type=anon', async () => {
       await onboarding.recordCheckpoint({
-        userIdentifier: 'user@test.com',
-        identifierType: 'email',
-        checkpointId: 2,
+        userIdentifier: 'anon-uuid-1',
+        identifierType: 'anon',
+        checkpointId: 1,
         action: 'reached',
-        email: 'user@test.com',
-        source: 'auth'
+        source: 'landing'
       })
 
-      // No wallet resolution needed, so: upsert + update previous
-      expect(mockDb.query.mock.calls).toHaveLength(2)
+      expect(mockDb.query.mock.calls).toHaveLength(1)
       const [firstCall] = mockDb.query.mock.calls
       const queryText = firstCall[0].text ?? firstCall[0]
       expect(queryText).toContain('INSERT INTO onboarding_checkpoints')
       expect(queryText).toContain('ON CONFLICT')
+      expect(firstCall[0].values).toContain('anon')
     })
 
-    it('should implicitly mark the previous checkpoint as completed', async () => {
+    it('should not attempt to update a previous checkpoint when CP=1', async () => {
       await onboarding.recordCheckpoint({
-        userIdentifier: 'user@test.com',
-        identifierType: 'email',
-        checkpointId: 3,
+        userIdentifier: 'anon-uuid-1',
+        identifierType: 'anon',
+        checkpointId: 1,
+        action: 'reached'
+      })
+
+      expect(mockDb.query.mock.calls).toHaveLength(1)
+    })
+  })
+
+  describe('and checkpointId is 2 (auth)', () => {
+    beforeEach(() => {
+      mockDb.query.mockResolvedValue(emptyResult)
+    })
+
+    it('should upsert and implicitly close CP1 for the same user_id', async () => {
+      await onboarding.recordCheckpoint({
+        userIdentifier: 'anon-uuid-1',
+        identifierType: 'anon',
+        checkpointId: 2,
         action: 'reached',
-        email: 'user@test.com',
         source: 'auth'
       })
 
@@ -66,316 +81,170 @@ describe('when recording a checkpoint with action reached', () => {
       const [, secondCall] = mockDb.query.mock.calls
       const queryText = secondCall[0].text ?? secondCall[0]
       expect(queryText).toContain('UPDATE onboarding_checkpoints')
-      expect(queryText).toContain('completed_at')
+      expect(queryText).toContain('completed_at = NOW()')
+      expect(queryText).toContain('checkpoint = 1')
     })
   })
 
-  describe('and the user does not have an email (wallet-only)', () => {
-    beforeEach(() => {
-      // resolveWalletIdentity does a SELECT to look up email for the wallet — returns empty
-      mockDb.query.mockResolvedValue(emptyResult)
-    })
-
-    it('should look up email by wallet and fall back to wallet as user_id', async () => {
-      await onboarding.recordCheckpoint({
-        userIdentifier: '0xabc123',
-        identifierType: 'wallet',
-        checkpointId: 3,
-        action: 'reached'
-      })
-
-      // First call is the wallet resolution query, second is the upsert
-      const upsertCall = mockDb.query.mock.calls[1]
-      // email value should be null in the upsert query values
-      expect(upsertCall[0].values).toContain(null)
-    })
-  })
-
-  describe('and checkpointId is 1 (first checkpoint)', () => {
+  describe('and checkpointId is 3 (in-world)', () => {
     beforeEach(() => {
       mockDb.query.mockResolvedValue(emptyResult)
     })
 
-    it('should not attempt to update a previous checkpoint', async () => {
+    it('should upsert without auto-completing previous checkpoints', async () => {
       await onboarding.recordCheckpoint({
-        userIdentifier: 'user@test.com',
-        identifierType: 'email',
-        checkpointId: 1,
-        action: 'reached'
-      })
-
-      expect(mockDb.query.mock.calls).toHaveLength(1) // only the upsert, no previous update
-    })
-  })
-
-  describe('and the user provides a wallet field', () => {
-    beforeEach(() => {
-      mockDb.query.mockResolvedValue(emptyResult)
-    })
-
-    it('should include wallet in the INSERT query', async () => {
-      await onboarding.recordCheckpoint({
-        userIdentifier: 'user@test.com',
-        identifierType: 'email',
+        userIdentifier: 'anon-uuid-1',
+        identifierType: 'anon',
         checkpointId: 3,
         action: 'reached',
-        email: 'user@test.com',
-        wallet: '0xABC123',
-        source: 'auth'
+        wallet: '0xABC',
+        source: 'explorer'
       })
 
+      expect(mockDb.query.mock.calls).toHaveLength(1)
       const [firstCall] = mockDb.query.mock.calls
-      const queryText = firstCall[0].text ?? firstCall[0]
-      expect(queryText).toContain('wallet')
-      // wallet should be lowercased
-      expect(firstCall[0].values).toContain('0xabc123')
-    })
-  })
-})
-
-describe('wallet-to-email resolution', () => {
-  describe('when identifierType is wallet and no email is provided', () => {
-    describe('and an earlier checkpoint with that wallet exists', () => {
-      beforeEach(() => {
-        // First call: resolveWalletIdentity query — returns a match
-        mockDb.query
-          .mockResolvedValueOnce({
-            rows: [{ user_id: 'user@test.com', email: 'user@test.com' }],
-            rowCount: 1,
-            notices: []
-          })
-          // Second call: INSERT (upsert)
-          .mockResolvedValueOnce(emptyResult)
-          // Third call: UPDATE previous checkpoint
-          .mockResolvedValueOnce(emptyResult)
-      })
-
-      it('should resolve wallet to the email-based user_id', async () => {
-        await onboarding.recordCheckpoint({
-          userIdentifier: '0xabc123',
-          identifierType: 'wallet',
-          checkpointId: 7,
-          action: 'reached',
-          source: 'explorer'
-        })
-
-        // Should have 3 queries: resolve + upsert + update previous
-        expect(mockDb.query.mock.calls).toHaveLength(3)
-
-        // First query should be the wallet lookup
-        const [resolveCall] = mockDb.query.mock.calls
-        const resolveText = resolveCall[0].text ?? resolveCall[0]
-        expect(resolveText).toContain('SELECT user_id, email')
-        expect(resolveText).toContain('WHERE wallet')
-
-        // Second query (upsert) should use the resolved email as user_id
-        const [, upsertCall] = mockDb.query.mock.calls
-        expect(upsertCall[0].values).toContain('user@test.com') // resolved user_id
-      })
-
-      it('should use the resolved email for the checkpoint row', async () => {
-        await onboarding.recordCheckpoint({
-          userIdentifier: '0xabc123',
-          identifierType: 'wallet',
-          checkpointId: 7,
-          action: 'reached',
-          source: 'explorer'
-        })
-
-        const [, upsertCall] = mockDb.query.mock.calls
-        // The resolved email should appear in the values
-        expect(upsertCall[0].values).toContain('user@test.com')
-      })
-    })
-
-    describe('and no earlier checkpoint with that wallet exists', () => {
-      beforeEach(() => {
-        // First call: resolveWalletIdentity query — no match
-        mockDb.query
-          .mockResolvedValueOnce(emptyResult)
-          // Second call: INSERT (upsert)
-          .mockResolvedValueOnce(emptyResult)
-          // Third call: UPDATE previous checkpoint
-          .mockResolvedValueOnce(emptyResult)
-      })
-
-      it('should use the wallet as-is for user_id', async () => {
-        await onboarding.recordCheckpoint({
-          userIdentifier: '0xabc123',
-          identifierType: 'wallet',
-          checkpointId: 7,
-          action: 'reached',
-          source: 'explorer'
-        })
-
-        // Should have 3 queries: resolve + upsert + update previous
-        expect(mockDb.query.mock.calls).toHaveLength(3)
-
-        // Upsert should use the original wallet as user_id
-        const [, upsertCall] = mockDb.query.mock.calls
-        expect(upsertCall[0].values).toContain('0xabc123')
-      })
+      expect(firstCall[0].values).toContain('0xabc') // wallet lowercased
     })
   })
 
-  describe('when identifierType is wallet but email IS provided', () => {
+  describe('and a wallet is provided', () => {
     beforeEach(() => {
       mockDb.query.mockResolvedValue(emptyResult)
     })
 
-    it('should not attempt wallet resolution', async () => {
+    it('should lowercase the wallet before insert', async () => {
       await onboarding.recordCheckpoint({
-        userIdentifier: '0xabc123',
-        identifierType: 'wallet',
+        userIdentifier: 'anon-uuid-1',
+        identifierType: 'anon',
         checkpointId: 2,
         action: 'reached',
-        email: 'already-known@test.com'
+        wallet: '0xABCDEF'
       })
 
-      // Should have 2 queries: upsert + update previous (no resolve query)
-      expect(mockDb.query.mock.calls).toHaveLength(2)
       const [firstCall] = mockDb.query.mock.calls
-      const queryText = firstCall[0].text ?? firstCall[0]
-      expect(queryText).toContain('INSERT INTO onboarding_checkpoints')
-    })
-  })
-
-  describe('when identifierType is email', () => {
-    beforeEach(() => {
-      mockDb.query.mockResolvedValue(emptyResult)
-    })
-
-    it('should not attempt wallet resolution', async () => {
-      await onboarding.recordCheckpoint({
-        userIdentifier: 'user@test.com',
-        identifierType: 'email',
-        checkpointId: 3,
-        action: 'reached',
-        email: 'user@test.com'
-      })
-
-      // Should have 2 queries: upsert + update previous (no resolve query)
-      expect(mockDb.query.mock.calls).toHaveLength(2)
-      const [firstCall] = mockDb.query.mock.calls
-      const queryText = firstCall[0].text ?? firstCall[0]
-      expect(queryText).toContain('INSERT INTO onboarding_checkpoints')
+      expect(firstCall[0].values).toContain('0xabcdef')
     })
   })
 })
 
 describe('when recording a checkpoint with action completed', () => {
-  beforeEach(() => {
-    mockDb.query.mockResolvedValue({ rows: [], rowCount: 1, notices: [] })
-  })
-
-  it('should update completed_at on the matching checkpoint row', async () => {
-    await onboarding.recordCheckpoint({
-      userIdentifier: 'user@test.com',
-      identifierType: 'email',
-      checkpointId: 3,
-      action: 'completed'
+  describe('and the row exists', () => {
+    beforeEach(() => {
+      mockDb.query.mockResolvedValue({ rows: [], rowCount: 1, notices: [] })
     })
 
-    expect(mockDb.query.mock.calls).toHaveLength(1)
-    const [firstCall] = mockDb.query.mock.calls
-    const queryText = firstCall[0].text ?? firstCall[0]
-    expect(queryText).toContain('UPDATE onboarding_checkpoints')
-    expect(queryText).toContain('completed_at = NOW()')
-  })
+    it('should update completed_at on the matching row', async () => {
+      await onboarding.recordCheckpoint({
+        userIdentifier: 'anon-uuid-1',
+        identifierType: 'anon',
+        checkpointId: 2,
+        action: 'completed',
+        email: 'user@test.com',
+        wallet: '0xabc'
+      })
 
-  it('should not insert a new row', async () => {
-    await onboarding.recordCheckpoint({
-      userIdentifier: 'user@test.com',
-      identifierType: 'email',
-      checkpointId: 3,
-      action: 'completed'
+      expect(mockDb.query.mock.calls).toHaveLength(1)
+      const [firstCall] = mockDb.query.mock.calls
+      const queryText = firstCall[0].text ?? firstCall[0]
+      expect(queryText).toContain('UPDATE onboarding_checkpoints')
+      expect(queryText).toContain('completed_at = NOW()')
     })
 
-    const [firstCall] = mockDb.query.mock.calls
-    const queryText = firstCall[0].text ?? firstCall[0]
-    expect(queryText).not.toContain('INSERT INTO')
+    it('should enrich email and wallet with COALESCE', async () => {
+      await onboarding.recordCheckpoint({
+        userIdentifier: 'anon-uuid-1',
+        identifierType: 'anon',
+        checkpointId: 2,
+        action: 'completed',
+        email: 'enriched@test.com'
+      })
+
+      const [firstCall] = mockDb.query.mock.calls
+      expect(firstCall[0].values).toContain('enriched@test.com')
+    })
   })
 
-  it('should update email if provided during completion', async () => {
-    await onboarding.recordCheckpoint({
-      userIdentifier: '0xabc',
-      identifierType: 'wallet',
-      checkpointId: 3,
-      action: 'completed',
-      email: 'provided@test.com'
+  describe('and the row does not exist (no prior reached)', () => {
+    beforeEach(() => {
+      mockDb.query
+        .mockResolvedValueOnce({ rows: [], rowCount: 0, notices: [] }) // UPDATE returns 0 rows
+        .mockResolvedValueOnce(emptyResult) // INSERT retroactivo
     })
 
-    const [firstCall] = mockDb.query.mock.calls
-    expect(firstCall[0].values).toContain('provided@test.com')
+    it('should insert the row retroactively', async () => {
+      await onboarding.recordCheckpoint({
+        userIdentifier: 'anon-uuid-1',
+        identifierType: 'anon',
+        checkpointId: 2,
+        action: 'completed',
+        email: 'user@test.com'
+      })
+
+      expect(mockDb.query.mock.calls).toHaveLength(2)
+      const [, secondCall] = mockDb.query.mock.calls
+      const queryText = secondCall[0].text ?? secondCall[0]
+      expect(queryText).toContain('INSERT INTO onboarding_checkpoints')
+      expect(queryText).toContain('ON CONFLICT')
+    })
   })
 })
 
 describe('when getting pending nudges', () => {
-  describe('for sequence 1 (12 hours)', () => {
+  describe('for sequence 1 (24 hours)', () => {
     beforeEach(() => {
       mockDb.query.mockResolvedValue({
         rows: [
-          { user_id: 'stuck@test.com', checkpoint: 3, email: 'stuck@test.com' },
-          { user_id: '0xabc', checkpoint: 2, email: 'wallet-user@test.com' }
+          { user_id: 'anon-1', email: 'stuck1@test.com' },
+          { user_id: 'anon-2', email: 'stuck2@test.com' }
         ],
         rowCount: 2,
         notices: []
       })
     })
 
-    it('should query with 12 hour interval', async () => {
-      await onboarding.getPendingNudges(1)
-
-      const [firstCall] = mockDb.query.mock.calls
-      expect(firstCall[0].values).toContain(12)
-    })
-
-    it('should return mapped pending nudge objects', async () => {
-      const result = await onboarding.getPendingNudges(1)
-
-      expect(result).toHaveLength(2)
-      expect(result[0]).toEqual({ userId: 'stuck@test.com', checkpointId: 3, email: 'stuck@test.com' })
-      expect(result[1]).toEqual({ userId: '0xabc', checkpointId: 2, email: 'wallet-user@test.com' })
-    })
-
-    it('should exclude users who have progressed to a later checkpoint (NOT EXISTS guard)', async () => {
-      await onboarding.getPendingNudges(1)
-
-      const [firstCall] = mockDb.query.mock.calls
-      const queryText = firstCall[0].text ?? firstCall[0]
-      expect(queryText).toContain('NOT EXISTS')
-      expect(queryText).toContain('later.checkpoint > oc.checkpoint')
-    })
-  })
-
-  describe('for sequence 2 (24 hours)', () => {
-    beforeEach(() => {
-      mockDb.query.mockResolvedValue(emptyResult)
-    })
-
     it('should query with 24 hour interval', async () => {
-      await onboarding.getPendingNudges(2)
+      await onboarding.getPendingNudges(1)
 
       const [firstCall] = mockDb.query.mock.calls
       expect(firstCall[0].values).toContain(24)
     })
 
-    it('should return empty array when no pending nudges', async () => {
-      const result = await onboarding.getPendingNudges(2)
-      expect(result).toEqual([])
+    it('should query CP2 completed without CP3', async () => {
+      await onboarding.getPendingNudges(1)
+
+      const [firstCall] = mockDb.query.mock.calls
+      const queryText = firstCall[0].text ?? firstCall[0]
+      expect(queryText).toContain('cp2.checkpoint = 2')
+      expect(queryText).toContain('cp2.completed_at IS NOT NULL')
+      expect(queryText).toContain('cp2.email IS NOT NULL')
+      expect(queryText).toContain('NOT EXISTS')
+      expect(queryText).toContain('cp3.checkpoint = 3')
+    })
+
+    it('should return mapped pending nudge objects (userId + email)', async () => {
+      const result = await onboarding.getPendingNudges(1)
+
+      expect(result).toHaveLength(2)
+      expect(result[0]).toEqual({ userId: 'anon-1', email: 'stuck1@test.com' })
+      expect(result[1]).toEqual({ userId: 'anon-2', email: 'stuck2@test.com' })
     })
   })
 
-  describe('for sequence 3 (36 hours)', () => {
+  describe('for sequence 2 (72 hours)', () => {
     beforeEach(() => {
       mockDb.query.mockResolvedValue(emptyResult)
     })
 
-    it('should query with 36 hour interval', async () => {
-      await onboarding.getPendingNudges(3)
+    it('should query with 72 hour interval', async () => {
+      await onboarding.getPendingNudges(2)
 
       const [firstCall] = mockDb.query.mock.calls
-      expect(firstCall[0].values).toContain(36)
+      expect(firstCall[0].values).toContain(72)
+    })
+
+    it('should return empty array when no pending nudges', async () => {
+      const result = await onboarding.getPendingNudges(2)
+      expect(result).toEqual([])
     })
   })
 })
@@ -385,8 +254,8 @@ describe('when marking a nudge as sent', () => {
     mockDb.query.mockResolvedValue({ rows: [], rowCount: 1, notices: [] })
   })
 
-  it('should insert into email_nudges table', async () => {
-    await onboarding.markNudgeSent('user@test.com', 3, 1, 'sg-msg-id-123')
+  it('should insert into email_nudges with checkpoint=2', async () => {
+    await onboarding.markNudgeSent('anon-1', 1, 'sg-msg-id-123')
 
     expect(mockDb.query.mock.calls).toHaveLength(1)
     const [firstCall] = mockDb.query.mock.calls
@@ -395,21 +264,21 @@ describe('when marking a nudge as sent', () => {
   })
 
   it('should include the sendgrid message id', async () => {
-    await onboarding.markNudgeSent('user@test.com', 3, 1, 'sg-msg-id-456')
+    await onboarding.markNudgeSent('anon-1', 1, 'sg-msg-id-456')
 
     const [firstCall] = mockDb.query.mock.calls
     expect(firstCall[0].values).toContain('sg-msg-id-456')
   })
 
   it('should work without a message id', async () => {
-    await expect(onboarding.markNudgeSent('user@test.com', 3, 1)).resolves.not.toThrow()
+    await expect(onboarding.markNudgeSent('anon-1', 1)).resolves.not.toThrow()
 
     const [firstCall] = mockDb.query.mock.calls
     expect(firstCall[0].values).toContain(null)
   })
 
   it('should use ON CONFLICT DO NOTHING to prevent duplicates', async () => {
-    await onboarding.markNudgeSent('user@test.com', 3, 1, 'sg-msg-id')
+    await onboarding.markNudgeSent('anon-1', 1, 'sg-msg-id')
 
     const [firstCall] = mockDb.query.mock.calls
     const queryText = firstCall[0].text ?? firstCall[0]
