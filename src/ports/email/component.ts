@@ -93,9 +93,7 @@ export async function createEmailComponent({ config, logs }: Pick<AppComponents,
       logger.log(`[TO:${to}][SEQ:${sequence}] Nudge email sent. Message ID: ${messageId}`)
       return messageId
     } catch (e) {
-      logger.error(
-        `[TO:${to}][SEQ:${sequence}] Failed to send nudge email: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`
-      )
+      logger.error(`[TO:${to}][SEQ:${sequence}] Failed to send nudge email: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
       return undefined
     }
   }

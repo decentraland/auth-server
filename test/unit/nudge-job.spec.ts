@@ -121,9 +121,7 @@ describe('when running the nudge evaluator with pending nudges for both sequence
 describe('when email sending returns undefined (failure)', () => {
   beforeEach(() => {
     mockEmail.sendNudge.mockResolvedValue(undefined)
-    mockOnboarding.getPendingNudges
-      .mockResolvedValueOnce([{ userId: 'anon-1', email: 'user@test.com' }])
-      .mockResolvedValue([])
+    mockOnboarding.getPendingNudges.mockResolvedValueOnce([{ userId: 'anon-1', email: 'user@test.com' }]).mockResolvedValue([])
   })
 
   it('should still call markNudgeSent with undefined messageId', async () => {
@@ -196,9 +194,7 @@ describe('when getPendingNudges throws for one sequence', () => {
 describe('slack notifications', () => {
   describe('when SLACK_NUDGE_CHANNEL is configured', () => {
     beforeEach(() => {
-      mockOnboarding.getPendingNudges
-        .mockResolvedValueOnce([{ userId: 'anon-1', email: 'stuck@test.com' }])
-        .mockResolvedValue([])
+      mockOnboarding.getPendingNudges.mockResolvedValueOnce([{ userId: 'anon-1', email: 'stuck@test.com' }]).mockResolvedValue([])
     })
 
     it('should send a Slack message after nudge is sent', async () => {
@@ -220,9 +216,7 @@ describe('slack notifications', () => {
 
   describe('when SLACK_NUDGE_CHANNEL is not configured', () => {
     beforeEach(() => {
-      mockOnboarding.getPendingNudges
-        .mockResolvedValueOnce([{ userId: 'anon-1', email: 'stuck@test.com' }])
-        .mockResolvedValue([])
+      mockOnboarding.getPendingNudges.mockResolvedValueOnce([{ userId: 'anon-1', email: 'stuck@test.com' }]).mockResolvedValue([])
 
       nudgeJob = createNudgeJobComponent({
         onboarding: mockOnboarding as unknown as IOnboardingComponent,
@@ -246,9 +240,7 @@ describe('slack notifications', () => {
   describe('when Slack sendMessage throws', () => {
     beforeEach(() => {
       mockSlack.sendMessage.mockRejectedValue(new Error('Slack API error'))
-      mockOnboarding.getPendingNudges
-        .mockResolvedValueOnce([{ userId: 'anon-1', email: 'stuck@test.com' }])
-        .mockResolvedValue([])
+      mockOnboarding.getPendingNudges.mockResolvedValueOnce([{ userId: 'anon-1', email: 'stuck@test.com' }]).mockResolvedValue([])
     })
 
     it('should not affect nudge processing', async () => {

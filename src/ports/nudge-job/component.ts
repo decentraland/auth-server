@@ -73,9 +73,7 @@ export function createNudgeJobComponent({
           void notifySlack(nudge, sequence)
         } catch (e) {
           logger.error(
-            `[USER:${nudge.userId}][SEQ:${sequence}] Failed to process nudge: ${
-              isErrorWithMessage(e) ? e.message : 'Unknown error'
-            }`
+            `[USER:${nudge.userId}][SEQ:${sequence}] Failed to process nudge: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`
           )
         }
       }
