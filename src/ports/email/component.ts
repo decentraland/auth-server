@@ -1,7 +1,7 @@
 import sgMail from '@sendgrid/mail'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
-import { IEmailComponent, SendNudgeParams } from './types'
+import { IEmailComponent, SendNudgeParams, SendNudgeResult } from './types'
 
 // ---------------------------------------------------------------------------
 // Per-sequence nudge email content (CP2 = authenticated, no CP3 yet)
@@ -61,13 +61,14 @@ export async function createEmailComponent({ config, logs }: Pick<AppComponents,
 
   sgMail.setApiKey(apiKey)
 
-  const sendNudge = async (params: SendNudgeParams): Promise<string | undefined> => {
+  const sendNudge = async (params: SendNudgeParams): Promise<SendNudgeResult> => {
     const { to, sequence } = params
 
     const content = NUDGE_CONTENT.get(sequence)
     if (!content) {
-      logger.error(`[TO:${to}][SEQ:${sequence}] No nudge content for sequence`)
-      return undefined
+      const error = `No nudge content for sequence ${sequence}`
+      logger.error(`[TO:${to}][SEQ:${sequence}] ${error}`)
+      return { templateId, error }
     }
 
     const dynamicTemplateData = {
@@ -91,10 +92,11 @@ export async function createEmailComponent({ config, logs }: Pick<AppComponents,
       const [response] = await sgMail.send(msg)
       const messageId = response.headers['x-message-id']
       logger.log(`[TO:${to}][SEQ:${sequence}] Nudge email sent. Message ID: ${messageId}`)
-      return messageId
+      return { templateId, messageId }
     } catch (e) {
-      logger.error(`[TO:${to}][SEQ:${sequence}] Failed to send nudge email: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
-      return undefined
+      const error = isErrorWithMessage(e) ? e.message : 'Unknown error'
+      logger.error(`[TO:${to}][SEQ:${sequence}] Failed to send nudge email: ${error}`)
+      return { templateId, error }
     }
   }
 

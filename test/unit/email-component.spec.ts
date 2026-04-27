@@ -68,9 +68,9 @@ describe('when sending a nudge for sequence 1', () => {
     expect(msg.dynamicTemplateData.buttonUrl).toBe('https://decentraland.org/download')
   })
 
-  it('should return the SendGrid message id', async () => {
-    const messageId = await email.sendNudge({ to: 'user@test.com', sequence: 1 })
-    expect(messageId).toBe('sg-msg-id-123')
+  it('should return the templateId and SendGrid message id', async () => {
+    const result = await email.sendNudge({ to: 'user@test.com', sequence: 1 })
+    expect(result).toEqual({ templateId: 'd-template-id', messageId: 'sg-msg-id-123' })
   })
 
   it('should send to the correct recipient', async () => {
@@ -104,8 +104,10 @@ describe('when SendGrid returns an error', () => {
     await expect(email.sendNudge({ to: 'user@test.com', sequence: 1 })).resolves.not.toThrow()
   })
 
-  it('should return undefined', async () => {
+  it('should return templateId with error and no messageId', async () => {
     const result = await email.sendNudge({ to: 'user@test.com', sequence: 1 })
-    expect(result).toBeUndefined()
+    expect(result.templateId).toBe('d-template-id')
+    expect(result.messageId).toBeUndefined()
+    expect(result.error).toContain('SendGrid API error')
   })
 })

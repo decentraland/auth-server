@@ -1209,6 +1209,7 @@ export async function createServerComponent({
 
         for (const seq of sequences) {
           const nudges = await onboarding.getPendingNudges(seq)
+          if (nudges.length === 0) continue
           results[`CP2 - seq ${seq}`] = {
             count: nudges.length,
             emails: nudges.map(n => n.email)
@@ -1255,8 +1256,8 @@ export async function createServerComponent({
         }
 
         try {
-          const messageId = await email.sendNudge({ to, sequence })
-          res.status(200).json({ success: true, messageId: messageId ?? null })
+          const result = await email.sendNudge({ to, sequence })
+          res.status(200).json({ success: !!result.messageId, messageId: result.messageId ?? null, error: result.error ?? null })
         } catch (e) {
           adminLogger.error(`Failed to send test email: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
           res.status(500).json({ error: 'Failed to send email' })

@@ -43,7 +43,8 @@ describe('when recording a checkpoint with action reached', () => {
         source: 'landing'
       })
 
-      expect(mockDb.query.mock.calls).toHaveLength(1)
+      // 1 INSERT + 1 retroactive close-if-CP2-exists guard
+      expect(mockDb.query.mock.calls).toHaveLength(2)
       const [firstCall] = mockDb.query.mock.calls
       const queryText = firstCall[0].text ?? firstCall[0]
       expect(queryText).toContain('INSERT INTO onboarding_checkpoints')
@@ -51,7 +52,7 @@ describe('when recording a checkpoint with action reached', () => {
       expect(firstCall[0].values).toContain('anon')
     })
 
-    it('should not attempt to update a previous checkpoint when CP=1', async () => {
+    it('should issue a guard query that closes CP1 if CP2 already exists', async () => {
       await onboarding.recordCheckpoint({
         userIdentifier: 'anon-uuid-1',
         identifierType: 'anon',
@@ -59,7 +60,11 @@ describe('when recording a checkpoint with action reached', () => {
         action: 'reached'
       })
 
-      expect(mockDb.query.mock.calls).toHaveLength(1)
+      const [, secondCall] = mockDb.query.mock.calls
+      const queryText = secondCall[0].text ?? secondCall[0]
+      expect(queryText).toContain('UPDATE onboarding_checkpoints')
+      expect(queryText).toContain('checkpoint = 1')
+      expect(queryText).toContain('later.checkpoint = 2')
     })
   })
 

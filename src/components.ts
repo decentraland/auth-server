@@ -4,6 +4,7 @@ import { createFetchComponent } from '@well-known-components/fetch-component'
 import { createLogComponent } from '@well-known-components/logger'
 import { createMetricsComponent } from '@well-known-components/metrics'
 import { createTracerComponent } from '@well-known-components/tracer-component'
+import { createAnalyticsComponent } from '@dcl/analytics-component'
 import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
 import { createRedisComponent } from '@dcl/redis-component'
 import { createSlackComponent } from '@dcl/slack-component'
@@ -16,6 +17,7 @@ import { createOnboardingComponent } from './ports/onboarding/component'
 import { createServerComponent } from './ports/server/component'
 import { createStorageComponent } from './ports/storage/component'
 import { AppComponents } from './types'
+import { AnalyticsEventPayload } from './types/analytics'
 
 // Initialize all the components of the app
 export async function initComponents(): Promise<AppComponents> {
@@ -35,11 +37,12 @@ export async function initComponents(): Promise<AppComponents> {
     (await config.getString('SERVICE_BASE_URL')) || 'https://auth-api.decentraland.org'
   )
   const featureFlags = createFeatureFlagsAdapter({ logs, features })
+  const analytics = await createAnalyticsComponent<AnalyticsEventPayload>({ config, logs, fetcher: fetch })
   const onboarding = createOnboardingComponent({ db, logs })
   const email = await createEmailComponent({ config, logs })
   const slackToken = await config.getString('SLACK_BOT_TOKEN')
   const slack = createSlackComponent({ logs }, { token: slackToken ?? '' })
-  const nudgeJob = createNudgeJobComponent({ onboarding, email, slack, logs, config, featureFlags })
+  const nudgeJob = createNudgeJobComponent({ onboarding, email, slack, logs, config, featureFlags, analytics, db })
   const server = await createServerComponent({
     config,
     logs,
@@ -54,6 +57,7 @@ export async function initComponents(): Promise<AppComponents> {
   })
 
   return {
+    analytics,
     cache,
     config,
     fetch,

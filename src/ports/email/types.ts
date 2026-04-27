@@ -6,6 +6,12 @@ export type SendNudgeParams = {
   metadata?: Record<string, unknown>
 }
 
+export type SendNudgeResult = {
+  templateId: string
+  messageId?: string
+  error?: string
+}
+
 export type IEmailComponent = IBaseComponent & {
-  sendNudge(params: SendNudgeParams): Promise<string | undefined>
+  sendNudge(params: SendNudgeParams): Promise<SendNudgeResult>
 }

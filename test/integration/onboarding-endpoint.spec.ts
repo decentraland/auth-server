@@ -221,32 +221,27 @@ test('when calling GET /onboarding/pending-nudges with valid auth and pending nu
   beforeEach(async () => {
     port = await args.components.config.requireString('HTTP_SERVER_PORT')
     mockDb = args.components.db as unknown as jest.Mocked<Pick<IPgComponent, 'query'>>
-    // Return different results per sequence call
+    // getPendingNudges only queries CP2 rows now and returns { user_id, email }.
     let callCount = 0
     mockDb.query = jest.fn().mockImplementation(() => {
       callCount++
       if (callCount === 1) {
-        // seq 1: two CP2 nudges, one CP3 nudge
+        // seq 1: two CP2 stuck users
         return {
           rows: [
-            { user_id: 'a@test.com', checkpoint: 2, email: 'a@test.com' },
-            { user_id: 'b@test.com', checkpoint: 2, email: 'b@test.com' },
-            { user_id: 'c@test.com', checkpoint: 3, email: 'c@test.com' }
+            { user_id: 'anon-a', email: 'a@test.com' },
+            { user_id: 'anon-b', email: 'b@test.com' }
           ],
-          rowCount: 3,
+          rowCount: 2,
           notices: []
         }
       }
-      if (callCount === 2) {
-        // seq 2: one CP2 nudge
-        return { rows: [{ user_id: 'a@test.com', checkpoint: 2, email: 'a@test.com' }], rowCount: 1, notices: [] }
-      }
-      // seq 3: empty
-      return { rows: [], rowCount: 0, notices: [] }
+      // seq 2: one CP2 stuck user
+      return { rows: [{ user_id: 'anon-a', email: 'a@test.com' }], rowCount: 1, notices: [] }
     })
   })
 
-  it('should return grouped pending nudges by CP and sequence', async () => {
+  it('should return grouped pending nudges by sequence', async () => {
     const response = await fetch(`http://localhost:${port}/onboarding/pending-nudges`, {
       method: 'GET',
       headers: { origin: 'https://test-auth.org', ...AUTH_HEADER }
@@ -255,10 +250,9 @@ test('when calling GET /onboarding/pending-nudges with valid auth and pending nu
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body['CP2 - seq 1']).toEqual({ count: 2, emails: ['a@test.com', 'b@test.com'] })
-    expect(body['CP3 - seq 1']).toEqual({ count: 1, emails: ['c@test.com'] })
     expect(body['CP2 - seq 2']).toEqual({ count: 1, emails: ['a@test.com'] })
-    // seq 3 has no nudges, so no keys for it
-    expect(Object.keys(body).filter(k => k.includes('seq 3'))).toHaveLength(0)
+    // CP3 is no longer a nudge target; only CP2 is exposed
+    expect(Object.keys(body).filter(k => !k.startsWith('CP2'))).toHaveLength(0)
   })
 })
 
