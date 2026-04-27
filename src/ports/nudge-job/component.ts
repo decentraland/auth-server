@@ -1,5 +1,5 @@
-import { createJobComponent } from '@dcl/job-component'
 import SQL from 'sql-template-strings'
+import { createJobComponent } from '@dcl/job-component'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
 import { AnalyticsEvent } from '../../types/analytics'
@@ -52,9 +52,7 @@ export function createNudgeJobComponent({
    */
   const tryAcquireLock = async (): Promise<boolean> => {
     try {
-      const result = await db.query<{ acquired: boolean }>(
-        SQL`SELECT pg_try_advisory_lock(${NUDGE_JOB_LOCK_ID}) AS acquired`
-      )
+      const result = await db.query<{ acquired: boolean }>(SQL`SELECT pg_try_advisory_lock(${NUDGE_JOB_LOCK_ID}) AS acquired`)
       return result.rows[0]?.acquired === true
     } catch (e) {
       logger.error(`Failed to acquire nudge-job advisory lock: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
