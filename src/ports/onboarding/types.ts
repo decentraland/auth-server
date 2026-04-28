@@ -2,11 +2,12 @@ import { IBaseComponent } from '@well-known-components/interfaces'
 
 export type IdentifierType = 'anon' | 'email' | 'wallet'
 export type CheckpointAction = 'reached' | 'completed'
+export type CheckpointId = 1 | 2 | 3
 
 export type CheckpointPayload = {
   userIdentifier: string
   identifierType: IdentifierType
-  checkpointId: number
+  checkpointId: CheckpointId
   action: CheckpointAction
   email?: string
   wallet?: string

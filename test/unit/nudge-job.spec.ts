@@ -65,16 +65,24 @@ function createMockFeatureFlags(enabled = true, whitelist?: string[]): IFeatureF
 }
 
 function createMockDb(lockAcquired = true) {
+  // Mock PoolClient: handles the pg_try_advisory_lock / pg_advisory_unlock
+  // dance and ignores other queries (the job uses db.query() for them).
+  const mockClient = {
+    query: jest.fn().mockImplementation(async (sql: string) => {
+      if (sql.includes('pg_try_advisory_lock')) {
+        return { rows: [{ acquired: lockAcquired }], rowCount: 1 }
+      }
+      if (sql.includes('pg_advisory_unlock')) {
+        return { rows: [{ pg_advisory_unlock: true }], rowCount: 1 }
+      }
+      return { rows: [], rowCount: 0 }
+    }),
+    release: jest.fn()
+  }
   return {
-    query: jest.fn().mockImplementation(async (q: unknown) => {
-      const text = typeof q === 'object' && q !== null && 'text' in q ? String((q as { text: string }).text) : String(q)
-      if (text.includes('pg_try_advisory_lock')) {
-        return { rows: [{ acquired: lockAcquired }], rowCount: 1, notices: [] }
-      }
-      if (text.includes('pg_advisory_unlock')) {
-        return { rows: [{ pg_advisory_unlock: true }], rowCount: 1, notices: [] }
-      }
-      return { rows: [], rowCount: 0, notices: [] }
+    query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0, notices: [] }),
+    getPool: jest.fn().mockReturnValue({
+      connect: jest.fn().mockResolvedValue(mockClient)
     })
   }
 }
@@ -109,7 +117,7 @@ beforeEach(() => {
   mockDb = createMockDb()
 
   mockOnboarding.markNudgeSent.mockResolvedValue(undefined)
-  mockEmail.sendNudge.mockResolvedValue({ templateId: TEMPLATE_ID, messageId: 'sg-msg-id-123' })
+  mockEmail.sendNudge.mockResolvedValue({ ok: true, templateId: TEMPLATE_ID, messageId: 'sg-msg-id-123' })
 
   nudgeJob = buildJob()
 })
@@ -143,7 +151,6 @@ describe('when running the nudge evaluator with pending nudges for sequence 1', 
       expect.objectContaining({
         user_id: 'anon-uuid-1',
         email: 'stuck@test.com',
-        checkpoint: 2,
         sequence: 1,
         template_id: TEMPLATE_ID,
         sendgrid_message_id: 'sg-msg-id-123',
@@ -173,7 +180,7 @@ describe('when running the nudge evaluator with pending nudges for both sequence
 
 describe('when sendNudge returns an error result (no messageId)', () => {
   beforeEach(() => {
-    mockEmail.sendNudge.mockResolvedValue({ templateId: TEMPLATE_ID, error: 'SendGrid API error' })
+    mockEmail.sendNudge.mockResolvedValue({ ok: false, templateId: TEMPLATE_ID, error: 'SendGrid API error' })
     mockOnboarding.getPendingNudges.mockResolvedValueOnce([{ userId: 'anon-1', email: 'user@test.com' }]).mockResolvedValue([])
   })
 
@@ -190,7 +197,6 @@ describe('when sendNudge returns an error result (no messageId)', () => {
       expect.objectContaining({
         user_id: 'anon-1',
         email: 'user@test.com',
-        checkpoint: 2,
         sequence: 1,
         template_id: TEMPLATE_ID,
         error: 'SendGrid API error',
@@ -204,7 +210,7 @@ describe('when sendNudge throws', () => {
   beforeEach(() => {
     mockEmail.sendNudge
       .mockRejectedValueOnce(new Error('network error'))
-      .mockResolvedValueOnce({ templateId: TEMPLATE_ID, messageId: 'sg-msg-id-ok' })
+      .mockResolvedValueOnce({ ok: true, templateId: TEMPLATE_ID, messageId: 'sg-msg-id-ok' })
 
     mockOnboarding.getPendingNudges
       .mockResolvedValueOnce([

@@ -1,4 +1,4 @@
-import SQL from 'sql-template-strings'
+import { PoolClient } from 'pg'
 import { createJobComponent } from '@dcl/job-component'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
@@ -46,25 +46,48 @@ export function createNudgeJobComponent({
   }
 
   /**
-   * Postgres advisory lock. Returns true if the lock was acquired (caller is
-   * the only one running). Returns false if another process already holds it
-   * — caller should skip this run to avoid sending duplicate emails.
+   * Acquires a Postgres session-scoped advisory lock on a DEDICATED pool
+   * client. Returns the client (caller must release it via `releaseLock`)
+   * on success, or `null` if another job already holds the lock.
+   *
+   * Why a dedicated client: `pg_try_advisory_lock` is bound to the connection
+   * that ran it. The default `db.query()` uses any connection from the pool,
+   * so an unlock issued via `db.query()` would land on a different connection
+   * and silently no-op while the lock leaks on the original. Holding one
+   * client throughout the run keeps the lock and the unlock on the same
+   * connection. The rest of the job continues to use `db.query()` normally —
+   * the dedicated client is only used to keep the lock alive.
    */
-  const tryAcquireLock = async (): Promise<boolean> => {
+  const tryAcquireLock = async (): Promise<PoolClient | null> => {
+    let client: PoolClient
     try {
-      const result = await db.query<{ acquired: boolean }>(SQL`SELECT pg_try_advisory_lock(${NUDGE_JOB_LOCK_ID}) AS acquired`)
-      return result.rows[0]?.acquired === true
+      client = await db.getPool().connect()
     } catch (e) {
+      logger.error(`Failed to acquire connection for nudge-job lock: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
+      return null
+    }
+
+    try {
+      const result = await client.query<{ acquired: boolean }>('SELECT pg_try_advisory_lock($1) AS acquired', [NUDGE_JOB_LOCK_ID])
+      if (result.rows[0]?.acquired !== true) {
+        client.release()
+        return null
+      }
+      return client
+    } catch (e) {
+      client.release()
       logger.error(`Failed to acquire nudge-job advisory lock: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
-      return false
+      return null
     }
   }
 
-  const releaseLock = async (): Promise<void> => {
+  const releaseLock = async (client: PoolClient): Promise<void> => {
     try {
-      await db.query(SQL`SELECT pg_advisory_unlock(${NUDGE_JOB_LOCK_ID})`)
+      await client.query('SELECT pg_advisory_unlock($1)', [NUDGE_JOB_LOCK_ID])
     } catch (e) {
       logger.warn(`Failed to release nudge-job advisory lock: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
+    } finally {
+      client.release()
     }
   }
 
@@ -74,8 +97,8 @@ export function createNudgeJobComponent({
       return
     }
 
-    const acquired = await tryAcquireLock()
-    if (!acquired) {
+    const lockClient = await tryAcquireLock()
+    if (!lockClient) {
       logger.log('Another nudge-job run holds the advisory lock — skipping this run')
       return
     }
@@ -102,16 +125,12 @@ export function createNudgeJobComponent({
 
         for (const nudge of pendingNudges) {
           try {
-            const result = await email.sendNudge({
-              to: nudge.email,
-              sequence
-            })
+            const result = await email.sendNudge({ to: nudge.email, sequence })
 
-            if (result.messageId) {
+            if (result.ok) {
               analytics.fireEvent(AnalyticsEvent.NUDGE_EMAIL_SENT, {
                 user_id: nudge.userId,
                 email: nudge.email,
-                checkpoint: 2,
                 sequence,
                 template_id: result.templateId,
                 sendgrid_message_id: result.messageId,
@@ -123,10 +142,9 @@ export function createNudgeJobComponent({
               analytics.fireEvent(AnalyticsEvent.NUDGE_EMAIL_FAILED, {
                 user_id: nudge.userId,
                 email: nudge.email,
-                checkpoint: 2,
                 sequence,
                 template_id: result.templateId,
-                error: result.error ?? 'Unknown error',
+                error: result.error,
                 failed_at: new Date().toISOString()
               })
             }
@@ -140,7 +158,7 @@ export function createNudgeJobComponent({
 
       logger.log('Nudge evaluator finished')
     } finally {
-      await releaseLock()
+      await releaseLock(lockClient)
     }
   }
 

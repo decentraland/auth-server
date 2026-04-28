@@ -1257,7 +1257,11 @@ export async function createServerComponent({
 
         try {
           const result = await email.sendNudge({ to, sequence })
-          res.status(200).json({ success: !!result.messageId, messageId: result.messageId ?? null, error: result.error ?? null })
+          if (result.ok) {
+            res.status(200).json({ success: true, messageId: result.messageId, error: null })
+          } else {
+            res.status(200).json({ success: false, messageId: null, error: result.error })
+          }
         } catch (e) {
           adminLogger.error(`Failed to send test email: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
           res.status(500).json({ error: 'Failed to send email' })
@@ -1266,12 +1270,13 @@ export async function createServerComponent({
 
       // List pending nudges for a given sequence (what the cron would send next)
       app.get('/admin/onboarding/pending-nudges/:sequence', async (req: Request, res: Response) => {
-        const sequence = parseInt(req.params.sequence, 10) as 1 | 2
+        const parsed = parseInt(req.params.sequence, 10)
 
-        if (sequence !== 1 && sequence !== 2) {
+        if (parsed !== 1 && parsed !== 2) {
           sendResponse(res, 400, { error: 'sequence must be 1 or 2' })
           return
         }
+        const sequence: 1 | 2 = parsed
 
         try {
           const nudges = await onboarding.getPendingNudges(sequence)

@@ -70,7 +70,7 @@ describe('when sending a nudge for sequence 1', () => {
 
   it('should return the templateId and SendGrid message id', async () => {
     const result = await email.sendNudge({ to: 'user@test.com', sequence: 1 })
-    expect(result).toEqual({ templateId: 'd-template-id', messageId: 'sg-msg-id-123' })
+    expect(result).toEqual({ ok: true, templateId: 'd-template-id', messageId: 'sg-msg-id-123' })
   })
 
   it('should send to the correct recipient', async () => {
@@ -104,10 +104,12 @@ describe('when SendGrid returns an error', () => {
     await expect(email.sendNudge({ to: 'user@test.com', sequence: 1 })).resolves.not.toThrow()
   })
 
-  it('should return templateId with error and no messageId', async () => {
+  it('should return ok=false with templateId and error', async () => {
     const result = await email.sendNudge({ to: 'user@test.com', sequence: 1 })
-    expect(result.templateId).toBe('d-template-id')
-    expect(result.messageId).toBeUndefined()
-    expect(result.error).toContain('SendGrid API error')
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.templateId).toBe('d-template-id')
+      expect(result.error).toContain('SendGrid API error')
+    }
   })
 })

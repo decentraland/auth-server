@@ -91,7 +91,7 @@ export type IdentityIdValidationResponse = {
 }
 
 export type CheckpointRequest = {
-  checkpointId: number
+  checkpointId: 1 | 2 | 3
   userIdentifier: string
   identifierType: 'anon' | 'email' | 'wallet'
   action: 'reached' | 'completed'

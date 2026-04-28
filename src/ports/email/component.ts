@@ -19,38 +19,36 @@ type NudgeContent = {
 
 const g = (text: string): string => `<span class="gradient-text">${text}</span>`
 
-const NUDGE_CONTENT = new Map<number, NudgeContent>([
-  [
-    1,
-    {
-      subject: 'Your Decentraland account is ready — jump in',
-      preheader: 'Open Decentraland and continue where you left off.',
-      heading: `Your account is ${g('ready.')}<br>Time to step in.`,
-      body:
-        '<p style="margin:0 0 14px 0;">You finished signing in but haven\'t entered the world yet.</p>' +
-        '<p style="margin:0 0 14px 0;">Decentraland is a place you actually move through. Events are happening, people are exploring, and your avatar is waiting.</p>' +
-        '<p style="margin:0;">Open Decentraland and continue.</p>',
-      buttonText: 'Open Decentraland',
-      buttonUrl: 'https://decentraland.org/download',
-      tagline: 'One step gets you in.'
-    }
-  ],
-  [
-    2,
-    {
-      subject: 'Still want to explore? The world is live',
-      preheader: 'Open Decentraland and join everyone inside.',
-      heading: `Something is ${g('happening right now.')}`,
-      body:
-        '<p style="margin:0 0 14px 0;">Decentraland isn\'t just an account you set up — it\'s a place you show up.</p>' +
-        '<p style="margin:0 0 14px 0;">Events are running. Conversations are starting. People are exploring together.</p>' +
-        '<p style="margin:0;">You\'re one step away from joining them.</p>',
-      buttonText: 'Open Decentraland',
-      buttonUrl: 'https://decentraland.org/download',
-      tagline: 'The world is waiting.'
-    }
-  ]
-])
+// Record keyed by the discriminated `sequence` literal — TypeScript guarantees
+// every valid sequence has content, so callers don't need a runtime guard.
+/* eslint-disable @typescript-eslint/naming-convention */
+const NUDGE_CONTENT: Record<1 | 2, NudgeContent> = {
+  1: {
+    subject: 'Your Decentraland account is ready — jump in',
+    preheader: 'Open Decentraland and continue where you left off.',
+    heading: `Your account is ${g('ready.')}<br>Time to step in.`,
+    body:
+      '<p style="margin:0 0 14px 0;">You finished signing in but haven\'t entered the world yet.</p>' +
+      '<p style="margin:0 0 14px 0;">Decentraland is a place you actually move through. Events are happening, people are exploring, and your avatar is waiting.</p>' +
+      '<p style="margin:0;">Open Decentraland and continue.</p>',
+    buttonText: 'Open Decentraland',
+    buttonUrl: 'https://decentraland.org/download',
+    tagline: 'One step gets you in.'
+  },
+  2: {
+    subject: 'Still want to explore? The world is live',
+    preheader: 'Open Decentraland and join everyone inside.',
+    heading: `Something is ${g('happening right now.')}`,
+    body:
+      '<p style="margin:0 0 14px 0;">Decentraland isn\'t just an account you set up — it\'s a place you show up.</p>' +
+      '<p style="margin:0 0 14px 0;">Events are running. Conversations are starting. People are exploring together.</p>' +
+      '<p style="margin:0;">You\'re one step away from joining them.</p>',
+    buttonText: 'Open Decentraland',
+    buttonUrl: 'https://decentraland.org/download',
+    tagline: 'The world is waiting.'
+  }
+}
+/* eslint-enable @typescript-eslint/naming-convention */
 
 export async function createEmailComponent({ config, logs }: Pick<AppComponents, 'config' | 'logs'>): Promise<IEmailComponent> {
   const logger = logs.getLogger('email-component')
@@ -64,12 +62,7 @@ export async function createEmailComponent({ config, logs }: Pick<AppComponents,
   const sendNudge = async (params: SendNudgeParams): Promise<SendNudgeResult> => {
     const { to, sequence } = params
 
-    const content = NUDGE_CONTENT.get(sequence)
-    if (!content) {
-      const error = `No nudge content for sequence ${sequence}`
-      logger.error(`[TO:${to}][SEQ:${sequence}] ${error}`)
-      return { templateId, error }
-    }
+    const content = NUDGE_CONTENT[sequence]
 
     const dynamicTemplateData = {
       subject: content.subject,
@@ -91,12 +84,17 @@ export async function createEmailComponent({ config, logs }: Pick<AppComponents,
     try {
       const [response] = await sgMail.send(msg)
       const messageId = response.headers['x-message-id']
+      if (!messageId) {
+        const error = 'SendGrid returned no message id'
+        logger.error(`[TO:${to}][SEQ:${sequence}] ${error}`)
+        return { ok: false, templateId, error }
+      }
       logger.log(`[TO:${to}][SEQ:${sequence}] Nudge email sent. Message ID: ${messageId}`)
-      return { templateId, messageId }
+      return { ok: true, templateId, messageId }
     } catch (e) {
       const error = isErrorWithMessage(e) ? e.message : 'Unknown error'
       logger.error(`[TO:${to}][SEQ:${sequence}] Failed to send nudge email: ${error}`)
-      return { templateId, error }
+      return { ok: false, templateId, error }
     }
   }
 
