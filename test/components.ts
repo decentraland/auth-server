@@ -122,7 +122,12 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
   } as unknown as TestComponents['featureFlags']
   const fetch = { fetch: jest.fn() } as unknown as TestComponents['fetch']
   const features = { getIsFeatureEnabled: jest.fn(), getFeatureVariant: jest.fn() } as unknown as TestComponents['features']
-  const nudgeJob = createNudgeJobComponent({ onboarding, email, slack, logs: createMockLogs(), config, featureFlags })
+  const analytics = {
+    fireEvent: jest.fn(),
+    sendEvents: jest.fn().mockResolvedValue(undefined),
+    stop: jest.fn().mockResolvedValue(undefined)
+  } as unknown as TestComponents['analytics']
+  const nudgeJob = createNudgeJobComponent({ onboarding, email, slack, logs: createMockLogs(), config, featureFlags, analytics, db })
   const server = await createServerComponent({
     config,
     logs,
@@ -137,6 +142,7 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
   })
 
   return {
+    analytics,
     config,
     fetch,
     features,

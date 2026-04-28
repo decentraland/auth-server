@@ -1204,20 +1204,15 @@ export async function createServerComponent({
       }
 
       try {
-        const sequences = [1, 2, 3] as const
+        const sequences = [1, 2] as const
         const results: Record<string, { count: number; emails: string[] }> = {}
 
         for (const seq of sequences) {
           const nudges = await onboarding.getPendingNudges(seq)
-          // Group by checkpoint
-          const byCheckpoint = new Map<number, string[]>()
-          for (const n of nudges) {
-            const list = byCheckpoint.get(n.checkpointId) ?? []
-            list.push(n.email)
-            byCheckpoint.set(n.checkpointId, list)
-          }
-          for (const [cp, emails] of byCheckpoint) {
-            results[`CP${cp} - seq ${seq}`] = { count: emails.length, emails }
+          if (nudges.length === 0) continue
+          results[`CP2 - seq ${seq}`] = {
+            count: nudges.length,
+            emails: nudges.map(n => n.email)
           }
         }
 
@@ -1248,26 +1243,25 @@ export async function createServerComponent({
 
       // Send a test nudge email directly (bypasses DB — just calls SendGrid)
       app.post('/admin/onboarding/send-test-email', async (req: Request, res: Response) => {
-        const { to, checkpointId, sequence } = req.body
+        const { to, sequence } = req.body
 
-        if (!to || !checkpointId || !sequence) {
-          sendResponse(res, 400, { error: 'Missing required fields: to, checkpointId, sequence' })
+        if (!to || !sequence) {
+          sendResponse(res, 400, { error: 'Missing required fields: to, sequence' })
           return
         }
 
-        if (sequence < 1 || sequence > 3) {
-          sendResponse(res, 400, { error: 'sequence must be 1, 2, or 3' })
-          return
-        }
-
-        if (checkpointId < 1 || checkpointId > 7) {
-          sendResponse(res, 400, { error: 'checkpointId must be 1-7' })
+        if (sequence !== 1 && sequence !== 2) {
+          sendResponse(res, 400, { error: 'sequence must be 1 or 2' })
           return
         }
 
         try {
-          const messageId = await email.sendNudge({ to, checkpointId, sequence })
-          res.status(200).json({ success: true, messageId: messageId ?? null })
+          const result = await email.sendNudge({ to, sequence })
+          if (result.ok) {
+            res.status(200).json({ success: true, messageId: result.messageId, error: null })
+          } else {
+            res.status(200).json({ success: false, messageId: null, error: result.error })
+          }
         } catch (e) {
           adminLogger.error(`Failed to send test email: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
           res.status(500).json({ error: 'Failed to send email' })
@@ -1276,12 +1270,13 @@ export async function createServerComponent({
 
       // List pending nudges for a given sequence (what the cron would send next)
       app.get('/admin/onboarding/pending-nudges/:sequence', async (req: Request, res: Response) => {
-        const sequence = parseInt(req.params.sequence, 10) as 1 | 2 | 3
+        const parsed = parseInt(req.params.sequence, 10)
 
-        if (![1, 2, 3].includes(sequence)) {
-          sendResponse(res, 400, { error: 'sequence must be 1, 2, or 3' })
+        if (parsed !== 1 && parsed !== 2) {
+          sendResponse(res, 400, { error: 'sequence must be 1 or 2' })
           return
         }
+        const sequence: 1 | 2 = parsed
 
         try {
           const nudges = await onboarding.getPendingNudges(sequence)
