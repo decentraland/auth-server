@@ -20,15 +20,15 @@ export async function createMagicAdapter({
   // Secret key is required and sensitive — never log it or the DID tokens.
   const secretKey = await config.requireString('MAGIC_SECRET_KEY')
   const apiUrl = (await config.getString('MAGIC_API_URL')) || DEFAULT_API_URL
-  // Optional: when set, token validation additionally enforces the `aud` claim.
-  const clientId = await config.getString('MAGIC_CLIENT_ID')
+  // Required: token validation enforces the DID token `aud` against this app's client id.
+  const clientId = await config.requireString('MAGIC_CLIENT_ID')
 
   const baseUrl = apiUrl.replace(/\/+$/, '')
 
   // Constructed (not `Magic.init`) on purpose: the constructor performs no
   // network call, so token validation stays fully offline and the server has no
-  // startup dependency on Magic. `clientId` enables the offline audience check.
-  const magic = new Magic(secretKey, clientId ? { clientId } : undefined)
+  // startup dependency on Magic. Passing `clientId` enables the offline audience check.
+  const magic = new Magic(secretKey, { clientId })
 
   const validateDidToken = (didToken: string): DidTokenValidationResult => {
     try {
@@ -82,7 +82,7 @@ export async function createMagicAdapter({
     }
   }
 
-  logger.log(`Magic adapter ready (apiUrl=${baseUrl}, audienceCheck=${clientId ? 'on' : 'off'})`)
+  logger.log(`Magic adapter ready (apiUrl=${baseUrl})`)
 
   return { validateDidToken, requestUserDeletion }
 }

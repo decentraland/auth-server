@@ -30,7 +30,7 @@ function createMockConfig(overrides: Record<string, string | undefined> = {}): I
   const defaults: Record<string, string | undefined> = {
     MAGIC_SECRET_KEY: 'sk_test_dummy_key',
     MAGIC_API_URL: 'https://api.magic.link',
-    MAGIC_CLIENT_ID: undefined
+    MAGIC_CLIENT_ID: 'test-client-id'
   }
   const values = { ...defaults, ...overrides }
 
