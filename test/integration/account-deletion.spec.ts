@@ -29,7 +29,6 @@ test('when deleting a Magic account', args => {
       magic = args.components.magic as jest.Mocked<Pick<IMagicAdapter, 'validateDidToken' | 'requestUserDeletion'>>
       magic.validateDidToken.mockReturnValue({ address: signer, issuer: `did:ethr:${signer}`, iat: Math.floor(Date.now() / 1000), tid })
       magic.requestUserDeletion.mockResolvedValue({ processed: [signer], unprocessed: [] })
-      ;(args.components.db.query as jest.Mock).mockResolvedValue({ rows: [], rowCount: 0, notices: [] })
     })
 
     it('should respond with 200 and report the deletion result', async () => {
@@ -57,20 +56,6 @@ test('when deleting a Magic account', args => {
 
       expect(magic.requestUserDeletion).toHaveBeenCalledWith(signer)
     })
-
-    it('should purge local onboarding data for the address', async () => {
-      const spy = jest.spyOn(args.components.onboarding, 'deleteByWallet')
-
-      await createSignedFetchRequest(baseUrl, {
-        method: 'DELETE',
-        path: '/accounts',
-        metadata: { didToken },
-        identity,
-        headers: { origin: allowedOrigin }
-      })
-
-      expect(spy).toHaveBeenCalledWith(signer)
-    })
   })
 
   describe('and the same DID token is used twice', () => {
@@ -88,7 +73,6 @@ test('when deleting a Magic account', args => {
       magic = args.components.magic as jest.Mocked<Pick<IMagicAdapter, 'validateDidToken' | 'requestUserDeletion'>>
       magic.validateDidToken.mockReturnValue({ address: signer, issuer: `did:ethr:${signer}`, iat: Math.floor(Date.now() / 1000), tid })
       magic.requestUserDeletion.mockResolvedValue({ processed: [signer], unprocessed: [] })
-      ;(args.components.db.query as jest.Mock).mockResolvedValue({ rows: [], rowCount: 0, notices: [] })
     })
 
     it('should respond with 403 on the second attempt', async () => {

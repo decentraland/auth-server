@@ -4,7 +4,6 @@ import { IMagicAdapter, MagicRateLimitError } from '../../src/adapters/magic'
 import { createAccountDeletionComponent } from '../../src/logic/account-deletion/component'
 import { AddressMismatchError, DidTokenReusedError, DidTokenStaleError } from '../../src/logic/account-deletion/errors'
 import { IAccountDeletionComponent } from '../../src/logic/account-deletion/types'
-import { IOnboardingComponent } from '../../src/ports/onboarding/types'
 import { createStorageComponent } from '../../src/ports/storage/component'
 import { IStorageComponent } from '../../src/ports/storage/types'
 
@@ -16,7 +15,6 @@ function createMockLogs(): ILoggerComponent {
 describe('when deleting an account', () => {
   let accountDeletion: IAccountDeletionComponent
   let magic: jest.Mocked<Pick<IMagicAdapter, 'validateDidToken' | 'requestUserDeletion'>>
-  let onboarding: jest.Mocked<Pick<IOnboardingComponent, 'deleteByWallet'>>
   let storage: IStorageComponent
   let address: string
   let signedFetchAddress: string
@@ -36,13 +34,11 @@ describe('when deleting an account', () => {
       validateDidToken: jest.fn(),
       requestUserDeletion: jest.fn()
     }
-    onboarding = { deleteByWallet: jest.fn().mockResolvedValue(undefined) }
     storage = createStorageComponent({ cache: createInMemoryCacheComponent() })
 
     accountDeletion = createAccountDeletionComponent({
       magic: magic as unknown as IMagicAdapter,
       storage,
-      onboarding: onboarding as unknown as IOnboardingComponent,
       logs: createMockLogs(),
       didTokenMaxAgeSeconds: 120
     })
@@ -58,12 +54,6 @@ describe('when deleting an account', () => {
       await accountDeletion.deleteAccount({ signedFetchAddress, didToken })
 
       expect(magic.requestUserDeletion).toHaveBeenCalledWith(address)
-    })
-
-    it('should purge local data for the address', async () => {
-      await accountDeletion.deleteAccount({ signedFetchAddress, didToken })
-
-      expect(onboarding.deleteByWallet).toHaveBeenCalledWith(address)
     })
 
     it('should resolve with the address and the Magic result', async () => {
@@ -138,26 +128,6 @@ describe('when deleting an account', () => {
 
     it('should propagate the Magic error', async () => {
       await expect(accountDeletion.deleteAccount({ signedFetchAddress, didToken })).rejects.toThrow(MagicRateLimitError)
-    })
-
-    it('should not purge local data', async () => {
-      await expect(accountDeletion.deleteAccount({ signedFetchAddress, didToken })).rejects.toThrow(MagicRateLimitError)
-
-      expect(onboarding.deleteByWallet).not.toHaveBeenCalled()
-    })
-  })
-
-  describe('and the local purge fails after the Magic deletion succeeds', () => {
-    beforeEach(() => {
-      magic.validateDidToken.mockReturnValue({ address, issuer: `did:ethr:${address}`, iat: nowSeconds, tid })
-      magic.requestUserDeletion.mockResolvedValue({ processed: [address], unprocessed: [] })
-      onboarding.deleteByWallet.mockRejectedValue(new Error('db down'))
-    })
-
-    it('should still resolve successfully', async () => {
-      const result = await accountDeletion.deleteAccount({ signedFetchAddress, didToken })
-
-      expect(result).toEqual({ address, magic: { processed: [address], unprocessed: [] } })
     })
   })
 })

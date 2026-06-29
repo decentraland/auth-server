@@ -143,29 +143,9 @@ export function createOnboardingComponent({ db, logs }: Pick<AppComponents, 'db'
     logger.log(`[CP:${checkpointId}][USER:${userId}][SEQ:${sequence}] Nudge marked as sent`)
   }
 
-  const deleteByWallet = async (address: string): Promise<void> => {
-    const wallet = address.toLowerCase()
-
-    // Delete nudges first (no FK constraint enforces ordering, so do it
-    // explicitly) for every user_id linked to this wallet.
-    await db.query(SQL`
-      DELETE FROM email_nudges
-      WHERE user_id IN (
-        SELECT user_id FROM onboarding_checkpoints WHERE wallet = ${wallet}
-      )
-    `)
-
-    const result = await db.query(SQL`
-      DELETE FROM onboarding_checkpoints WHERE wallet = ${wallet}
-    `)
-
-    logger.log(`[WALLET:${wallet}] Purged ${result.rowCount ?? 0} onboarding checkpoint row(s) and related nudges`)
-  }
-
   return {
     recordCheckpoint,
     getPendingNudges,
-    markNudgeSent,
-    deleteByWallet
+    markNudgeSent
   }
 }

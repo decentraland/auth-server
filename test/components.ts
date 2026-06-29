@@ -132,7 +132,6 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
   const accountDeletion = createAccountDeletionComponent({
     magic,
     storage,
-    onboarding,
     logs,
     didTokenMaxAgeSeconds: overrides.didTokenMaxAgeSeconds ?? 120
   })

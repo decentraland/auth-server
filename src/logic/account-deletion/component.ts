@@ -1,5 +1,4 @@
 import { AppComponents } from '../../types'
-import { isErrorWithMessage } from '../error-handling'
 import { AddressMismatchError, DidTokenReusedError, DidTokenStaleError } from './errors'
 import { DeleteAccountParams, DeleteAccountResult, IAccountDeletionComponent } from './types'
 
@@ -10,10 +9,9 @@ const TID_TTL_BUFFER_SECONDS = 60
 export function createAccountDeletionComponent({
   magic,
   storage,
-  onboarding,
   logs,
   didTokenMaxAgeSeconds
-}: Pick<AppComponents, 'magic' | 'storage' | 'onboarding' | 'logs'> & {
+}: Pick<AppComponents, 'magic' | 'storage' | 'logs'> & {
   didTokenMaxAgeSeconds: number
 }): IAccountDeletionComponent {
   const logger = logs.getLogger('account-deletion')
@@ -43,18 +41,14 @@ export function createAccountDeletionComponent({
       throw new DidTokenReusedError()
     }
 
-    // 5. Permanently delete the Magic account by public address (irreversible).
+    // 5. Request deletion of the user's Magic account by public address.
+    //    This only severs Magic's custodial access — it does NOT delete the wallet
+    //    itself (the user can export the key beforehand), so the address can remain
+    //    an active Decentraland identity. Local onboarding/nudge data is keyed to the
+    //    wallet and is intentionally left intact.
     const result = await magic.requestUserDeletion(address)
 
-    // 6. Purge local PII. The irreversible Magic deletion has already happened,
-    //    so a purge failure must not fail the request — log it (idempotent retry).
-    try {
-      await onboarding.deleteByWallet(address)
-    } catch (e) {
-      logger.error(`[ADDR:${address}] Magic account deleted but local purge failed: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
-    }
-
-    // 7. Audit trail for an irreversible action.
+    // 6. Audit trail.
     logger.log(
       `[ADDR:${address}][IP:${ip ?? 'unknown'}] Account deletion requested via Magic. processed=${result.processed.length} unprocessed=${
         result.unprocessed.length

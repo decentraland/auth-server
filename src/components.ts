@@ -40,7 +40,7 @@ export async function initComponents(): Promise<AppComponents> {
   )
   const featureFlags = createFeatureFlagsAdapter({ logs, features })
   const onboarding = createOnboardingComponent({ db, logs })
-  const accountDeletion = createAccountDeletionComponent({ magic, storage, onboarding, logs, didTokenMaxAgeSeconds })
+  const accountDeletion = createAccountDeletionComponent({ magic, storage, logs, didTokenMaxAgeSeconds })
   const email = await createEmailComponent({ config, logs })
   const slackToken = await config.getString('SLACK_BOT_TOKEN')
   const slack = createSlackComponent({ logs }, { token: slackToken ?? '' })
