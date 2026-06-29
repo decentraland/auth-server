@@ -36,7 +36,7 @@ test('when deleting a Magic account', args => {
       const response = await createSignedFetchRequest(baseUrl, {
         method: 'DELETE',
         path: '/accounts',
-        body: { didToken },
+        metadata: { didToken },
         identity,
         headers: { origin: allowedOrigin }
       })
@@ -50,7 +50,7 @@ test('when deleting a Magic account', args => {
       await createSignedFetchRequest(baseUrl, {
         method: 'DELETE',
         path: '/accounts',
-        body: { didToken },
+        metadata: { didToken },
         identity,
         headers: { origin: allowedOrigin }
       })
@@ -64,7 +64,7 @@ test('when deleting a Magic account', args => {
       await createSignedFetchRequest(baseUrl, {
         method: 'DELETE',
         path: '/accounts',
-        body: { didToken },
+        metadata: { didToken },
         identity,
         headers: { origin: allowedOrigin }
       })
@@ -95,7 +95,7 @@ test('when deleting a Magic account', args => {
       const first = await createSignedFetchRequest(baseUrl, {
         method: 'DELETE',
         path: '/accounts',
-        body: { didToken },
+        metadata: { didToken },
         identity,
         headers: { origin: allowedOrigin }
       })
@@ -104,7 +104,7 @@ test('when deleting a Magic account', args => {
       const second = await createSignedFetchRequest(baseUrl, {
         method: 'DELETE',
         path: '/accounts',
-        body: { didToken },
+        metadata: { didToken },
         identity,
         headers: { origin: allowedOrigin }
       })
@@ -133,7 +133,7 @@ test('when deleting a Magic account', args => {
       const response = await createSignedFetchRequest(baseUrl, {
         method: 'DELETE',
         path: '/accounts',
-        body: { didToken },
+        metadata: { didToken },
         identity,
         headers: { origin: allowedOrigin }
       })
@@ -160,7 +160,7 @@ test('when deleting a Magic account', args => {
       const response = await createSignedFetchRequest(baseUrl, {
         method: 'DELETE',
         path: '/accounts',
-        body: { didToken: 'invalid' },
+        metadata: { didToken: 'invalid' },
         identity,
         headers: { origin: allowedOrigin }
       })
@@ -191,7 +191,7 @@ test('when deleting a Magic account', args => {
       const response = await createSignedFetchRequest(baseUrl, {
         method: 'DELETE',
         path: '/accounts',
-        body: { didToken },
+        metadata: { didToken },
         identity,
         headers: { origin: 'https://evil.example.com' }
       })
@@ -205,7 +205,7 @@ test('when deleting a Magic account', args => {
       await createSignedFetchRequest(baseUrl, {
         method: 'DELETE',
         path: '/accounts',
-        body: { didToken },
+        metadata: { didToken },
         identity,
         headers: { origin: 'https://evil.example.com' }
       })
@@ -228,7 +228,7 @@ test('when deleting a Magic account', args => {
     })
   })
 
-  describe('and the body is missing the DID token', () => {
+  describe('and the DID token is missing from the metadata', () => {
     let identity: AuthIdentity
 
     beforeEach(async () => {
@@ -239,7 +239,7 @@ test('when deleting a Magic account', args => {
       const response = await createSignedFetchRequest(baseUrl, {
         method: 'DELETE',
         path: '/accounts',
-        body: {},
+        metadata: {},
         identity,
         headers: { origin: allowedOrigin }
       })

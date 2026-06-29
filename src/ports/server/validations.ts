@@ -10,7 +10,7 @@ import {
   RequestValidationMessage,
   IdentityRequest,
   CheckpointRequest,
-  AccountDeletionRequest
+  AccountDeletionMetadata
 } from './types'
 
 const ajv = new Ajv({ allowUnionTypes: true })
@@ -177,7 +177,7 @@ const checkpointRequestSchema = {
   additionalProperties: false
 }
 
-const accountDeletionRequestSchema = {
+const accountDeletionMetadataSchema = {
   type: 'object',
   properties: {
     didToken: {
@@ -187,7 +187,8 @@ const accountDeletionRequestSchema = {
     }
   },
   required: ['didToken'],
-  additionalProperties: false
+  // Signed-fetch metadata may carry other fields (e.g. signer) alongside the token.
+  additionalProperties: true
 }
 
 const requestMessageValidator = ajv.compile(requestMessageSchema)
@@ -197,7 +198,7 @@ const httpOutcomeMessageValidator = ajv.compile(httpOutcomeMessageSchema)
 const requestValidationMessageValidator = ajv.compile(requestValidationMessageSchema)
 const identityIdRequestValidator = ajv.compile(identityRequestSchema)
 const checkpointRequestValidator = ajv.compile(checkpointRequestSchema)
-const accountDeletionRequestValidator = ajv.compile(accountDeletionRequestSchema)
+const accountDeletionMetadataValidator = ajv.compile(accountDeletionMetadataSchema)
 
 export function validateRequestMessage(msg: unknown) {
   if (!requestMessageValidator(msg)) {
@@ -265,10 +266,10 @@ export function validateCheckpointRequest(msg: unknown) {
   return msg as CheckpointRequest
 }
 
-export function validateAccountDeletionRequest(msg: unknown) {
-  if (!accountDeletionRequestValidator(msg)) {
-    throw new Error(JSON.stringify(accountDeletionRequestValidator.errors))
+export function validateAccountDeletionMetadata(msg: unknown) {
+  if (!accountDeletionMetadataValidator(msg)) {
+    throw new Error(JSON.stringify(accountDeletionMetadataValidator.errors))
   }
 
-  return msg as AccountDeletionRequest
+  return msg as AccountDeletionMetadata
 }

@@ -31,7 +31,7 @@ import {
   RequestResponseMessage,
   RequestValidationMessage,
   RequestValidationStatusMessage,
-  AccountDeletionRequest,
+  AccountDeletionMetadata,
   AccountDeletionResponse
 } from './types'
 import {
@@ -43,7 +43,7 @@ import {
   validateIdentityId,
   validateIdentityRequest,
   validateCheckpointRequest,
-  validateAccountDeletionRequest
+  validateAccountDeletionMetadata
 } from './validations'
 
 export async function createServerComponent({
@@ -1073,9 +1073,11 @@ export async function createServerComponent({
           return sendResponse<InvalidResponseMessage>(res, 403, { error: 'Origin not allowed' })
         }
 
-        let body: AccountDeletionRequest
+        // The DID token travels in the signed-fetch metadata, so it is covered by
+        // the request signature (method:path:timestamp:metadata) — no request body.
+        let metadata: AccountDeletionMetadata
         try {
-          body = validateAccountDeletionRequest(req.body)
+          metadata = validateAccountDeletionMetadata(req.authMetadata)
         } catch (e) {
           return sendResponse<InvalidResponseMessage>(res, 400, {
             error: isErrorWithMessage(e) ? e.message : 'Unknown error'
@@ -1090,7 +1092,7 @@ export async function createServerComponent({
         try {
           const result = await accountDeletion.deleteAccount({
             signedFetchAddress: requestSender,
-            didToken: body.didToken,
+            didToken: metadata.didToken,
             ip: getClientIp(req)
           })
 

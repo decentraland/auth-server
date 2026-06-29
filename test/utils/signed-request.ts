@@ -7,10 +7,11 @@ export type SignedRequestOptions = {
   body?: unknown
   identity?: AuthIdentity
   headers?: Record<string, string>
+  metadata?: Record<string, unknown>
 }
 
 export async function createSignedFetchRequest(baseUrl: string, options: SignedRequestOptions) {
-  const { method, path, body, identity, headers } = options
+  const { method, path, body, identity, headers, metadata } = options
   const response = await fetch(baseUrl + path, {
     method,
     headers: {
@@ -18,7 +19,8 @@ export async function createSignedFetchRequest(baseUrl: string, options: SignedR
       ...headers
     },
     body: JSON.stringify(body),
-    identity: identity
+    identity: identity,
+    metadata: metadata
   })
 
   return response

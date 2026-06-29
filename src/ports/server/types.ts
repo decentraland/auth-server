@@ -101,7 +101,7 @@ export type CheckpointRequest = {
   metadata?: Record<string, unknown>
 }
 
-export type AccountDeletionRequest = {
+export type AccountDeletionMetadata = {
   didToken: string
 }
 
