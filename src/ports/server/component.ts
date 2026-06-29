@@ -10,6 +10,8 @@ import { v4 as uuid } from 'uuid'
 import { Authenticator, parseEmphemeralPayload } from '@dcl/crypto'
 import { AuthChain } from '@dcl/schemas'
 import { express as authMiddleware, DecentralandSignatureData } from 'decentraland-crypto-middleware'
+import { MagicRateLimitError, MagicTokenExpiredError, MagicTokenInvalidError } from '../../adapters/magic'
+import { AddressMismatchError, DidTokenReusedError, DidTokenStaleError } from '../../logic/account-deletion'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
 import { METHOD_DCL_PERSONAL_SIGN, ONE_HOUR_IN_MILLISECONDS, MAX_BODY_SIZE } from './constants'
@@ -28,7 +30,9 @@ import {
   RequestMessage,
   RequestResponseMessage,
   RequestValidationMessage,
-  RequestValidationStatusMessage
+  RequestValidationStatusMessage,
+  AccountDeletionRequest,
+  AccountDeletionResponse
 } from './types'
 import {
   validateHttpOutcomeMessage,
@@ -38,7 +42,8 @@ import {
   validateRequestValidationMessage,
   validateIdentityId,
   validateIdentityRequest,
-  validateCheckpointRequest
+  validateCheckpointRequest,
+  validateAccountDeletionRequest
 } from './validations'
 
 export async function createServerComponent({
@@ -46,13 +51,14 @@ export async function createServerComponent({
   logs,
   metrics,
   onboarding,
+  accountDeletion,
   email,
   nudgeJob,
   storage,
   tracer,
   requestExpirationInSeconds,
   dclPersonalSignExpirationInSeconds
-}: Pick<AppComponents, 'config' | 'logs' | 'metrics' | 'onboarding' | 'email' | 'nudgeJob' | 'storage' | 'tracer'> & {
+}: Pick<AppComponents, 'config' | 'logs' | 'metrics' | 'onboarding' | 'accountDeletion' | 'email' | 'nudgeJob' | 'storage' | 'tracer'> & {
   requestExpirationInSeconds: number
   dclPersonalSignExpirationInSeconds: number
 }): Promise<IServerComponent> {
@@ -68,6 +74,15 @@ export async function createServerComponent({
     origin: (await config.requireString('CORS_ORIGIN')).split(';').map(origin => new RegExp(origin)),
     methods: await config.requireString('CORS_METHODS')
   }
+
+  // Exact-match allowlist of browser Origins permitted to call the account
+  // deletion endpoint (defense-in-depth on top of CORS). Empty disables the check.
+  const accountDeletionAllowedOrigins = new Set(
+    ((await config.getString('ACCOUNT_DELETION_ALLOWED_ORIGINS')) || '')
+      .split(';')
+      .map(origin => origin.trim().toLowerCase())
+      .filter(origin => origin.length > 0)
+  )
 
   // Metrics configuration
   const metricsPath = (await config.getString('WKC_METRICS_PUBLIC_PATH')) || '/metrics'
@@ -1030,6 +1045,81 @@ export async function createServerComponent({
           return sendResponse<InvalidResponseMessage>(res, 400, {
             error: errorMessage
           })
+        }
+      }
+    )
+
+    // Account deletion endpoint — permanently deletes the user's Magic account
+    // (irreversible) and purges local PII. Layered auth: DCL signed-fetch
+    // (req.auth) + a fresh Magic DID token, cross-checked to the same address.
+    app.delete(
+      '/accounts',
+      authMiddleware({
+        optional: false,
+        onError: err => ({
+          error: err.message,
+          message: 'This endpoint requires a signed fetch request. See ADR-44.'
+        }),
+        verifyMetadataContent: metadata => metadata?.signer !== 'decentraland-kernel-scene' // prevent requests from scenes
+      }),
+      async (req: Request & DecentralandSignatureData) => {
+        const res = req.res as Response
+        const deletionLogger = logs.getLogger('account-deletion-endpoint')
+
+        // Defense-in-depth: restrict to official Decentraland browser origins.
+        const origin = (req.headers.origin || '').toLowerCase()
+        if (accountDeletionAllowedOrigins.size > 0 && (!origin || !accountDeletionAllowedOrigins.has(origin))) {
+          deletionLogger.log(`Rejected account deletion from disallowed origin: ${req.headers.origin ?? 'none'}`)
+          return sendResponse<InvalidResponseMessage>(res, 403, { error: 'Origin not allowed' })
+        }
+
+        let body: AccountDeletionRequest
+        try {
+          body = validateAccountDeletionRequest(req.body)
+        } catch (e) {
+          return sendResponse<InvalidResponseMessage>(res, 400, {
+            error: isErrorWithMessage(e) ? e.message : 'Unknown error'
+          })
+        }
+
+        const requestSender = req.auth
+        if (!requestSender) {
+          return sendResponse<InvalidResponseMessage>(res, 401, { error: 'Request signer is required' })
+        }
+
+        try {
+          const result = await accountDeletion.deleteAccount({
+            signedFetchAddress: requestSender,
+            didToken: body.didToken,
+            ip: getClientIp(req)
+          })
+
+          return sendResponse<AccountDeletionResponse>(res, 200, {
+            deleted: true,
+            address: result.address,
+            magic: result.magic
+          })
+        } catch (e) {
+          const message = isErrorWithMessage(e) ? e.message : 'Unknown error'
+
+          if (e instanceof MagicTokenInvalidError || e instanceof MagicTokenExpiredError) {
+            deletionLogger.log(`Rejected account deletion: invalid DID token: ${message}`)
+            return sendResponse<InvalidResponseMessage>(res, 401, { error: message })
+          }
+
+          if (e instanceof AddressMismatchError || e instanceof DidTokenStaleError || e instanceof DidTokenReusedError) {
+            deletionLogger.log(`Rejected account deletion: ${message}`)
+            return sendResponse<InvalidResponseMessage>(res, 403, { error: message })
+          }
+
+          if (e instanceof MagicRateLimitError) {
+            deletionLogger.log(`Account deletion rate limited by Magic: ${message}`)
+            return sendResponse<InvalidResponseMessage>(res, 429, { error: message })
+          }
+
+          // MagicAuthError (our misconfig), MagicDeletionError, and anything else.
+          deletionLogger.error(`Account deletion failed: ${message}`)
+          return sendResponse<InvalidResponseMessage>(res, 500, { error: 'Internal server error' })
         }
       }
     )

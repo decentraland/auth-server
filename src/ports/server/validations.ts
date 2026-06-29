@@ -9,7 +9,8 @@ import {
   RequestMessage,
   RequestValidationMessage,
   IdentityRequest,
-  CheckpointRequest
+  CheckpointRequest,
+  AccountDeletionRequest
 } from './types'
 
 const ajv = new Ajv({ allowUnionTypes: true })
@@ -176,6 +177,19 @@ const checkpointRequestSchema = {
   additionalProperties: false
 }
 
+const accountDeletionRequestSchema = {
+  type: 'object',
+  properties: {
+    didToken: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 4096
+    }
+  },
+  required: ['didToken'],
+  additionalProperties: false
+}
+
 const requestMessageValidator = ajv.compile(requestMessageSchema)
 const recoverMessageValidator = ajv.compile(recoverMessageSchema)
 const outcomeMessageValidator = ajv.compile(outcomeMessageSchema)
@@ -183,6 +197,7 @@ const httpOutcomeMessageValidator = ajv.compile(httpOutcomeMessageSchema)
 const requestValidationMessageValidator = ajv.compile(requestValidationMessageSchema)
 const identityIdRequestValidator = ajv.compile(identityRequestSchema)
 const checkpointRequestValidator = ajv.compile(checkpointRequestSchema)
+const accountDeletionRequestValidator = ajv.compile(accountDeletionRequestSchema)
 
 export function validateRequestMessage(msg: unknown) {
   if (!requestMessageValidator(msg)) {
@@ -248,4 +263,12 @@ export function validateCheckpointRequest(msg: unknown) {
   }
 
   return msg as CheckpointRequest
+}
+
+export function validateAccountDeletionRequest(msg: unknown) {
+  if (!accountDeletionRequestValidator(msg)) {
+    throw new Error(JSON.stringify(accountDeletionRequestValidator.errors))
+  }
+
+  return msg as AccountDeletionRequest
 }

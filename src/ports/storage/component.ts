@@ -5,6 +5,7 @@ const REQUESTS_CACHE_KEY_PREFIX = 'request:'
 const REQUEST_IDS_BY_SOCKET_ID_CACHE_KEY_PREFIX = 'requestIdsBySocketId:'
 const IDENTITIES_BY_ID_CACHE_KEY_PREFIX = 'identity:'
 const IDENTITY_STATUS_CACHE_KEY_PREFIX = 'identity-status:'
+const DID_TOKEN_ID_CACHE_KEY_PREFIX = 'magic-did-tid:'
 const TWO_WEEKS_IN_SECONDS = 14 * 24 * 60 * 60
 
 /** Normalize cache value to Date (Redis/JSON returns string; in-memory may return Date). */
@@ -116,6 +117,16 @@ export function createStorageComponent({ cache }: Pick<AppComponents, 'cache'>):
     await cache.set(getIdentityStatusCacheKey(identityId), { ...existing, ...updates }, TWO_WEEKS_IN_SECONDS)
   }
 
+  const consumeDidTokenId = async (tid: string, ttlSeconds: number): Promise<boolean> => {
+    const key = `${DID_TOKEN_ID_CACHE_KEY_PREFIX}${tid}`
+    const existing = await cache.get<boolean>(key)
+    if (existing) {
+      return false
+    }
+    await cache.set(key, true, Math.max(1, Math.ceil(ttlSeconds)))
+    return true
+  }
+
   return {
     getRequest,
     setRequest,
@@ -125,6 +136,7 @@ export function createStorageComponent({ cache }: Pick<AppComponents, 'cache'>):
     deleteIdentity,
     getIdentityStatus,
     setIdentityStatus,
-    updateIdentityStatus
+    updateIdentityStatus,
+    consumeDidTokenId
   }
 }

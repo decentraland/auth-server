@@ -8,6 +8,8 @@ import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
 import { createRedisComponent } from '@dcl/redis-component'
 import { createSlackComponent } from '@dcl/slack-component'
 import { createFeatureFlagsAdapter } from './adapters/feature-flags'
+import { createMagicAdapter } from './adapters/magic'
+import { createAccountDeletionComponent } from './logic/account-deletion'
 import { metricDeclarations } from './metrics'
 import { createPgComponent } from './ports/db/component'
 import { createEmailComponent } from './ports/email/component'
@@ -22,6 +24,7 @@ export async function initComponents(): Promise<AppComponents> {
   const config = await createDotEnvConfigComponent({ path: ['.env.default', '.env'] })
   const requestExpirationInSeconds = await config.requireNumber('REQUEST_EXPIRATION_IN_SECONDS')
   const dclPersonalSignExpirationInSeconds = await config.requireNumber('DCL_PERSONAL_SIGN_REQUEST_EXPIRATION_IN_SECONDS')
+  const didTokenMaxAgeSeconds = await config.requireNumber('MAGIC_DID_TOKEN_MAX_AGE_SECONDS')
   const tracer = await createTracerComponent()
   const logs = await createLogComponent({ tracer })
   const metrics = await createMetricsComponent(metricDeclarations, { config })
@@ -30,12 +33,14 @@ export async function initComponents(): Promise<AppComponents> {
   const db = await createPgComponent({ config, logs, metrics }, {})
   const storage = createStorageComponent({ cache })
   const fetch = createFetchComponent()
+  const magic = await createMagicAdapter({ config, logs, fetch })
   const features = await createFeaturesComponent(
     { config, logs, fetch },
     (await config.getString('SERVICE_BASE_URL')) || 'https://auth-api.decentraland.org'
   )
   const featureFlags = createFeatureFlagsAdapter({ logs, features })
   const onboarding = createOnboardingComponent({ db, logs })
+  const accountDeletion = createAccountDeletionComponent({ magic, storage, onboarding, logs, didTokenMaxAgeSeconds })
   const email = await createEmailComponent({ config, logs })
   const slackToken = await config.getString('SLACK_BOT_TOKEN')
   const slack = createSlackComponent({ logs }, { token: slackToken ?? '' })
@@ -45,6 +50,7 @@ export async function initComponents(): Promise<AppComponents> {
     logs,
     metrics,
     onboarding,
+    accountDeletion,
     email,
     nudgeJob,
     storage,
@@ -59,6 +65,8 @@ export async function initComponents(): Promise<AppComponents> {
     fetch,
     features,
     featureFlags,
+    magic,
+    accountDeletion,
     nudgeJob,
     db,
     email,
