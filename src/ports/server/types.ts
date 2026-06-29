@@ -101,6 +101,19 @@ export type CheckpointRequest = {
   metadata?: Record<string, unknown>
 }
 
+export type AccountDeletionMetadata = {
+  didToken: string
+}
+
+export type AccountDeletionResponse = {
+  deleted: boolean
+  address: string
+  magic: {
+    processed: string[]
+    unprocessed: string[]
+  }
+}
+
 export type InputMessage = RequestMessage | RecoverMessage | OutcomeMessage | IdentityRequest
 
 export type ResponseMessage = RequestResponseMessage | RecoverResponseMessage | OutcomeResponseMessage | InvalidResponseMessage

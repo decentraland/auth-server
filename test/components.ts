@@ -10,6 +10,8 @@ import { createRunner } from '@well-known-components/test-helpers'
 import { createTracerComponent } from '@well-known-components/tracer-component'
 import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
 import { ISlackComponent } from '@dcl/slack-component'
+import { IMagicAdapter } from '../src/adapters/magic'
+import { createAccountDeletionComponent } from '../src/logic/account-deletion'
 import { metricDeclarations } from '../src/metrics'
 import { IPgComponent } from '../src/ports/db/types'
 import { IEmailComponent } from '../src/ports/email/types'
@@ -23,6 +25,7 @@ import { TestComponents } from '../src/types'
 type TestOverrides = {
   requestExpirationInSeconds?: number
   dclPersonalSignExpirationInSeconds?: number
+  didTokenMaxAgeSeconds?: number
 }
 
 /**
@@ -75,6 +78,17 @@ function createMockLogs(): ILoggerComponent {
 }
 
 /**
+ * Creates a mock Magic adapter. Tests control its behavior per-case via
+ * `args.components.magic.validateDidToken` / `requestUserDeletion`.
+ */
+export function createMockMagicAdapter(): IMagicAdapter {
+  return {
+    validateDidToken: jest.fn(),
+    requestUserDeletion: jest.fn().mockResolvedValue({ processed: [], unprocessed: [] })
+  } as unknown as IMagicAdapter
+}
+
+/**
  * Behaves like Jest "describe" function, used to describe a test for a
  * use case, it creates a whole new program and components to run an
  * isolated test.
@@ -100,7 +114,11 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
 
   const config = await createDotEnvConfigComponent(
     { path: [path.resolve(__dirname, '../.env.spec')] },
-    { HTTP_SERVER_PORT: httpServerPort.toString(), CORS_ORIGIN: 'https://test-*.org;https://test-*.zone' }
+    {
+      HTTP_SERVER_PORT: httpServerPort.toString(),
+      CORS_ORIGIN: 'https://test-*.org;https://test-*.zone',
+      ACCOUNT_DELETION_ALLOWED_ORIGINS: 'https://account.decentraland.org'
+    }
   )
 
   const tracer = await createTracerComponent()
@@ -110,6 +128,13 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
   const db = createMockDbComponent()
   const storage = createStorageComponent({ cache })
   const onboarding = createOnboardingComponent({ db, logs })
+  const magic = createMockMagicAdapter()
+  const accountDeletion = createAccountDeletionComponent({
+    magic,
+    storage,
+    logs,
+    didTokenMaxAgeSeconds: overrides.didTokenMaxAgeSeconds ?? 120
+  })
   const email = createMockEmailComponent()
   const slack: ISlackComponent = {
     sendMessage: jest.fn().mockResolvedValue(undefined)
@@ -128,6 +153,7 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     logs,
     metrics,
     onboarding,
+    accountDeletion,
     email,
     nudgeJob,
     tracer,
@@ -141,6 +167,8 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     fetch,
     features,
     featureFlags,
+    magic,
+    accountDeletion,
     nudgeJob,
     db,
     email,

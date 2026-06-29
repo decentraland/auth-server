@@ -11,6 +11,12 @@ export type IStorageComponent = {
   getIdentityStatus(identityId: string): Promise<IdentityStatus | null>
   setIdentityStatus(identityId: string, status: IdentityStatus): Promise<void>
   updateIdentityStatus(identityId: string, updates: Partial<IdentityStatus>): Promise<void>
+  /**
+   * Marks a Magic DID token id (`tid`) as used. Returns `true` if it was not
+   * seen before (and is now recorded for `ttlSeconds`), `false` if it was
+   * already used — enabling one-time-use enforcement to prevent replay.
+   */
+  consumeDidTokenId(tid: string, ttlSeconds: number): Promise<boolean>
 }
 
 export type StorageRequest = Request & {

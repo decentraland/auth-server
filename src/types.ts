@@ -1,6 +1,8 @@
 import type { ICacheStorageComponent } from '@dcl/core-commons'
 import type { ISlackComponent } from '@dcl/slack-component'
 import type { IFeatureFlagsAdapter } from './adapters/feature-flags'
+import type { IMagicAdapter } from './adapters/magic'
+import type { IAccountDeletionComponent } from './logic/account-deletion'
 import type { metricDeclarations } from './metrics'
 import type { IPgComponent } from './ports/db/types'
 import type { IEmailComponent } from './ports/email/types'
@@ -27,6 +29,8 @@ export type BaseComponents = {
   fetch: IFetchComponent
   features: IFeaturesComponent
   featureFlags: IFeatureFlagsAdapter
+  magic: IMagicAdapter
+  accountDeletion: IAccountDeletionComponent
   nudgeJob: INudgeJobComponent
   db: IPgComponent
   email: IEmailComponent
