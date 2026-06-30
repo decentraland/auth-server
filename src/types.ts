@@ -1,4 +1,5 @@
-import type { ICacheStorageComponent } from '@dcl/core-commons'
+import type { ICacheStorageComponent, IFetchComponent } from '@dcl/core-commons'
+import type { IFeaturesComponent } from '@dcl/features-component'
 import type { ISlackComponent } from '@dcl/slack-component'
 import type { IFeatureFlagsAdapter } from './adapters/feature-flags'
 import type { IMagicAdapter } from './adapters/magic'
@@ -10,14 +11,7 @@ import type { INudgeJobComponent } from './ports/nudge-job/types'
 import type { IOnboardingComponent } from './ports/onboarding/types'
 import type { IServerComponent } from './ports/server/types'
 import type { IStorageComponent } from './ports/storage/types'
-import type { IFeaturesComponent } from '@well-known-components/features-component'
-import type {
-  IConfigComponent,
-  IFetchComponent,
-  ILoggerComponent,
-  IMetricsComponent,
-  ITracerComponent
-} from '@well-known-components/interfaces'
+import type { IConfigComponent, ILoggerComponent, IMetricsComponent, ITracerComponent } from '@well-known-components/interfaces'
 
 export type GlobalContext = {
   components: BaseComponents

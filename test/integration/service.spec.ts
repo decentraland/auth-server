@@ -1,6 +1,6 @@
-import { TestArguments } from '@well-known-components/test-helpers'
 import { Socket } from 'socket.io-client'
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
+import { TestArguments } from '@dcl/test-helpers'
 import { METHOD_DCL_PERSONAL_SIGN } from '../../src/ports/server/constants'
 import { MessageType, RequestResponseMessage, RequestValidationMessage } from '../../src/ports/server/types'
 import { BaseComponents } from '../../src/types'

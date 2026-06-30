@@ -8,8 +8,8 @@ import express, { Request, Response } from 'express'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
 import { Authenticator, parseEmphemeralPayload } from '@dcl/crypto'
+import { express as authMiddleware, DecentralandSignatureData } from '@dcl/crypto-middleware'
 import { AuthChain } from '@dcl/schemas'
-import { express as authMiddleware, DecentralandSignatureData } from 'decentraland-crypto-middleware'
 import { MagicRateLimitError, MagicTokenExpiredError, MagicTokenInvalidError } from '../../adapters/magic'
 import { AddressMismatchError, DidTokenReusedError, DidTokenStaleError } from '../../logic/account-deletion'
 import { isErrorWithMessage } from '../../logic/error-handling'
@@ -955,7 +955,7 @@ export async function createServerComponent({
           error: err.message,
           message: 'This endpoint requires a signed fetch request. See ADR-44.'
         }),
-        verifyMetadataContent: metadata => metadata?.signer !== 'decentraland-kernel-scene' // prevent requests from scenes
+        metadataValidator: metadata => metadata?.signer !== 'decentraland-kernel-scene' // prevent requests from scenes
       }),
       async (req: Request & DecentralandSignatureData) => {
         const res = req.res as Response
@@ -1060,7 +1060,7 @@ export async function createServerComponent({
           error: err.message,
           message: 'This endpoint requires a signed fetch request. See ADR-44.'
         }),
-        verifyMetadataContent: metadata => metadata?.signer !== 'decentraland-kernel-scene' // prevent requests from scenes
+        metadataValidator: metadata => metadata?.signer !== 'decentraland-kernel-scene' // prevent requests from scenes
       }),
       async (req: Request & DecentralandSignatureData) => {
         const res = req.res as Response
