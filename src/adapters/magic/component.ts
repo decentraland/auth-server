@@ -57,10 +57,13 @@ export async function createMagicAdapter({
     })
 
     if (response.status === 401) {
+      // Drain the body so undici releases the socket back to the pool before throwing.
+      await response.body?.cancel().catch(() => undefined)
       throw new MagicAuthError('Magic rejected the secret key (401)')
     }
 
     if (response.status === 429) {
+      await response.body?.cancel().catch(() => undefined)
       throw new MagicRateLimitError('Magic deletion rate limit exceeded (429)')
     }
 
