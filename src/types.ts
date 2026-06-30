@@ -1,3 +1,4 @@
+import type { IAnalyticsComponent } from '@dcl/analytics-component'
 import type { ICacheStorageComponent } from '@dcl/core-commons'
 import type { ISlackComponent } from '@dcl/slack-component'
 import type { IFeatureFlagsAdapter } from './adapters/feature-flags'
@@ -10,6 +11,7 @@ import type { INudgeJobComponent } from './ports/nudge-job/types'
 import type { IOnboardingComponent } from './ports/onboarding/types'
 import type { IServerComponent } from './ports/server/types'
 import type { IStorageComponent } from './ports/storage/types'
+import type { AnalyticsEventPayload } from './types/analytics'
 import type { IFeaturesComponent } from '@well-known-components/features-component'
 import type {
   IConfigComponent,
@@ -25,6 +27,7 @@ export type GlobalContext = {
 
 // components used in every environment.
 export type BaseComponents = {
+  analytics: IAnalyticsComponent<AnalyticsEventPayload>
   config: IConfigComponent
   fetch: IFetchComponent
   features: IFeaturesComponent

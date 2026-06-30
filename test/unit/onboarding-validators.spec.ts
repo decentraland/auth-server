@@ -21,12 +21,22 @@ describe('when validating a valid checkpoint request', () => {
     expect(result).toMatchObject({ action: 'completed', identifierType: 'email' })
   })
 
-  it('should accept all checkpoint ids from 1 to 7', () => {
-    for (let id = 1; id <= 7; id++) {
+  it('should accept all checkpoint ids from 1 to 3', () => {
+    for (let id = 1; id <= 3; id++) {
       expect(() =>
-        validateCheckpointRequest({ checkpointId: id, userIdentifier: 'x', identifierType: 'wallet', action: 'reached' })
+        validateCheckpointRequest({ checkpointId: id, userIdentifier: 'x', identifierType: 'anon', action: 'reached' })
       ).not.toThrow()
     }
+  })
+
+  it('should accept identifierType = "anon"', () => {
+    const result = validateCheckpointRequest({
+      checkpointId: 1,
+      userIdentifier: '11111111-1111-4111-8111-111111111111',
+      identifierType: 'anon',
+      action: 'reached'
+    })
+    expect(result.identifierType).toBe('anon')
   })
 
   it('should accept an optional email field with valid format', () => {
@@ -68,8 +78,8 @@ describe('when validating an invalid checkpoint request', () => {
     expect(() => validateCheckpointRequest({ checkpointId: 0, userIdentifier: 'x', identifierType: 'wallet', action: 'reached' })).toThrow()
   })
 
-  it('should reject checkpointId = 8', () => {
-    expect(() => validateCheckpointRequest({ checkpointId: 8, userIdentifier: 'x', identifierType: 'wallet', action: 'reached' })).toThrow()
+  it('should reject checkpointId = 4 (out of new range)', () => {
+    expect(() => validateCheckpointRequest({ checkpointId: 4, userIdentifier: 'x', identifierType: 'wallet', action: 'reached' })).toThrow()
   })
 
   it('should reject unknown identifierType', () => {

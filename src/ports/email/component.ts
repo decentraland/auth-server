@@ -1,281 +1,54 @@
 import sgMail from '@sendgrid/mail'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
-import { IEmailComponent, SendNudgeParams } from './types'
+import { IEmailComponent, SendNudgeParams, SendNudgeResult } from './types'
 
 // ---------------------------------------------------------------------------
-// Per-checkpoint, per-sequence nudge email content
+// Per-sequence nudge email content (CP2 = authenticated, no CP3 yet)
 // ---------------------------------------------------------------------------
 
 type NudgeContent = {
   subject: string
   preheader: string
-  heading: string // HTML — use <br> for line breaks, <span class="gradient-text"> for highlighted words
-  body: string // HTML paragraphs
+  heading: string
+  body: string
   buttonText: string
   buttonUrl: string
   tagline: string
 }
 
-// Helper: wraps text in a gradient span (orange→red, falls back to #FF2D55 in Outlook)
 const g = (text: string): string => `<span class="gradient-text">${text}</span>`
 
-function seqMap(seq1: NudgeContent, seq2: NudgeContent, seq3: NudgeContent): Map<number, NudgeContent> {
-  return new Map([
-    [1, seq1],
-    [2, seq2],
-    [3, seq3]
-  ])
+// Record keyed by the discriminated `sequence` literal — TypeScript guarantees
+// every valid sequence has content, so callers don't need a runtime guard.
+/* eslint-disable @typescript-eslint/naming-convention */
+const NUDGE_CONTENT: Record<1 | 2, NudgeContent> = {
+  1: {
+    subject: 'Your Decentraland account is ready — jump in',
+    preheader: 'Open Decentraland and continue where you left off.',
+    heading: `Your account is ${g('ready.')}<br>Time to step in.`,
+    body:
+      '<p style="margin:0 0 14px 0;">You finished signing in but haven\'t entered the world yet.</p>' +
+      '<p style="margin:0 0 14px 0;">Decentraland is a place you actually move through. Events are happening, people are exploring, and your avatar is waiting.</p>' +
+      '<p style="margin:0;">Open Decentraland and continue.</p>',
+    buttonText: 'Open Decentraland',
+    buttonUrl: 'https://decentraland.org/download',
+    tagline: 'One step gets you in.'
+  },
+  2: {
+    subject: 'Still want to explore? The world is live',
+    preheader: 'Open Decentraland and join everyone inside.',
+    heading: `Something is ${g('happening right now.')}`,
+    body:
+      '<p style="margin:0 0 14px 0;">Decentraland isn\'t just an account you set up — it\'s a place you show up.</p>' +
+      '<p style="margin:0 0 14px 0;">Events are running. Conversations are starting. People are exploring together.</p>' +
+      '<p style="margin:0;">You\'re one step away from joining them.</p>',
+    buttonText: 'Open Decentraland',
+    buttonUrl: 'https://decentraland.org/download',
+    tagline: 'The world is waiting.'
+  }
 }
-
-// prettier-ignore
-const NUDGE_CONTENT = new Map<number, Map<number, NudgeContent>>([
-
-  // ── CP2 — Auth Method Selected ────────────────────────────────────────────
-  [2, seqMap(
-    {
-      subject: 'Trouble Signing In?',
-      preheader: 'You started, but something may have interrupted the process.',
-      heading: `You started ${g('signing in,')}<br>but something cut the process short.`,
-      body:
-        '<p style="margin:0 0 14px 0;">That happens. A window might not have opened.</p>' +
-        '<p style="margin:0;">You can pick up where you left off and continue signing up.</p>',
-      buttonText: 'Continue Sign Up',
-      buttonUrl: 'https://decentraland.org/auth/login',
-
-      tagline: 'One step gets you in.'
-    },
-    {
-      subject: "You're Getting Closer",
-      preheader: "Finish signing in and choose how you'll appear in Decentraland.",
-      heading: `You're one step away<br>from ${g('choosing your name.')}`,
-      body:
-        '<p style="margin:0 0 14px 0;">Once the sign up finishes, the next step is creating your username.</p>' +
-        '<p style="margin:0 0 14px 0;">This is the name people will see when you explore places, join events, or run into someone in Decentraland.</p>' +
-        '<p style="margin:0;">You can always change how you show up later. Right now, all you need to do is finish signing in.</p>',
-      buttonText: 'Continue Sign Up',
-      buttonUrl: 'https://decentraland.org/auth/login',
-
-      tagline: 'One step gets you in.'
-    },
-    {
-      subject: 'The World Is Already Active',
-      preheader: 'Events, games, and people are waiting inside.',
-      heading: `The world is ${g('already active.')}`,
-      body:
-        "<p style=\"margin:0 0 14px 0;\">Decentraland isn't just something you set up\u2014it's a place you drop into.</p>" +
-        '<p style="margin:0 0 14px 0;">Events are happening. Games are running. People are exploring together.</p>' +
-        '<p style="margin:0;">You were close to entering. Finish signing in and come hang out.</p>',
-      buttonText: 'Continue Sign Up',
-      buttonUrl: 'https://decentraland.org/auth/login',
-
-      tagline: 'One step gets you in.'
-    }
-  )],
-
-  // ── CP3 — Profile Creation ────────────────────────────────────────────────
-  [3, seqMap(
-    {
-      subject: 'Finish Choosing Your Name',
-      preheader: "You started creating your profile but didn't finish.",
-      heading: `You were ${g('choosing your name,')} but didn't finish.`,
-      body:
-        '<p style="margin:0 0 14px 0;">Your username is how people recognize you in Decentraland.</p>' +
-        '<p style="margin:0 0 14px 0;">It appears above your avatar when you talk, explore places, or run into someone again later.</p>' +
-        "<p style=\"margin:0 0 14px 0;\">It doesn't need to be perfect. Most people change things once they've spent time inside.</p>" +
-        '<p style="margin:0;">Right now, just pick something that gets you through the door.</p>',
-      buttonText: 'Continue Profile Setup',
-      buttonUrl: 'https://decentraland.org/auth/login',
-
-      tagline: 'Your name is your first impression.'
-    },
-    {
-      subject: 'Your Name Is How People Find You',
-      preheader: 'Finish creating your profile to continue.',
-      heading: `Choose how ${g("you'll appear.")}`,
-      body:
-        '<p style="margin:0 0 14px 0;">In Decentraland, your username is how people recognize you.</p>' +
-        "<p style=\"margin:0 0 14px 0;\">It's what appears when you speak, explore places, or return somewhere later and see familiar faces.</p>" +
-        '<p style="margin:0 0 14px 0;">Choose something that feels like you for now. You can always change it later.</p>' +
-        "<p style=\"margin:0;\">Once that's done, you'll move on to creating your avatar.</p>",
-      buttonText: 'Continue Profile Setup',
-      buttonUrl: 'https://decentraland.org/auth/login',
-
-      tagline: 'Your name is your first impression.'
-    },
-    {
-      subject: 'People Remember Names',
-      preheader: 'Finish creating your profile and step inside.',
-      heading: `People remember ${g('who they meet here.')}`,
-      body:
-        '<p style="margin:0 0 14px 0;">Decentraland is a place where people run into each other.</p>' +
-        '<p style="margin:0 0 14px 0;">You recognize avatars. You recognize names. Over time, you start to notice familiar faces.</p>' +
-        '<p style="margin:0 0 14px 0;">That all begins with choosing your name.</p>' +
-        '<p style="margin:0;">Finish setting up your profile and continue inside.</p>',
-      buttonText: 'Continue Profile Setup',
-      buttonUrl: 'https://decentraland.org/auth/login',
-
-      tagline: 'Your name is your first impression.'
-    }
-  )],
-
-  // ── CP4 — Avatar Creator ──────────────────────────────────────────────────
-  [4, seqMap(
-    {
-      subject: 'Your Avatar Is Almost Ready',
-      preheader: "You started creating it but didn't finish.",
-      heading: `Your avatar is ${g('waiting')}<br>to be finished.`,
-      body:
-        "<p style=\"margin:0 0 14px 0;\">You started creating your avatar but didn't complete it.</p>" +
-        '<p style="margin:0 0 14px 0;">That\'s normal. This part can feel bigger than it is.</p>' +
-        "<p style=\"margin:0 0 14px 0;\">Your first avatar doesn't have to be perfect. Many people change how they look later after they've spent time exploring.</p>" +
-        '<p style="margin:0;">For now, just choose something that gets you into your first hangout.</p>',
-      buttonText: 'Finish Your Avatar',
-      buttonUrl: 'https://decentraland.org/auth/login',
-
-      tagline: "You're closer than you think."
-    },
-    {
-      subject: 'This Is How People Recognize You',
-      preheader: 'Finish your avatar and continue.',
-      heading: `This is how ${g('you show up.')}`,
-      body:
-        '<p style="margin:0 0 14px 0;">Your avatar is how people recognize you when you move through Decentraland.</p>' +
-        "<p style=\"margin:0 0 14px 0;\">Clothes, colors, style\u2014it's all flexible. You can change it anytime.</p>" +
-        '<p style="margin:0 0 14px 0;">Right now, all you need is a starting point.</p>' +
-        '<p style="margin:0;">Finish your avatar and continue.</p>',
-      buttonText: 'Finish Your Avatar',
-      buttonUrl: 'https://decentraland.org/auth/login',
-
-      tagline: "You're closer than you think."
-    },
-    {
-      subject: 'People Remember Who They Meet Here',
-      preheader: 'Finish your avatar and join in.',
-      heading: `Familiar faces ${g('appear over time.')}`,
-      body:
-        '<p style="margin:0 0 14px 0;">Spend enough time in Decentraland and something interesting happens.</p>' +
-        '<p style="margin:0 0 14px 0;">You start recognizing people. Someone remembers you from a place you visited earlier.</p>' +
-        "<p style=\"margin:0 0 14px 0;\">That's how communities form.</p>" +
-        '<p style="margin:0;">Finish creating your avatar and step in.</p>',
-      buttonText: 'Finish Your Avatar',
-      buttonUrl: 'https://decentraland.org/auth/login',
-
-      tagline: "You're closer than you think."
-    }
-  )],
-
-  // ── CP5 — Download Page Viewed ────────────────────────────────────────────
-  [5, seqMap(
-    {
-      subject: 'One Step Left To Enter',
-      preheader: 'Download Decentraland to continue.',
-      heading: `You're ${g('almost there.')}`,
-      body:
-        '<p style="margin:0 0 14px 0;">You reached the point where Decentraland moves from the browser into a place you can actually move around.</p>' +
-        '<p style="margin:0 0 14px 0;">To continue, you just need to download the desktop app.</p>' +
-        "<p style=\"margin:0 0 14px 0;\">Once it's installed, you'll be able to enter anytime without setting things up again.</p>" +
-        '<p style="margin:0;">Download Decentraland and continue.</p>',
-      buttonText: 'Download Decentraland',
-      buttonUrl: 'https://decentraland.org/download',
-
-      tagline: 'The world is waiting.'
-    },
-    {
-      subject: 'Download Once, Enter Anytime',
-      preheader: 'Install Decentraland and continue.',
-      heading: `This is the step that ${g('opens everything.')}`,
-      body:
-        '<p style="margin:0 0 14px 0;">Downloading Decentraland lets you move through places in real time.</p>' +
-        "<p style=\"margin:0 0 14px 0;\">You'll see other people moving around you, conversations happening, and events taking place.</p>" +
-        '<p style="margin:0 0 14px 0;">Once the app is installed, entering becomes as simple as opening it.</p>' +
-        '<p style="margin:0;">Download Decentraland and continue.</p>',
-      buttonText: 'Download Decentraland',
-      buttonUrl: 'https://decentraland.org/download',
-
-      tagline: 'The world is waiting.'
-    },
-    {
-      subject: 'People Are Already There',
-      preheader: 'Install Decentraland and step inside.',
-      heading: `Something might be ${g('happening right now.')}`,
-      body:
-        "<p style=\"margin:0 0 14px 0;\">Decentraland isn't just something you set up. It's somewhere you show up.</p>" +
-        '<p style="margin:0 0 14px 0;">Events happen. Conversations start. Crowds gather.</p>' +
-        '<p style="margin:0;">Downloading the app is the step that lets you join in.</p>',
-      buttonText: 'Download Decentraland',
-      buttonUrl: 'https://decentraland.org/download',
-
-      tagline: 'The world is waiting.'
-    }
-  )],
-
-  // ── CP6 — Download Clicked ────────────────────────────────────────────────
-  [6, seqMap(
-    {
-      subject: 'Almost Installed',
-      preheader: 'Just open the file you downloaded.',
-      heading: `You already ${g('downloaded')}<br>Decentraland.`,
-      body:
-        '<p style="margin:0 0 14px 0;">The last step is opening the file that was downloaded.</p>' +
-        '<p style="margin:0 0 14px 0;">Look in your browser\'s recent downloads or your Downloads folder and double-click the Decentraland file.</p>' +
-        '<p style="margin:0;">The installer will open and finish the rest automatically.</p>',
-      buttonText: 'Resume Installation',
-      buttonUrl: 'https://decentraland.org/download',
-
-      tagline: 'Almost there.'
-    },
-    {
-      subject: 'One Small Step Left',
-      preheader: 'Open the installer to finish setting things up.',
-      heading: `Installation takes ${g('just a moment.')}`,
-      body:
-        "<p style=\"margin:0 0 14px 0;\">If Decentraland hasn't opened yet, the installer may still be waiting in your downloads.</p>" +
-        '<p style="margin:0 0 14px 0;">Open the file you downloaded earlier and the launcher will take it from there.</p>' +
-        "<p style=\"margin:0;\">Once it finishes, Decentraland will open and you'll be ready to continue.</p>",
-      buttonText: 'Resume Installation',
-      buttonUrl: 'https://decentraland.org/download',
-
-      tagline: 'Almost there.'
-    },
-    {
-      subject: "You're Right At The Threshold",
-      preheader: 'Open the installer and step inside.',
-      heading: `You're ${g('almost in.')}`,
-      body:
-        '<p style="margin:0 0 14px 0;">Decentraland is already on your computer.</p>' +
-        "<p style=\"margin:0 0 14px 0;\">All that's left is opening the installer you downloaded earlier.</p>" +
-        "<p style=\"margin:0;\">Once it runs, the launcher will open and you'll be ready to join everyone inside.</p>",
-      buttonText: 'Resume Installation',
-      buttonUrl: 'https://decentraland.org/download',
-
-      tagline: 'Almost there.'
-    }
-  )]
-])
-
-// Fallback for checkpoints without specific content (CP1, CP7)
-// prettier-ignore
-const FALLBACK_CHECKPOINT_NAMES = new Map<number, string>([
-  [1, 'Authentication Started'],
-  [2, 'Auth Method Selected'],
-  [3, 'Profile Creation'],
-  [4, 'Avatar Creator Started'],
-  [5, 'Download Page Viewed'],
-  [6, 'Download Clicked'],
-  [7, 'Launcher Ready']
-])
-
-// prettier-ignore
-const FALLBACK_CTA_URLS = new Map<number, string>([
-  [1, 'https://decentraland.org/auth/login'],
-  [2, 'https://decentraland.org/auth/login'],
-  [3, 'https://decentraland.org/auth/login'],
-  [4, 'https://decentraland.org/auth/login'],
-  [5, 'https://decentraland.org/download'],
-  [6, 'https://decentraland.org/download'],
-  [7, 'decentraland://']
-])
+/* eslint-enable @typescript-eslint/naming-convention */
 
 export async function createEmailComponent({ config, logs }: Pick<AppComponents, 'config' | 'logs'>): Promise<IEmailComponent> {
   const logger = logs.getLogger('email-component')
@@ -286,34 +59,20 @@ export async function createEmailComponent({ config, logs }: Pick<AppComponents,
 
   sgMail.setApiKey(apiKey)
 
-  const sendNudge = async (params: SendNudgeParams): Promise<string | undefined> => {
-    const { to, checkpointId, sequence } = params
+  const sendNudge = async (params: SendNudgeParams): Promise<SendNudgeResult> => {
+    const { to, sequence } = params
 
-    const content = NUDGE_CONTENT.get(checkpointId)?.get(sequence)
-    const cpName = FALLBACK_CHECKPOINT_NAMES.get(checkpointId) ?? `Checkpoint ${checkpointId}`
+    const content = NUDGE_CONTENT[sequence]
 
-    const dynamicTemplateData = content
-      ? {
-          subject: content.subject,
-          preheader: content.preheader,
-          heading: content.heading,
-          body: content.body,
-          buttonText: content.buttonText,
-          buttonUrl: content.buttonUrl,
-          checkpointId,
-          tagline: content.tagline
-        }
-      : {
-          // Fallback for unmapped checkpoints
-          subject: 'Continue your Decentraland setup',
-          preheader: `You were on the ${cpName} step.`,
-          heading: "You're almost there.",
-          body: '<p style="margin:0;">You were in the middle of setting up your Decentraland account. Pick up where you left off.</p>',
-          buttonText: 'Continue',
-          buttonUrl: FALLBACK_CTA_URLS.get(checkpointId) ?? 'https://decentraland.org',
-          checkpointId,
-          tagline: "You're closer than you think."
-        }
+    const dynamicTemplateData = {
+      subject: content.subject,
+      preheader: content.preheader,
+      heading: content.heading,
+      body: content.body,
+      buttonText: content.buttonText,
+      buttonUrl: content.buttonUrl,
+      tagline: content.tagline
+    }
 
     const msg: sgMail.MailDataRequired = {
       to,
@@ -325,13 +84,17 @@ export async function createEmailComponent({ config, logs }: Pick<AppComponents,
     try {
       const [response] = await sgMail.send(msg)
       const messageId = response.headers['x-message-id']
-      logger.log(`[CP:${checkpointId}][TO:${to}][SEQ:${sequence}] Nudge email sent. Message ID: ${messageId}`)
-      return messageId
+      if (!messageId) {
+        const error = 'SendGrid returned no message id'
+        logger.error(`[TO:${to}][SEQ:${sequence}] ${error}`)
+        return { ok: false, templateId, error }
+      }
+      logger.log(`[TO:${to}][SEQ:${sequence}] Nudge email sent. Message ID: ${messageId}`)
+      return { ok: true, templateId, messageId }
     } catch (e) {
-      logger.error(
-        `[CP:${checkpointId}][TO:${to}][SEQ:${sequence}] Failed to send nudge email: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`
-      )
-      return undefined
+      const error = isErrorWithMessage(e) ? e.message : 'Unknown error'
+      logger.error(`[TO:${to}][SEQ:${sequence}] Failed to send nudge email: ${error}`)
+      return { ok: false, templateId, error }
     }
   }
 
