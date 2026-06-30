@@ -1,8 +1,5 @@
-import { IBaseComponent } from '@well-known-components/interfaces'
 import { AuthIdentity } from '@dcl/crypto'
 import { AuthChain } from '@dcl/schemas'
-
-export type IServerComponent = IBaseComponent
 
 export enum MessageType {
   REQUEST = 'request',

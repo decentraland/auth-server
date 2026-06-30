@@ -5,6 +5,7 @@ import path from 'node:path'
 import { createDotEnvConfigComponent } from '@well-known-components/env-config-provider'
 import { ILoggerComponent } from '@well-known-components/interfaces'
 import { createLogComponent } from '@well-known-components/logger'
+import { createServerComponent, instrumentHttpServerWithPromClientRegistry } from '@dcl/http-server'
 import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
 import { createTestMetricsComponent } from '@dcl/metrics'
 import { ISlackComponent } from '@dcl/slack-component'
@@ -12,15 +13,16 @@ import { createRunner } from '@dcl/test-helpers'
 import { createTracerComponent } from '@dcl/tracer-component'
 import { IMagicAdapter } from '../src/adapters/magic'
 import { createAccountDeletionComponent } from '../src/logic/account-deletion'
+import { createSocketServerComponent } from '../src/logic/socket-server'
 import { metricDeclarations } from '../src/metrics'
 import { IPgComponent } from '../src/ports/db/types'
 import { IEmailComponent } from '../src/ports/email/types'
 import { createNudgeJobComponent } from '../src/ports/nudge-job/component'
 import { createOnboardingComponent } from '../src/ports/onboarding/component'
-import { createServerComponent } from '../src/ports/server/component'
+import { MAX_BODY_SIZE_BYTES } from '../src/ports/server/constants'
 import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
-import { TestComponents } from '../src/types'
+import { GlobalContext, TestComponents } from '../src/types'
 
 type TestOverrides = {
   requestExpirationInSeconds?: number
@@ -117,7 +119,11 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     {
       HTTP_SERVER_PORT: httpServerPort.toString(),
       CORS_ORIGIN: 'https://test-*.org;https://test-*.zone',
-      ACCOUNT_DELETION_ALLOWED_ORIGINS: 'https://account.decentraland.org'
+      ACCOUNT_DELETION_ALLOWED_ORIGINS: 'https://account.decentraland.org',
+      // Expiration values are read from config by both the HTTP request handlers and the
+      // socket-server, so per-test overrides are injected here as config defaults.
+      REQUEST_EXPIRATION_IN_SECONDS: String(overrides.requestExpirationInSeconds ?? 5 * 60), // 5 Minutes
+      DCL_PERSONAL_SIGN_REQUEST_EXPIRATION_IN_SECONDS: String(overrides.dclPersonalSignExpirationInSeconds ?? 5 * 60) // 5 Minutes
     }
   )
 
@@ -148,19 +154,30 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
   const fetch = { fetch: jest.fn() } as unknown as TestComponents['fetch']
   const features = { getIsFeatureEnabled: jest.fn(), getFeatureVariant: jest.fn() } as unknown as TestComponents['features']
   const nudgeJob = createNudgeJobComponent({ onboarding, email, slack, logs: createMockLogs(), config, featureFlags })
-  const server = await createServerComponent({
-    config,
-    logs,
-    metrics,
-    onboarding,
-    accountDeletion,
-    email,
-    nudgeJob,
-    tracer,
-    storage,
-    requestExpirationInSeconds: overrides.requestExpirationInSeconds ?? 5 * 60, // 5 Minutes
-    dclPersonalSignExpirationInSeconds: overrides.dclPersonalSignExpirationInSeconds ?? 5 * 60 // 5 Minutes
-  })
+
+  const cors = {
+    origin: (await config.requireString('CORS_ORIGIN')).split(';').map(origin => new RegExp(origin)),
+    methods: (await config.requireString('CORS_METHODS')).split(',')
+  }
+
+  const server = await createServerComponent<GlobalContext>(
+    { config, logs },
+    {
+      cors: { origin: cors.origin, methods: cors.methods },
+      maxBodySize: MAX_BODY_SIZE_BYTES
+    }
+  )
+
+  await instrumentHttpServerWithPromClientRegistry({ metrics, server, config, registry: metrics.registry })
+
+  const socketServer = await createSocketServerComponent(
+    { logs, storage, tracer, server },
+    {
+      requestExpirationInSeconds: overrides.requestExpirationInSeconds ?? 5 * 60, // 5 Minutes
+      dclPersonalSignExpirationInSeconds: overrides.dclPersonalSignExpirationInSeconds ?? 5 * 60, // 5 Minutes
+      cors: { origin: cors.origin, methods: await config.requireString('CORS_METHODS') }
+    }
+  )
 
   return {
     config,
@@ -177,6 +194,7 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     metrics,
     onboarding,
     server,
+    socketServer,
     slack,
     storage
   }

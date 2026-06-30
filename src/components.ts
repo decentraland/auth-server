@@ -2,6 +2,7 @@ import { createDotEnvConfigComponent } from '@well-known-components/env-config-p
 import { createLogComponent } from '@well-known-components/logger'
 import { createFeaturesComponent } from '@dcl/features-component'
 import { createFetchComponent } from '@dcl/fetch-component'
+import { createServerComponent, instrumentHttpServerWithPromClientRegistry } from '@dcl/http-server'
 import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
 import { createMetricsComponent } from '@dcl/metrics'
 import { createRedisComponent } from '@dcl/redis-component'
@@ -10,14 +11,15 @@ import { createTracerComponent } from '@dcl/tracer-component'
 import { createFeatureFlagsAdapter } from './adapters/feature-flags'
 import { createMagicAdapter } from './adapters/magic'
 import { createAccountDeletionComponent } from './logic/account-deletion'
+import { createSocketServerComponent } from './logic/socket-server'
 import { metricDeclarations } from './metrics'
 import { createPgComponent } from './ports/db/component'
 import { createEmailComponent } from './ports/email/component'
 import { createNudgeJobComponent } from './ports/nudge-job/component'
 import { createOnboardingComponent } from './ports/onboarding/component'
-import { createServerComponent } from './ports/server/component'
+import { MAX_BODY_SIZE_BYTES } from './ports/server/constants'
 import { createStorageComponent } from './ports/storage/component'
-import { AppComponents } from './types'
+import { AppComponents, GlobalContext } from './types'
 
 // Initialize all the components of the app
 export async function initComponents(): Promise<AppComponents> {
@@ -28,6 +30,28 @@ export async function initComponents(): Promise<AppComponents> {
   const tracer = await createTracerComponent()
   const logs = await createLogComponent({ tracer })
   const metrics = await createMetricsComponent(metricDeclarations, { config })
+
+  const cors = {
+    origin: (await config.requireString('CORS_ORIGIN')).split(';').map(origin => new RegExp(origin)),
+    methods: (await config.requireString('CORS_METHODS')).split(',')
+  }
+
+  const server = await createServerComponent<GlobalContext>(
+    { config, logs },
+    {
+      cors: {
+        origin: cors.origin,
+        methods: cors.methods
+      },
+      maxBodySize: MAX_BODY_SIZE_BYTES
+    }
+  )
+
+  if (!metrics.registry) {
+    throw new Error('Metrics registry is not available')
+  }
+  await instrumentHttpServerWithPromClientRegistry({ metrics, server, config, registry: metrics.registry })
+
   const redisHostUrl = await config.getString('REDIS_HOST')
   const cache = redisHostUrl ? await createRedisComponent(redisHostUrl, { logs }) : createInMemoryCacheComponent()
   const db = await createPgComponent({ config, logs, metrics }, {})
@@ -45,19 +69,17 @@ export async function initComponents(): Promise<AppComponents> {
   const slackToken = await config.getString('SLACK_BOT_TOKEN')
   const slack = createSlackComponent({ logs }, { token: slackToken ?? '' })
   const nudgeJob = createNudgeJobComponent({ onboarding, email, slack, logs, config, featureFlags })
-  const server = await createServerComponent({
-    config,
-    logs,
-    metrics,
-    onboarding,
-    accountDeletion,
-    email,
-    nudgeJob,
-    storage,
-    tracer,
-    requestExpirationInSeconds,
-    dclPersonalSignExpirationInSeconds
-  })
+
+  // socket.io server: attaches to the http-server's underlying Node http.Server on start
+  // (after the http-server is listening) and owns the WebSocket protocol unchanged.
+  const socketServer = await createSocketServerComponent(
+    { logs, storage, tracer, server },
+    {
+      requestExpirationInSeconds,
+      dclPersonalSignExpirationInSeconds,
+      cors: { origin: cors.origin, methods: await config.requireString('CORS_METHODS') }
+    }
+  )
 
   return {
     cache,
@@ -74,6 +96,7 @@ export async function initComponents(): Promise<AppComponents> {
     metrics,
     onboarding,
     server,
+    socketServer,
     slack,
     storage,
     tracer

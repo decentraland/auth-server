@@ -1,0 +1,97 @@
+/**
+ * Header set by `main()` carrying the Node socket's remote address. The native
+ * `Request` the http-server builds for handlers does not expose the underlying
+ * socket, so the connection's remote address is stamped onto this header before
+ * the http-server reads the incoming message. `getClientIp` consults it as the
+ * lowest-priority fallback — preserving the previous express behavior of falling
+ * back to `req.socket.remoteAddress` when no trusted proxy header is present.
+ */
+export const SOCKET_REMOTE_ADDRESS_HEADER = 'x-socket-remote-address'
+
+// Normalizes an IP address (converts IPv6-mapped IPv4 to IPv4).
+export function normalizeIp(ip: string): string {
+  // Convert IPv6-mapped IPv4 (::ffff:xxx.xxx.xxx.xxx) to IPv4
+  if (ip.startsWith('::ffff:')) {
+    return ip.substring(7)
+  }
+  return ip.trim()
+}
+
+/**
+ * Gets the client IP address from request headers.
+ * Prioritizes trusted headers (True-Client-IP, X-Real-IP, Cloudflare's CF-Connecting-IP) over X-Forwarded-For.
+ */
+export function getClientIp(headers: Headers): string {
+  // Check True-Client-IP header (set by proxies like Cloudflare, contains the visitor's IP address)
+  const trueClientIp = headers.get('true-client-ip')
+  if (trueClientIp) {
+    return normalizeIp(trueClientIp)
+  }
+
+  // Check X-Real-IP header (set by proxies when configured, more trustworthy than X-Forwarded-For)
+  const xRealIp = headers.get('x-real-ip')
+  if (xRealIp) {
+    return normalizeIp(xRealIp)
+  }
+
+  // Check CF-Connecting-IP header first (Cloudflare's trusted header, cannot be spoofed)
+  const cfConnectingIp = headers.get('cf-connecting-ip')
+  if (cfConnectingIp) {
+    return normalizeIp(cfConnectingIp)
+  }
+
+  // Check X-Forwarded-For header (can be spoofed, use with caution)
+  // Take the first IP in the chain (original client)
+  const xForwardedFor = headers.get('x-forwarded-for')
+  if (xForwardedFor) {
+    return normalizeIp(xForwardedFor.split(',')[0])
+  }
+
+  // Fallback to the Node socket remote address (stamped onto a header by main()).
+  const fallbackIp = headers.get(SOCKET_REMOTE_ADDRESS_HEADER) || 'unknown'
+  return normalizeIp(fallbackIp)
+}
+
+// Checks if two IPs match, considering subnet/region matching.
+// For IPv4, this can match by subnet (e.g., 10.0.16.* matches 10.0.16.*).
+export function ipsMatch(ip1: string, ip2: string): boolean {
+  if (!ip1 || !ip2 || ip1 === 'unknown' || ip2 === 'unknown') {
+    return false
+  }
+
+  // Exact match
+  if (ip1 === ip2) {
+    return true
+  }
+
+  // Normalize both IPs
+  const normalizedIp1 = normalizeIp(ip1)
+  const normalizedIp2 = normalizeIp(ip2)
+
+  // Exact match after normalization
+  if (normalizedIp1 === normalizedIp2) {
+    return true
+  }
+
+  // IPv4 subnet matching: check if they're in the same /24 subnet (first 3 octets)
+  // This helps with VPNs that might use different edge servers but same region
+  const ipv4Regex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
+  const match1 = normalizedIp1.match(ipv4Regex)
+  const match2 = normalizedIp2.match(ipv4Regex)
+
+  if (match1 && match2) {
+    // Match by /24 subnet (first 3 octets)
+    if (match1[1] === match2[1] && match1[2] === match2[2] && match1[3] === match2[3]) {
+      return true
+    }
+  }
+
+  return false
+}
+
+// Formats IP-related headers for logging.
+export function formatIpHeaders(headers: Headers): string {
+  return `true-client-ip=${headers.get('true-client-ip')}, x-real-ip=${headers.get('x-real-ip')}, cf-connecting-ip=${headers.get(
+    'cf-connecting-ip'
+  )}, x-forwarded-for=${headers.get('x-forwarded-for')}`
+}

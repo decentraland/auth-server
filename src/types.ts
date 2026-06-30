@@ -1,15 +1,15 @@
-import type { ICacheStorageComponent, IFetchComponent } from '@dcl/core-commons'
+import type { ICacheStorageComponent, IFetchComponent, IHttpServerComponent } from '@dcl/core-commons'
 import type { IFeaturesComponent } from '@dcl/features-component'
 import type { ISlackComponent } from '@dcl/slack-component'
 import type { IFeatureFlagsAdapter } from './adapters/feature-flags'
 import type { IMagicAdapter } from './adapters/magic'
 import type { IAccountDeletionComponent } from './logic/account-deletion'
+import type { ISocketServerComponent } from './logic/socket-server'
 import type { metricDeclarations } from './metrics'
 import type { IPgComponent } from './ports/db/types'
 import type { IEmailComponent } from './ports/email/types'
 import type { INudgeJobComponent } from './ports/nudge-job/types'
 import type { IOnboardingComponent } from './ports/onboarding/types'
-import type { IServerComponent } from './ports/server/types'
 import type { IStorageComponent } from './ports/storage/types'
 import type { IConfigComponent, ILoggerComponent, IMetricsComponent, ITracerComponent } from '@well-known-components/interfaces'
 
@@ -31,7 +31,8 @@ export type BaseComponents = {
   logs: ILoggerComponent
   metrics: IMetricsComponent<keyof typeof metricDeclarations>
   onboarding: IOnboardingComponent
-  server: IServerComponent
+  server: IHttpServerComponent<GlobalContext>
+  socketServer: ISocketServerComponent
   slack: ISlackComponent
   storage: IStorageComponent
   tracer: ITracerComponent
@@ -47,3 +48,16 @@ export type AppComponents = BaseComponents & {
 export type TestComponents = BaseComponents & {
   // Add components that are only used on tests.
 }
+
+// this type simplifies the typings of http handlers
+export type HandlerContextWithPath<
+  ComponentNames extends keyof BaseComponents,
+  Path extends string = string
+> = IHttpServerComponent.PathAwareContext<
+  IHttpServerComponent.DefaultContext<{
+    components: Pick<BaseComponents, ComponentNames>
+  }>,
+  Path
+>
+
+export type Context<Path extends string = string> = IHttpServerComponent.PathAwareContext<GlobalContext, Path>
