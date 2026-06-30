@@ -1,5 +1,5 @@
-import { ApplicationName } from '@well-known-components/features-component'
 import { IBaseComponent, START_COMPONENT, STOP_COMPONENT } from '@well-known-components/interfaces'
+import { ApplicationName } from '@dcl/features-component'
 import { AppComponents } from '../types'
 
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes

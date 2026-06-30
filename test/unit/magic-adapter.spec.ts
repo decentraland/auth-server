@@ -1,5 +1,6 @@
 import { Magic, SDKError, ErrorCode } from '@magic-sdk/admin'
-import { IConfigComponent, IFetchComponent, ILoggerComponent } from '@well-known-components/interfaces'
+import { IConfigComponent, ILoggerComponent } from '@well-known-components/interfaces'
+import { IFetchComponent } from '@dcl/core-commons'
 import { createMagicAdapter } from '../../src/adapters/magic/component'
 import {
   MagicAuthError,
