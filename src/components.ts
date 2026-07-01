@@ -11,6 +11,7 @@ import { createTracerComponent } from '@dcl/tracer-component'
 import { createFeatureFlagsAdapter } from './adapters/feature-flags'
 import { createMagicAdapter } from './adapters/magic'
 import { createAccountDeletionComponent } from './logic/account-deletion'
+import { parseCorsOrigins } from './logic/cors'
 import { createSocketServerComponent } from './logic/socket-server'
 import { metricDeclarations } from './metrics'
 import { createPgComponent } from './ports/db/component'
@@ -32,7 +33,7 @@ export async function initComponents(): Promise<AppComponents> {
   const metrics = await createMetricsComponent(metricDeclarations, { config })
 
   const cors = {
-    origin: (await config.requireString('CORS_ORIGIN')).split(';').map(origin => new RegExp(origin)),
+    origin: parseCorsOrigins(await config.requireString('CORS_ORIGIN')),
     methods: (await config.requireString('CORS_METHODS')).split(',')
   }
 

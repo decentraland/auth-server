@@ -13,6 +13,7 @@ import { createRunner } from '@dcl/test-helpers'
 import { createTracerComponent } from '@dcl/tracer-component'
 import { IMagicAdapter } from '../src/adapters/magic'
 import { createAccountDeletionComponent } from '../src/logic/account-deletion'
+import { parseCorsOrigins } from '../src/logic/cors'
 import { createSocketServerComponent } from '../src/logic/socket-server'
 import { metricDeclarations } from '../src/metrics'
 import { IPgComponent } from '../src/ports/db/types'
@@ -156,7 +157,7 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
   const nudgeJob = createNudgeJobComponent({ onboarding, email, slack, logs: createMockLogs(), config, featureFlags })
 
   const cors = {
-    origin: (await config.requireString('CORS_ORIGIN')).split(';').map(origin => new RegExp(origin)),
+    origin: parseCorsOrigins(await config.requireString('CORS_ORIGIN')),
     methods: (await config.requireString('CORS_METHODS')).split(',')
   }
 
