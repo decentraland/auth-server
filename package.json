@@ -43,6 +43,7 @@
     "@dcl/crypto-middleware": "^4.1.1",
     "@dcl/features-component": "^1.0.2",
     "@dcl/fetch-component": "^1.1.1",
+    "@dcl/http-commons": "^2.0.0",
     "@dcl/http-server": "^2.2.1",
     "@dcl/job-component": "^0.3.5",
     "@dcl/memory-cache-component": "^2.4.3",

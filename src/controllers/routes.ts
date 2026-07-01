@@ -1,4 +1,5 @@
 import { wellKnownComponents } from '@dcl/crypto-middleware'
+import { bearerTokenMiddleware, errorHandler } from '@dcl/http-commons'
 import { Router } from '@dcl/http-server'
 import { GlobalContext } from '../types'
 import { createDeleteAccountHandler } from './handlers/accounts'
@@ -14,7 +15,6 @@ import {
   getRequestValidationStatusHandler,
   notifyRequestValidationHandler
 } from './handlers/requests'
-import { bearerTokenMiddleware, errorHandler } from './middleware'
 
 // We return the entire router because it will be easier to test than a whole server
 export async function setupRouter(globalContext: GlobalContext): Promise<Router<GlobalContext>> {
