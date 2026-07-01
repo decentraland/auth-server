@@ -6,4 +6,5 @@ export const MAX_METHOD_LENGTH = 256
 export const MAX_PARAMS_ITEMS = 10
 export const MAX_ERROR_MESSAGE_LENGTH = 10024
 export const MAX_REQUEST_ID_LENGTH = 36 // UUID length
-export const MAX_BODY_SIZE = '16kb'
+// Maximum allowed size, in bytes, of an incoming request body (16 KiB).
+export const MAX_BODY_SIZE_BYTES = 16 * 1024
