@@ -43,7 +43,9 @@ export async function requestValidationSocketHandler(context: SocketHandlerConte
     emitToSocket(request.socketId, MessageType.REQUEST_VALIDATION_STATUS, { requestId: msg.requestId, code: request.code })
   }
 
+  // Persist the flag: storage.getRequest returns a copy, so mutating `request` alone would be lost.
   request.requiresValidation = true
+  await storage.setRequest(msg.requestId, request)
 
   return {}
 }
