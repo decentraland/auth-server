@@ -158,7 +158,10 @@ export async function notifyRequestValidationHandler(
     socketServer.emitToSocket(request.socketId, MessageType.REQUEST_VALIDATION_STATUS, { requestId })
   }
 
+  // Persist the flag: storage.getRequest returns a copy, so mutating `request` alone would be lost
+  // (and GET /v2/requests/:id/validation would always report false).
   request.requiresValidation = true
+  await storage.setRequest(requestId, request)
 
   return { status: 204, body: undefined }
 }
