@@ -2,6 +2,7 @@ import { isErrorWithMessage } from '../../logic/error-handling'
 import { InvalidResponseMessage } from '../../ports/server/types'
 import { validateCheckpointRequest } from '../../ports/server/validations'
 import { HandlerContextWithPath } from '../../types'
+import { parseJsonBody } from '../utils'
 
 // POST /onboarding/checkpoint — record onboarding checkpoint event.
 // Bearer auth is enforced by the bearerTokenMiddleware in the router.
@@ -13,7 +14,7 @@ export async function createCheckpointHandler(context: HandlerContextWithPath<'o
 
   const onboardingLogger = logs.getLogger('onboarding-endpoint')
 
-  const body = await request.json()
+  const body = await parseJsonBody(request)
 
   let checkpointReq
   try {

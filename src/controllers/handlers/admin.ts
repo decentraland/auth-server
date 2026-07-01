@@ -1,5 +1,6 @@
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { HandlerContextWithPath } from '../../types'
+import { parseJsonBody } from '../utils'
 
 // POST /admin/onboarding/run-evaluator — run the nudge evaluator manually
 // (same as what cron does every 15 min). Mounted only when ONBOARDING_ADMIN_ENABLED=true.
@@ -29,7 +30,11 @@ export async function sendTestEmailHandler(context: HandlerContextWithPath<'emai
 
   const adminLogger = logs.getLogger('onboarding-admin')
 
-  const { to, checkpointId, sequence } = await request.json()
+  const { to, checkpointId, sequence } = (await parseJsonBody(request)) as {
+    to?: string
+    checkpointId?: number
+    sequence?: number
+  }
 
   if (!to || !checkpointId || !sequence) {
     return { status: 400, body: { error: 'Missing required fields: to, checkpointId, sequence' } }
@@ -44,7 +49,7 @@ export async function sendTestEmailHandler(context: HandlerContextWithPath<'emai
   }
 
   try {
-    const messageId = await email.sendNudge({ to, checkpointId, sequence })
+    const messageId = await email.sendNudge({ to, checkpointId, sequence: sequence as 1 | 2 | 3 })
     return { status: 200, body: { success: true, messageId: messageId ?? null } }
   } catch (e) {
     adminLogger.error(`Failed to send test email: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)

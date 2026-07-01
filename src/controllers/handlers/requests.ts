@@ -14,16 +14,13 @@ import {
 import { validateHttpOutcomeMessage, validateRequestMessage } from '../../ports/server/validations'
 import { HandlerContextWithPath } from '../../types'
 import { validateAuthChain } from '../auth-chain'
+import { parseJsonBody } from '../utils'
 
 export type RequestsHandlerComponents = 'storage' | 'logs' | 'socketServer'
 
 export type RequestExpirationOptions = {
   requestExpirationInSeconds: number
   dclPersonalSignExpirationInSeconds: number
-}
-
-async function readJsonBody(request: Request): Promise<unknown> {
-  return request.json()
 }
 
 // POST /requests — register a new request
@@ -33,7 +30,7 @@ export function createRequestHandler({ requestExpirationInSeconds, dclPersonalSi
       components: { storage }
     } = context
 
-    const data = await readJsonBody(context.request)
+    const data = await parseJsonBody(context.request)
     let msg: RequestMessage
 
     try {
@@ -259,7 +256,7 @@ export async function createOutcomeHandler(context: HandlerContextWithPath<Reque
 
   const logger = logs.getLogger('websocket-server')
 
-  const data = await readJsonBody(context.request)
+  const data = await parseJsonBody(context.request)
   let msg: HttpOutcomeMessage
 
   try {

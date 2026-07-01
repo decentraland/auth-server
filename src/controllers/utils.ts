@@ -1,3 +1,5 @@
+import { InvalidRequestError } from '@dcl/http-commons'
+
 /**
  * Header set by `main()` carrying the Node socket's remote address. The native
  * `Request` the http-server builds for handlers does not expose the underlying
@@ -7,6 +9,19 @@
  * back to `req.socket.remoteAddress` when no trusted proxy header is present.
  */
 export const SOCKET_REMOTE_ADDRESS_HEADER = 'x-socket-remote-address'
+
+/**
+ * Reads and JSON-parses the request body, throwing InvalidRequestError (mapped to a 400 by the
+ * shared errorHandler) when the body is missing or not valid JSON — restoring the previous
+ * body-parser behavior instead of letting the parse error surface as a 500.
+ */
+export async function parseJsonBody(request: Request): Promise<unknown> {
+  try {
+    return await request.json()
+  } catch {
+    throw new InvalidRequestError('Invalid JSON body')
+  }
+}
 
 // Normalizes an IP address (converts IPv6-mapped IPv4 to IPv4).
 export function normalizeIp(ip: string): string {

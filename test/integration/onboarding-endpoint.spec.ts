@@ -99,6 +99,24 @@ test('when calling POST /onboarding/checkpoint with a wrong API key', args => {
   })
 })
 
+test('when calling POST /onboarding/checkpoint with a malformed JSON body', args => {
+  let port: string
+
+  beforeEach(async () => {
+    port = await args.components.config.requireString('HTTP_SERVER_PORT')
+  })
+
+  it('should respond with 400 (not 500)', async () => {
+    const response = await fetch(`http://localhost:${port}/onboarding/checkpoint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', origin: 'https://test-auth.org', ...AUTH_HEADER },
+      body: 'not-json'
+    })
+
+    expect(response.status).toBe(400)
+  })
+})
+
 test('when calling POST /onboarding/checkpoint with an invalid checkpointId', args => {
   let port: string
 
