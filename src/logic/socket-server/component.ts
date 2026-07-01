@@ -3,7 +3,6 @@ import * as Sentry from '@sentry/node'
 import { IBaseComponent } from '@well-known-components/interfaces'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuid } from 'uuid'
-import { Authenticator, parseEmphemeralPayload } from '@dcl/crypto'
 import { getUnderlyingServer } from '@dcl/http-server'
 import { METHOD_DCL_PERSONAL_SIGN } from '../../ports/server/constants'
 import {
@@ -24,6 +23,7 @@ import {
   validateRequestValidationMessage
 } from '../../ports/server/validations'
 import { AppComponents } from '../../types'
+import { validateAuthChain } from '../auth-chain'
 import { isErrorWithMessage } from '../error-handling'
 import { ISocketServerComponent } from './types'
 
@@ -107,38 +107,14 @@ export async function createSocketServerComponent(
               let sender: string | undefined
 
               if (msg.method !== METHOD_DCL_PERSONAL_SIGN) {
-                const authChain = msg.authChain
-
-                if (!authChain) {
-                  ack<InvalidResponseMessage>(cb, {
-                    error: 'Auth chain is required'
-                  })
-                  logger.log('Received a request without an auth chain')
-                  return
-                }
-
-                sender = Authenticator.ownerAddress(authChain)
-
-                let finalAuthority: string
-
+                // Same validation as the HTTP /requests handler (shared to avoid drift).
                 try {
-                  finalAuthority = parseEmphemeralPayload(authChain[authChain.length - 1].payload).ephemeralAddress
+                  sender = (await validateAuthChain(msg.authChain || [])).sender
                 } catch (e) {
                   ack<InvalidResponseMessage>(cb, {
-                    error: 'Could not get final authority from auth chain'
+                    error: isErrorWithMessage(e) ? e.message : 'Unknown error'
                   })
-                  logger.log('Received a request with invalid auth chain')
-                  return
-                }
-
-                const validationResult = await Authenticator.validateSignature(finalAuthority, authChain, null)
-
-                if (!validationResult.ok) {
-                  ack<InvalidResponseMessage>(cb, {
-                    error: validationResult.message ?? 'Signature validation failed'
-                  })
-
-                  logger.log('Received a request with invalid signature')
+                  logger.log('Received a request with an invalid auth chain')
                   return
                 }
               }

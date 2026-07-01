@@ -2,12 +2,12 @@ import { ethers } from 'ethers'
 import { v4 as uuid } from 'uuid'
 import { Authenticator } from '@dcl/crypto'
 import { DecentralandSignatureContext } from '@dcl/crypto-middleware'
+import { validateAuthChain } from '../../logic/auth-chain'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { ONE_HOUR_IN_MILLISECONDS } from '../../ports/server/constants'
 import { IdentityIdValidationResponse, IdentityResponse, InvalidResponseMessage } from '../../ports/server/types'
 import { validateIdentityId, validateIdentityRequest } from '../../ports/server/validations'
 import { HandlerContextWithPath } from '../../types'
-import { validateAuthChain } from '../auth-chain'
 import { formatIpHeaders, getClientIp, ipsMatch } from '../utils'
 
 // POST /identities — store identity (protected by signed-fetch middleware)
@@ -78,7 +78,7 @@ export async function createIdentityHandler(
     }
 
     const identityId = uuid()
-    // Always use 15 minutes expiration for storage (controls when identity is removed from storage)
+    // Always use a 1 hour expiration for storage (controls when identity is removed from storage)
     const storageExpiration = new Date(Date.now() + ONE_HOUR_IN_MILLISECONDS)
     const clientIp = getClientIp(request.headers)
 

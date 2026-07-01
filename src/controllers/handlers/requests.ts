@@ -1,4 +1,5 @@
 import { v4 as uuid } from 'uuid'
+import { validateAuthChain } from '../../logic/auth-chain'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { METHOD_DCL_PERSONAL_SIGN } from '../../ports/server/constants'
 import {
@@ -13,7 +14,6 @@ import {
 } from '../../ports/server/types'
 import { validateHttpOutcomeMessage, validateRequestMessage } from '../../ports/server/validations'
 import { HandlerContextWithPath } from '../../types'
-import { validateAuthChain } from '../auth-chain'
 import { parseJsonBody } from '../utils'
 
 export type RequestsHandlerComponents = 'storage' | 'logs' | 'socketServer'
