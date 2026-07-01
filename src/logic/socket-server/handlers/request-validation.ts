@@ -6,17 +6,17 @@ import { SocketHandlerContext } from '../types'
 // REQUEST_VALIDATION_STATUS — marks a request as requiring validation and notifies the waiting client.
 export async function requestValidationSocketHandler(context: SocketHandlerContext, data: unknown) {
   const {
-    components: { storage, logs },
+    components: { storage },
+    logger,
     emitToSocket,
     isSocketConnected
   } = context
-  const logger = logs.getLogger('websocket-server')
 
   let msg: RequestValidationMessage
   try {
     msg = validateRequestValidationMessage(data)
   } catch (e) {
-    logger.log('Received an outcome message with invalid message')
+    logger.log('Received a request validation message with invalid data')
     return { error: isErrorWithMessage(e) ? e.message : 'Unknown error' } satisfies InvalidResponseMessage
   }
 

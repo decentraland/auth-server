@@ -15,10 +15,10 @@ export type SocketRequestExpirationOptions = {
 export function createRequestSocketHandler(options: SocketRequestExpirationOptions): SocketMessageHandler {
   return async (context: SocketHandlerContext, data: unknown) => {
     const {
-      components: { storage, logs },
+      components: { storage },
+      logger,
       socket
     } = context
-    const logger = logs.getLogger('websocket-server')
 
     logger.log('Received a request')
 

@@ -24,8 +24,9 @@ export type ISocketServerComponent = IBaseComponent & {
 export type SocketHandlerContext = {
   components: {
     storage: IStorageComponent
-    logs: ILoggerComponent
   }
+  /** Connection-scoped logger, created once and passed in rather than re-created on every message. */
+  logger: ILoggerComponent.ILogger
   /** The connected client whose message is being handled; its id is stored as the request's socketId. */
   socket: Socket
   /** Emits to a (possibly different) connected socket by id; returns false if it is not connected. */

@@ -6,9 +6,9 @@ import { SocketHandlerContext } from '../types'
 // RECOVER — returns a previously-registered, still-valid request by id.
 export async function recoverSocketHandler(context: SocketHandlerContext, data: unknown) {
   const {
-    components: { storage, logs }
+    components: { storage },
+    logger
   } = context
-  const logger = logs.getLogger('websocket-server')
 
   logger.log('Received a recover request')
 

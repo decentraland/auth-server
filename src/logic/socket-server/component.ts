@@ -80,7 +80,8 @@ export async function createSocketServerComponent(
         )
 
       const handlerContext: SocketHandlerContext = {
-        components: { storage, logs },
+        components: { storage },
+        logger,
         socket,
         emitToSocket,
         isSocketConnected

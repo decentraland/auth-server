@@ -7,11 +7,11 @@ import { SocketHandlerContext } from '../types'
 // for polling via GET /requests/:requestId when the client's socket is gone.
 export async function outcomeSocketHandler(context: SocketHandlerContext, data: unknown) {
   const {
-    components: { storage, logs },
+    components: { storage },
+    logger,
     emitToSocket,
     isSocketConnected
   } = context
-  const logger = logs.getLogger('websocket-server')
 
   let msg: OutcomeMessage
   try {
