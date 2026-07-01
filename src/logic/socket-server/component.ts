@@ -2,30 +2,12 @@ import { Server as HttpServer } from 'http'
 import * as Sentry from '@sentry/node'
 import { IBaseComponent } from '@well-known-components/interfaces'
 import { Server, Socket } from 'socket.io'
-import { v4 as uuid } from 'uuid'
 import { getUnderlyingServer } from '@dcl/http-server'
-import { METHOD_DCL_PERSONAL_SIGN } from '../../ports/server/constants'
-import {
-  InvalidResponseMessage,
-  MessageType,
-  OutcomeMessage,
-  OutcomeResponseMessage,
-  RecoverMessage,
-  RecoverResponseMessage,
-  RequestMessage,
-  RequestResponseMessage,
-  RequestValidationMessage
-} from '../../ports/server/types'
-import {
-  validateOutcomeMessage,
-  validateRecoverMessage,
-  validateRequestMessage,
-  validateRequestValidationMessage
-} from '../../ports/server/validations'
+import { InvalidResponseMessage } from '../../ports/server/types'
 import { AppComponents } from '../../types'
-import { validateAuthChain } from '../auth-chain'
 import { isErrorWithMessage } from '../error-handling'
-import { ISocketServerComponent } from './types'
+import { getSocketRoutes } from './routes'
+import { ISocketServerComponent, SocketHandlerContext } from './types'
 
 export type SocketServerOptions = {
   requestExpirationInSeconds: number
@@ -46,9 +28,22 @@ export async function createSocketServerComponent(
 
   let io: Server | null = null
 
+  const emitToSocket: ISocketServerComponent['emitToSocket'] = (socketId, type, message) => {
+    const storedSocket = sockets[socketId]
+    if (!storedSocket) {
+      return false
+    }
+    storedSocket.emit(type, message)
+    return true
+  }
+
+  const isSocketConnected: ISocketServerComponent['isSocketConnected'] = socketId => !!sockets[socketId]
+
+  // Socket message handlers bound to their events + tracing spans — the socket analog of the HTTP router.
+  const routes = getSocketRoutes({ requestExpirationInSeconds, dclPersonalSignExpirationInSeconds })
+
   const onConnection = (socket: Socket) =>
     tracer.span('websocket-connection', () => {
-      // Do some work here
       logger.log('Connected')
       sockets[socket.id] = socket
 
@@ -84,329 +79,35 @@ export async function createSocketServerComponent(
           parentTracingContext
         )
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      socket.on(MessageType.REQUEST, async (data: any, cb) =>
-        tracer
-          .span(
-            'websocket-request',
-            async () => {
-              let msg: RequestMessage
-              logger.log('Received a request')
+      const handlerContext: SocketHandlerContext = {
+        components: { storage, logs },
+        socket,
+        emitToSocket,
+        isSocketConnected
+      }
 
-              try {
-                msg = validateRequestMessage(data)
-              } catch (e) {
-                ack<InvalidResponseMessage>(cb, {
-                  error: isErrorWithMessage(e) ? e.message : 'Unknown error'
-                })
-                logger.log('Received a request with invalid message')
-
-                return
-              }
-
-              let sender: string | undefined
-
-              if (msg.method !== METHOD_DCL_PERSONAL_SIGN) {
-                // Same validation as the HTTP /requests handler (shared to avoid drift).
-                try {
-                  sender = (await validateAuthChain(msg.authChain || [])).sender
-                } catch (e) {
-                  ack<InvalidResponseMessage>(cb, {
-                    error: isErrorWithMessage(e) ? e.message : 'Unknown error'
-                  })
-                  logger.log('Received a request with an invalid auth chain')
-                  return
-                }
-              }
-
-              const requestId = uuid()
-              const expiration = new Date(
-                Date.now() +
-                  (msg.method !== METHOD_DCL_PERSONAL_SIGN ? requestExpirationInSeconds : dclPersonalSignExpirationInSeconds) * 1000
-              )
-              const code = Math.floor(Math.random() * 100)
-
-              await storage.setRequest(requestId, {
-                requestId: requestId,
-                socketId: socket.id,
-                requiresValidation: false,
-                expiration,
-                code,
-                method: msg.method,
-                params: msg.params,
-                sender: sender?.toLowerCase()
-              })
-
-              ack<RequestResponseMessage>(cb, {
-                requestId,
-                expiration,
-                code
-              })
-
-              logger.log(`[METHOD:${msg.method}][RID:${requestId}][EXP:${expiration.getTime()}] Successfully registered request response`)
-            },
-            parentTracingContext
-          )
-          .catch(e => {
-            Sentry.captureException(e)
-            logger.error(`Unexpected error in ${MessageType.REQUEST} handler: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
-            ack<InvalidResponseMessage>(cb, { error: 'Internal server error' })
-          })
-      )
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      socket.on(MessageType.RECOVER, (data: any, cb) =>
-        tracer
-          .span(
-            'websocket-recover',
-            async () => {
-              let msg: RecoverMessage
-              logger.log('Received a recover request')
-
-              try {
-                msg = validateRecoverMessage(data)
-              } catch (e) {
-                ack<InvalidResponseMessage>(cb, {
-                  error: isErrorWithMessage(e) ? e.message : 'Unknown error'
-                })
-
-                logger.log('Received a recover request with invalid message')
-                return
-              }
-
-              const request = await storage.getRequest(msg.requestId)
-
-              if (!request) {
-                ack<InvalidResponseMessage>(cb, {
-                  error: `Request with id "${msg.requestId}" not found`
-                })
-
-                logger.log(`[RID:${msg.requestId}] Received a recover request for a non-existent request`)
-
-                return
-              }
-
-              if (request.fulfilled) {
-                ack<InvalidResponseMessage>(cb, {
-                  error: `Request with id "${msg.requestId}" has already been fulfilled`
-                })
-
-                logger.log(`[RID:${msg.requestId}] Received a recover request for an already fulfilled request`)
-
-                return
-              }
-
-              if (request.expiration < new Date()) {
-                await storage.setRequest(msg.requestId, null)
-
-                ack<InvalidResponseMessage>(cb, {
-                  error: `Request with id "${msg.requestId}" has expired`
-                })
-
-                logger.log(`[RID:${msg.requestId}] Received a recover request for an expired request`)
-
-                return
-              }
-
-              ack<RecoverResponseMessage>(cb, {
-                expiration: request.expiration,
-                code: request.code,
-                method: request.method,
-                params: request.params,
-                sender: request.sender
-              })
-
-              logger.log(
-                `[METHOD:${request.method}][RID:${request.requestId}][EXP:${request.expiration.getTime()}] Successfully recovered request`
-              )
-            },
-            parentTracingContext
-          )
-          .catch(e => {
-            Sentry.captureException(e)
-            logger.error(`Unexpected error in ${MessageType.RECOVER} handler: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
-            ack<InvalidResponseMessage>(cb, { error: 'Internal server error' })
-          })
-      )
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      socket.on(MessageType.OUTCOME, (data: any, cb) =>
-        tracer
-          .span(
-            'websocket-outcome',
-            async () => {
-              let msg: OutcomeMessage
-
-              try {
-                msg = validateOutcomeMessage(data)
-              } catch (e) {
-                ack<InvalidResponseMessage>(cb, {
-                  error: isErrorWithMessage(e) ? e.message : 'Unknown error'
-                })
-
-                logger.log('Received an outcome message with invalid message')
-
-                return
-              }
-
-              const request = await storage.getRequest(msg.requestId)
-
-              if (!request) {
-                ack<InvalidResponseMessage>(cb, {
-                  error: `Request with id "${msg.requestId}" not found`
-                })
-
-                logger.log(`[RID:${msg.requestId}] Received an outcome message for a non-existent request`)
-
-                return
-              }
-
-              if (request.fulfilled) {
-                ack<InvalidResponseMessage>(cb, {
-                  error: `Request with id "${msg.requestId}" has already been fulfilled`
-                })
-
-                logger.log(`[RID:${msg.requestId}] Received an outcome message for an already fulfilled request`)
-
-                return
-              }
-
-              if (request.response) {
-                ack<InvalidResponseMessage>(cb, {
-                  error: `Request with id "${msg.requestId}" already has a response`
-                })
-
-                logger.log(`[RID:${msg.requestId}] Received an outcome message for a request that already has a response`)
-
-                return
-              }
-
-              if (request.expiration < new Date()) {
-                await storage.setRequest(msg.requestId, null)
-
-                ack<InvalidResponseMessage>(cb, {
-                  error: `Request with id "${msg.requestId}" has expired`
-                })
-
-                logger.log(`[RID:${msg.requestId}] Received an outcome message for an expired request`)
-
-                return
-              }
-
-              const outcomeMessage: OutcomeResponseMessage = msg
-
-              // If it has a socketId and the socket is still connected, send via socket.
-              // Otherwise, store the response for polling via GET /requests/:requestId.
-              if (request.socketId && sockets[request.socketId]) {
-                const storedSocket = sockets[request.socketId]
-
-                // Mark as fulfilled instead of deleting — allows frontend to distinguish "consumed" from "never existed"
-                await storage.setRequest(msg.requestId, {
-                  requestId: msg.requestId,
-                  socketId: request.socketId,
-                  fulfilled: true,
-                  expiration: request.expiration,
-                  code: 0,
-                  method: '',
-                  params: [],
-                  requiresValidation: false
-                })
-
-                storedSocket.emit(MessageType.OUTCOME, outcomeMessage)
-                logger.log(
-                  `[METHOD:${request.method}][RID:${
-                    request.requestId
-                  }][EXP:${request.expiration.getTime()}] Successfully sent outcome message to the client`
-                )
-              } else {
-                // Socket gone or HTTP-created request — persist response for polling
-                await storage.setRequest(msg.requestId, {
-                  ...request,
-                  response: outcomeMessage
-                })
-                logger.log(
-                  `[METHOD:${request.method}][RID:${
-                    request.requestId
-                  }][EXP:${request.expiration.getTime()}] Stored outcome for polling (socket unavailable)`
-                )
-              }
-
-              ack<object>(cb, {})
-            },
-            parentTracingContext
-          )
-          .catch(e => {
-            Sentry.captureException(e)
-            logger.error(`Unexpected error in ${MessageType.OUTCOME} handler: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
-            ack<InvalidResponseMessage>(cb, { error: 'Internal server error' })
-          })
-      )
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      socket.on(MessageType.REQUEST_VALIDATION_STATUS, (data: any, cb) => {
-        tracer
-          .span(
-            'websocket-request-validation',
-            async () => {
-              let msg: RequestValidationMessage
-
-              try {
-                msg = validateRequestValidationMessage(data)
-              } catch (e) {
-                logger.log('Received an outcome message with invalid message')
-                return ack<InvalidResponseMessage>(cb, {
-                  error: isErrorWithMessage(e) ? e.message : 'Unknown error'
-                })
-              }
-
-              const request = await storage.getRequest(msg.requestId)
-
-              if (!request) {
-                logger.log(`[RID:${msg.requestId}] Tried to communicate that the request must be validated but it doesn't exist`)
-                return ack<InvalidResponseMessage>(cb, {
-                  error: `Request with id "${msg.requestId}" not found`
-                })
-              }
-
-              if (request.fulfilled) {
-                logger.log(
-                  `[RID:${msg.requestId}] Tried to communicate that the request must be validated but it has already been fulfilled`
-                )
-                return ack<InvalidResponseMessage>(cb, {
-                  error: `Request with id "${msg.requestId}" has already been fulfilled`
-                })
-              }
-
-              if (request.expiration < new Date()) {
-                await storage.setRequest(msg.requestId, null)
-
-                logger.log(`[RID:${msg.requestId}] Tried to communicate that the request must be validated but it has expired`)
-                return ack<InvalidResponseMessage>(cb, {
-                  error: `Request with id "${msg.requestId}" has expired`
-                })
-              }
-
-              if (request.socketId && sockets[request.socketId] && !request.requiresValidation) {
-                const storedSocket = sockets[request.socketId]
-
-                // Relay the request validation to the client
-                storedSocket.emit(MessageType.REQUEST_VALIDATION_STATUS, { requestId: msg.requestId, code: request.code })
-              }
-
-              request.requiresValidation = true
-
-              ack<object>(cb, {})
-            },
-            parentTracingContext
-          )
-          .catch(e => {
-            Sentry.captureException(e)
-            logger.error(
-              `Unexpected error in ${MessageType.REQUEST_VALIDATION_STATUS} handler: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`
+      // Register each socket message handler with shared tracing / ack / error handling — the socket
+      // analog of `server.use(router.middleware())`. A handler returns the payload to ack; an
+      // unexpected throw is reported to Sentry and acked as a generic error.
+      for (const route of routes) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        socket.on(route.event, async (data: any, cb) =>
+          tracer
+            .span(
+              route.span,
+              async () => {
+                const response = await route.handle(handlerContext, data)
+                ack(cb, response)
+              },
+              parentTracingContext
             )
-            ack<InvalidResponseMessage>(cb, { error: 'Internal server error' })
-          })
-      })
+            .catch(e => {
+              Sentry.captureException(e)
+              logger.error(`Unexpected error in ${route.event} handler: ${isErrorWithMessage(e) ? e.message : 'Unknown error'}`)
+              ack<InvalidResponseMessage>(cb, { error: 'Internal server error' })
+            })
+        )
+      }
     })
 
   const start: IBaseComponent['start'] = async () => {
@@ -452,17 +153,6 @@ export async function createSocketServerComponent(
       delete sockets[socketId]
     }
   }
-
-  const emitToSocket: ISocketServerComponent['emitToSocket'] = (socketId, type, message) => {
-    const storedSocket = sockets[socketId]
-    if (!storedSocket) {
-      return false
-    }
-    storedSocket.emit(type, message)
-    return true
-  }
-
-  const isSocketConnected: ISocketServerComponent['isSocketConnected'] = socketId => !!sockets[socketId]
 
   return {
     start,
