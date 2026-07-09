@@ -37,6 +37,24 @@ describe('when parsing CORS origins', () => {
     })
   })
 
+  describe('and a single entry contains a top-level alternation', () => {
+    let origins: RegExp[]
+
+    beforeEach(() => {
+      origins = parseCorsOrigins('https://a\\.org|https://b\\.org')
+    })
+
+    it('should match each alternative exactly', () => {
+      expect(origins[0].test('https://a.org')).toBe(true)
+      expect(origins[0].test('https://b.org')).toBe(true)
+    })
+
+    it('should keep both alternatives anchored against suffix and prefix bypasses', () => {
+      expect(origins[0].test('https://a.org.evil.com')).toBe(false)
+      expect(origins[0].test('https://evil.com?x=https://b.org')).toBe(false)
+    })
+  })
+
   describe('and there are multiple semicolon-separated entries with empty ones', () => {
     let origins: RegExp[]
 

@@ -1,6 +1,8 @@
+import { randomInt } from 'crypto'
 import { v4 as uuid } from 'uuid'
 import { validateAuthChain } from '../../logic/auth-chain'
 import { isErrorWithMessage } from '../../logic/error-handling'
+import { loadActiveRequest, logInboundRequestStateError, RequestStateError, requestStateErrorToHttpResponse } from '../../logic/requests'
 import { METHOD_DCL_PERSONAL_SIGN } from '../../ports/server/constants'
 import {
   HttpOutcomeMessage,
@@ -13,6 +15,7 @@ import {
   RequestValidationStatusMessage
 } from '../../ports/server/types'
 import { validateHttpOutcomeMessage, validateRequestMessage } from '../../ports/server/validations'
+import { StorageRequest } from '../../ports/storage/types'
 import { HandlerContextWithPath } from '../../types'
 import { parseJsonBody } from '../utils'
 
@@ -60,7 +63,8 @@ export function createRequestHandler({ requestExpirationInSeconds, dclPersonalSi
     const expiration = new Date(
       Date.now() + (msg.method !== METHOD_DCL_PERSONAL_SIGN ? requestExpirationInSeconds : dclPersonalSignExpirationInSeconds) * 1000
     )
-    const code = Math.floor(Math.random() * 100)
+    // Cryptographically secure so the pairing code the user visually confirms can't be predicted.
+    const code = randomInt(0, 100)
 
     await storage.setRequest(requestId, {
       requestId: requestId,
@@ -86,23 +90,14 @@ export async function getRequestHandler(context: HandlerContextWithPath<Requests
     components: { storage }
   } = context
 
-  const request = await storage.getRequest(requestId)
-
-  if (!request) {
-    return { status: 404, body: { error: `Request with id "${requestId}" not found` } satisfies InvalidResponseMessage }
-  }
-
-  if (request.fulfilled) {
-    return {
-      status: 410,
-      body: { error: `Request with id "${requestId}" has already been fulfilled` } satisfies InvalidResponseMessage
+  let request: StorageRequest
+  try {
+    request = await loadActiveRequest(storage, requestId)
+  } catch (e) {
+    if (e instanceof RequestStateError) {
+      return requestStateErrorToHttpResponse(e)
     }
-  }
-
-  if (request.expiration < new Date()) {
-    await storage.setRequest(requestId, null)
-
-    return { status: 410, body: { error: `Request with id "${requestId}" has expired` } satisfies InvalidResponseMessage }
+    throw e
   }
 
   return {
@@ -128,28 +123,15 @@ export async function notifyRequestValidationHandler(
 
   const logger = logs.getLogger('websocket-server')
 
-  const request = await storage.getRequest(requestId)
-
-  if (!request) {
-    logger.log(`[RID:${requestId}] Received a validation request message for a non-existent request`)
-    return { status: 404, body: { error: `Request with id "${requestId}" not found` } satisfies InvalidResponseMessage }
-  }
-
-  if (request.fulfilled) {
-    logger.log(`[RID:${requestId}] Received a validation request message for an already fulfilled request`)
-    return {
-      status: 410,
-      body: { error: `Request with id "${requestId}" has already been fulfilled` } satisfies InvalidResponseMessage
+  let request: StorageRequest
+  try {
+    request = await loadActiveRequest(storage, requestId)
+  } catch (e) {
+    if (e instanceof RequestStateError) {
+      logInboundRequestStateError(logger, requestId, 'a validation request message', e)
+      return requestStateErrorToHttpResponse(e)
     }
-  }
-
-  if (request.expiration < new Date()) {
-    logger.log(`[RID:${requestId}] Received a validation request message for an expired request`)
-
-    // Remove the request from the storage as it is expired
-    await storage.setRequest(requestId, null)
-
-    return { status: 410, body: { error: `Request with id "${requestId}" has expired` } satisfies InvalidResponseMessage }
+    throw e
   }
 
   if (request.socketId && socketServer.isSocketConnected(request.socketId) && !request.requiresValidation) {
@@ -175,23 +157,14 @@ export async function getRequestValidationStatusHandler(
     components: { storage }
   } = context
 
-  const request = await storage.getRequest(requestId)
-
-  if (!request) {
-    return { status: 404, body: { error: `Request with id "${requestId}" not found` } satisfies InvalidResponseMessage }
-  }
-
-  if (request.fulfilled) {
-    return {
-      status: 410,
-      body: { error: `Request with id "${requestId}" has already been fulfilled` } satisfies InvalidResponseMessage
+  let request: StorageRequest
+  try {
+    request = await loadActiveRequest(storage, requestId)
+  } catch (e) {
+    if (e instanceof RequestStateError) {
+      return requestStateErrorToHttpResponse(e)
     }
-  }
-
-  if (request.expiration < new Date()) {
-    await storage.setRequest(requestId, null)
-
-    return { status: 410, body: { error: `Request with id "${requestId}" has expired` } satisfies InvalidResponseMessage }
+    throw e
   }
 
   return {
@@ -209,29 +182,19 @@ export async function getOutcomeHandler(context: HandlerContextWithPath<Requests
 
   const logger = logs.getLogger('websocket-server')
 
-  const request = await storage.getRequest(requestId)
-
-  if (!request) {
-    return { status: 404, body: { error: `Request with id "${requestId}" not found` } satisfies InvalidResponseMessage }
-  }
-
-  if (request.fulfilled) {
-    return {
-      status: 410,
-      body: { error: `Request with id "${requestId}" has already been fulfilled` } satisfies InvalidResponseMessage
+  let request: StorageRequest
+  try {
+    request = await loadActiveRequest(storage, requestId)
+  } catch (e) {
+    if (e instanceof RequestStateError) {
+      return requestStateErrorToHttpResponse(e)
     }
-  }
-
-  if (request.expiration < new Date()) {
-    await storage.setRequest(requestId, null)
-    return { status: 410, body: { error: `Request with id "${requestId}" has expired` } satisfies InvalidResponseMessage }
+    throw e
   }
 
   if (!request.response) {
-    return {
-      status: 204,
-      body: { error: `Request with id "${requestId}" has not been completed` } satisfies InvalidResponseMessage
-    }
+    // Not completed yet — 204 No Content (no body, per the HTTP spec) so the client keeps polling.
+    return { status: 204, body: undefined }
   }
 
   logger.log(`[RID:${requestId}] Successfully sent outcome message to the client via HTTP`)
@@ -271,35 +234,15 @@ export async function createOutcomeHandler(context: HandlerContextWithPath<Reque
     }
   }
 
-  const request = await storage.getRequest(requestId)
-
-  if (!request) {
-    logger.log(`[RID:${requestId}] Received an outcome message for a non-existent request`)
-    return { status: 404, body: { error: `Request with id "${requestId}" not found` } satisfies InvalidResponseMessage }
-  }
-
-  if (request.fulfilled) {
-    logger.log(`[RID:${requestId}] Received an outcome message for an already fulfilled request`)
-    return {
-      status: 410,
-      body: { error: `Request with id "${requestId}" has already been fulfilled` } satisfies InvalidResponseMessage
+  let request: StorageRequest
+  try {
+    request = await loadActiveRequest(storage, requestId, { rejectIfHasResponse: true })
+  } catch (e) {
+    if (e instanceof RequestStateError) {
+      logInboundRequestStateError(logger, requestId, 'an outcome message', e)
+      return requestStateErrorToHttpResponse(e)
     }
-  }
-
-  if (request.response) {
-    logger.log(`[RID:${requestId}] Received an outcome message for a request that already has a response`)
-
-    return {
-      status: 400,
-      body: { error: `Request with id "${requestId}" already has a response` } satisfies InvalidResponseMessage
-    }
-  }
-
-  if (request.expiration < new Date()) {
-    await storage.setRequest(requestId, null)
-
-    logger.log(`[RID:${requestId}] Received an outcome message for an expired request`)
-    return { status: 410, body: { error: `Request with id "${requestId}" has expired` } satisfies InvalidResponseMessage }
+    throw e
   }
 
   const outcomeMessage: OutcomeResponseMessage = {
