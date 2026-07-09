@@ -1,4 +1,4 @@
-export function isErrorWithMessage(error: unknown): error is Error {
+export function isErrorWithMessage(error: unknown): error is { message: string } {
   return (
     error !== undefined &&
     error !== null &&

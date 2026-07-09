@@ -96,5 +96,8 @@ export function logInboundRequestStateError(
     logger.log(`[RID:${requestId}] Received ${subject} for a request that already has a response`)
   } else if (error instanceof RequestExpiredError) {
     logger.log(`[RID:${requestId}] Received ${subject} for an expired request`)
+  } else {
+    // Defensive: a future RequestStateError subclass should still produce a log line.
+    logger.log(`[RID:${requestId}] Received ${subject} for a request in an unexpected state: ${error.message}`)
   }
 }
