@@ -45,8 +45,10 @@ function createMockFeatureFlags(enabled = true, whitelist?: string[]): IFeatureF
   } as unknown as IFeatureFlagsAdapter
 }
 
-// Lets the fire-and-forget Slack notification (`void notifySlack(...)`) settle after runEvaluator resolves.
-const flushMicrotasks = () => new Promise(resolve => setTimeout(resolve, 10))
+// Lets the fire-and-forget Slack notification (`void notifySlack(...)`) settle after runEvaluator
+// resolves. setImmediate is a macrotask, so it fires only once the pending microtask chain has
+// drained — deterministic, without relying on a wall-clock delay.
+const flushMicrotasks = () => new Promise(resolve => setImmediate(resolve))
 
 describe('when running the nudge evaluator', () => {
   let onboarding: ReturnType<typeof createMockOnboarding>
