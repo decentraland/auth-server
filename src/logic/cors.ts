@@ -6,12 +6,14 @@
  * regex such as `https://foo\.org` is a substring match, which would let `https://foo.org.evil.com`
  * pass the CORS check. A leading `^` / trailing `$` the operator already supplied is stripped first
  * so we don't double-anchor, and empty entries (e.g. a trailing `;`) are dropped instead of turning
- * into an allow-all regex.
+ * into an allow-all regex. The entry is wrapped in a non-capturing group so a top-level alternation
+ * (`a|b`) stays fully anchored — `^a|b$` would otherwise parse as `(^a)|(b$)`, leaving each side
+ * only half-anchored and re-opening the substring-bypass hole.
  */
 export function parseCorsOrigins(corsOrigin: string): RegExp[] {
   return corsOrigin
     .split(';')
     .map(entry => entry.trim())
     .filter(entry => entry.length > 0)
-    .map(entry => new RegExp(`^${entry.replace(/^\^/, '').replace(/\$$/, '')}$`))
+    .map(entry => new RegExp(`^(?:${entry.replace(/^\^/, '').replace(/\$$/, '')})$`))
 }

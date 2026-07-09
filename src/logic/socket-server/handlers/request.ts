@@ -1,3 +1,4 @@
+import { randomInt } from 'crypto'
 import { v4 as uuid } from 'uuid'
 import { METHOD_DCL_PERSONAL_SIGN } from '../../../ports/server/constants'
 import { InvalidResponseMessage, RequestMessage, RequestResponseMessage } from '../../../ports/server/types'
@@ -47,7 +48,8 @@ export function createRequestSocketHandler(options: SocketRequestExpirationOptio
       Date.now() +
         (msg.method !== METHOD_DCL_PERSONAL_SIGN ? options.requestExpirationInSeconds : options.dclPersonalSignExpirationInSeconds) * 1000
     )
-    const code = Math.floor(Math.random() * 100)
+    // Cryptographically secure so the pairing code the user visually confirms can't be predicted.
+    const code = randomInt(0, 100)
 
     await storage.setRequest(requestId, {
       requestId,

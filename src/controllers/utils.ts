@@ -34,25 +34,41 @@ export function normalizeIp(ip: string): string {
 
 /**
  * Gets the client IP address from request headers.
- * Prioritizes trusted headers (True-Client-IP, X-Real-IP, Cloudflare's CF-Connecting-IP) over X-Forwarded-For.
+ *
+ * Header priority reflects trustworthiness at our edge (Cloudflare). The headers are
+ * consulted most-trusted first because the identity IP-binding check relies on this
+ * value:
+ *
+ * 1. `CF-Connecting-IP` — set by Cloudflare on every proxied request and overwritten
+ *    if the client tries to forge it; the only header a direct client cannot spoof
+ *    through the edge.
+ * 2. `True-Client-IP` / `X-Real-IP` — also set by proxies, but only on some plans /
+ *    configurations, and NOT guaranteed to be stripped from inbound requests. They are
+ *    lower priority so a forged value cannot override the genuine `CF-Connecting-IP`.
+ * 3. `X-Forwarded-For` — a client-appendable list; only the first entry is taken.
+ * 4. The Node socket remote address (stamped onto a header by `main()`).
+ *
+ * NOTE: the edge MUST strip inbound `True-Client-IP`/`X-Real-IP`/`X-Forwarded-For` from
+ * untrusted clients for the lower-priority headers to be meaningful; the ordering here
+ * only guarantees Cloudflare's value wins when present.
  */
 export function getClientIp(headers: Headers): string {
-  // Check True-Client-IP header (set by proxies like Cloudflare, contains the visitor's IP address)
+  // Cloudflare's trusted header — set/overwritten by the edge, cannot be spoofed through it.
+  const cfConnectingIp = headers.get('cf-connecting-ip')
+  if (cfConnectingIp) {
+    return normalizeIp(cfConnectingIp)
+  }
+
+  // True-Client-IP (set by some proxy plans, e.g. Cloudflare Enterprise).
   const trueClientIp = headers.get('true-client-ip')
   if (trueClientIp) {
     return normalizeIp(trueClientIp)
   }
 
-  // Check X-Real-IP header (set by proxies when configured, more trustworthy than X-Forwarded-For)
+  // X-Real-IP (set by proxies when configured, more trustworthy than X-Forwarded-For).
   const xRealIp = headers.get('x-real-ip')
   if (xRealIp) {
     return normalizeIp(xRealIp)
-  }
-
-  // Check CF-Connecting-IP header first (Cloudflare's trusted header, cannot be spoofed)
-  const cfConnectingIp = headers.get('cf-connecting-ip')
-  if (cfConnectingIp) {
-    return normalizeIp(cfConnectingIp)
   }
 
   // Check X-Forwarded-For header (can be spoofed, use with caution)

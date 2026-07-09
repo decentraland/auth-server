@@ -1,6 +1,14 @@
 import { InvalidResponseMessage, MessageType, RequestValidationMessage } from '../../../ports/server/types'
 import { validateRequestValidationMessage } from '../../../ports/server/validations'
+import { StorageRequest } from '../../../ports/storage/types'
 import { isErrorWithMessage } from '../../error-handling'
+import {
+  loadActiveRequest,
+  RequestAlreadyFulfilledError,
+  RequestExpiredError,
+  RequestNotFoundError,
+  RequestStateError
+} from '../../requests'
 import { SocketHandlerContext } from '../types'
 
 // REQUEST_VALIDATION_STATUS — marks a request as requiring validation and notifies the waiting client.
@@ -20,22 +28,21 @@ export async function requestValidationSocketHandler(context: SocketHandlerConte
     return { error: isErrorWithMessage(e) ? e.message : 'Unknown error' } satisfies InvalidResponseMessage
   }
 
-  const request = await storage.getRequest(msg.requestId)
-
-  if (!request) {
-    logger.log(`[RID:${msg.requestId}] Tried to communicate that the request must be validated but it doesn't exist`)
-    return { error: `Request with id "${msg.requestId}" not found` } satisfies InvalidResponseMessage
-  }
-
-  if (request.fulfilled) {
-    logger.log(`[RID:${msg.requestId}] Tried to communicate that the request must be validated but it has already been fulfilled`)
-    return { error: `Request with id "${msg.requestId}" has already been fulfilled` } satisfies InvalidResponseMessage
-  }
-
-  if (request.expiration < new Date()) {
-    await storage.setRequest(msg.requestId, null)
-    logger.log(`[RID:${msg.requestId}] Tried to communicate that the request must be validated but it has expired`)
-    return { error: `Request with id "${msg.requestId}" has expired` } satisfies InvalidResponseMessage
+  let request: StorageRequest
+  try {
+    request = await loadActiveRequest(storage, msg.requestId)
+  } catch (e) {
+    if (e instanceof RequestStateError) {
+      if (e instanceof RequestNotFoundError) {
+        logger.log(`[RID:${msg.requestId}] Tried to communicate that the request must be validated but it doesn't exist`)
+      } else if (e instanceof RequestAlreadyFulfilledError) {
+        logger.log(`[RID:${msg.requestId}] Tried to communicate that the request must be validated but it has already been fulfilled`)
+      } else if (e instanceof RequestExpiredError) {
+        logger.log(`[RID:${msg.requestId}] Tried to communicate that the request must be validated but it has expired`)
+      }
+      return { error: e.message } satisfies InvalidResponseMessage
+    }
+    throw e
   }
 
   if (request.socketId && isSocketConnected(request.socketId) && !request.requiresValidation) {
