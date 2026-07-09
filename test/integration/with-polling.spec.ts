@@ -38,6 +38,9 @@ function usePollingClients(args: TestArguments<BaseComponents>, { withWebSocket 
       return httpClient
     },
     get ws(): Socket {
+      if (!wsClient) {
+        throw new Error('websocket client not initialized — call usePollingClients(args, { withWebSocket: true })')
+      }
       return wsClient
     }
   }
