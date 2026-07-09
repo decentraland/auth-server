@@ -17,8 +17,8 @@ describe('when validating the outcome', () => {
       } as OutcomeResponseMessage
     })
 
-    it('should throw an error', () => {
-      expect(() => validateOutcomeMessage(outcome)).toThrowError()
+    it('should throw a validation error', () => {
+      expect(() => validateOutcomeMessage(outcome)).toThrow()
     })
   })
 
@@ -33,8 +33,8 @@ describe('when validating the outcome', () => {
       } as OutcomeResponseMessage
     })
 
-    it('should throw an error', () => {
-      expect(() => validateOutcomeMessage(outcome)).toThrowError()
+    it('should throw a validation error', () => {
+      expect(() => validateOutcomeMessage(outcome)).toThrow()
     })
   })
 
@@ -52,7 +52,7 @@ describe('when validating the outcome', () => {
       } as OutcomeResponseMessage
     })
 
-    it('should return the outcome', () => {
+    it('should return the outcome unchanged', () => {
       expect(validateOutcomeMessage(outcome)).toBe(outcome)
     })
   })
@@ -74,26 +74,22 @@ describe('when validating the outcome', () => {
     describe('and the error is missing a code', () => {
       beforeEach(() => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ;(outcome as any).error = {
-          message: 'message'
-        } as any // eslint-disable-line @typescript-eslint/no-explicit-any
+        ;(outcome as any).error = { message: 'message' }
       })
 
-      it('should throw an error', () => {
-        expect(() => validateOutcomeMessage(outcome)).toThrowError()
+      it('should throw a validation error', () => {
+        expect(() => validateOutcomeMessage(outcome)).toThrow()
       })
     })
 
     describe('and the error is missing a message', () => {
       beforeEach(() => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ;(outcome as any).error = {
-          code: 123
-        } as any // eslint-disable-line @typescript-eslint/no-explicit-any
+        ;(outcome as any).error = { code: 123 }
       })
 
-      it('should throw an error', () => {
-        expect(() => validateOutcomeMessage(outcome)).toThrowError()
+      it('should throw a validation error', () => {
+        expect(() => validateOutcomeMessage(outcome)).toThrow()
       })
     })
 
@@ -105,7 +101,7 @@ describe('when validating the outcome', () => {
         }
       })
 
-      it('should return the outcome', () => {
+      it('should return the outcome unchanged', () => {
         expect(validateOutcomeMessage(outcome)).toBe(outcome)
       })
     })
@@ -129,8 +125,8 @@ describe('when validating the outcome', () => {
       } as OutcomeResponseMessage
     })
 
-    it('should throw an error', () => {
-      expect(() => validateOutcomeMessage(outcome)).toThrowError()
+    it('should throw a validation error', () => {
+      expect(() => validateOutcomeMessage(outcome)).toThrow()
     })
   })
 })

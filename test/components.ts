@@ -3,7 +3,6 @@
 import net from 'net'
 import path from 'node:path'
 import { createDotEnvConfigComponent } from '@well-known-components/env-config-provider'
-import { ILoggerComponent } from '@well-known-components/interfaces'
 import { createLogComponent } from '@well-known-components/logger'
 import { createServerComponent, instrumentHttpServerWithPromClientRegistry } from '@dcl/http-server'
 import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
@@ -16,7 +15,6 @@ import { createAccountDeletionComponent } from '../src/logic/account-deletion'
 import { parseCorsOrigins } from '../src/logic/cors'
 import { createSocketServerComponent } from '../src/logic/socket-server'
 import { metricDeclarations } from '../src/metrics'
-import { IPgComponent } from '../src/ports/db/types'
 import { IEmailComponent } from '../src/ports/email/types'
 import { createNudgeJobComponent } from '../src/ports/nudge-job/component'
 import { createOnboardingComponent } from '../src/ports/onboarding/component'
@@ -24,6 +22,9 @@ import { MAX_BODY_SIZE_BYTES } from '../src/ports/server/constants'
 import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
 import { GlobalContext, TestComponents } from '../src/types'
+import { createMockDbComponent, createMockLogs } from './mocks'
+
+export { createMockDbComponent, createMockLogs }
 
 type TestOverrides = {
   requestExpirationInSeconds?: number
@@ -51,20 +52,6 @@ function findOpenPort() {
 }
 
 /**
- * Creates a no-op DB component suitable for unit/integration tests that don't need a real DB.
- * Tests that need real DB behavior should mock this component's methods.
- */
-export function createMockDbComponent(): IPgComponent {
-  return {
-    query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0, notices: [] }),
-    getPool: jest.fn(),
-    withTransaction: jest.fn(),
-    start: jest.fn().mockResolvedValue(undefined),
-    stop: jest.fn().mockResolvedValue(undefined)
-  } as unknown as IPgComponent
-}
-
-/**
  * Creates a no-op email component for tests — never actually sends emails.
  */
 export function createMockEmailComponent(): IEmailComponent {
@@ -73,11 +60,6 @@ export function createMockEmailComponent(): IEmailComponent {
     start: jest.fn().mockResolvedValue(undefined),
     stop: jest.fn().mockResolvedValue(undefined)
   } as unknown as IEmailComponent
-}
-
-function createMockLogs(): ILoggerComponent {
-  const logger = { log: jest.fn(), error: jest.fn(), debug: jest.fn(), warn: jest.fn(), info: jest.fn() }
-  return { getLogger: () => logger } as unknown as ILoggerComponent
 }
 
 /**

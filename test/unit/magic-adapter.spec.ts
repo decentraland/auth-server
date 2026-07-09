@@ -1,5 +1,5 @@
 import { Magic, SDKError, ErrorCode } from '@magic-sdk/admin'
-import { IConfigComponent, ILoggerComponent } from '@well-known-components/interfaces'
+import { IConfigComponent } from '@well-known-components/interfaces'
 import { IFetchComponent } from '@dcl/core-commons'
 import { createMagicAdapter } from '../../src/adapters/magic/component'
 import {
@@ -10,6 +10,7 @@ import {
   MagicTokenInvalidError
 } from '../../src/adapters/magic/errors'
 import { IMagicAdapter } from '../../src/adapters/magic/types'
+import { createMockLogs } from '../mocks'
 
 // Mock only the Magic class — keep the real SDKError / ErrorCode so `instanceof`
 // checks and enum comparisons in the adapter work against real values.
@@ -21,11 +22,6 @@ jest.mock('@magic-sdk/admin', () => {
     Magic: jest.fn()
   }
 })
-
-function createMockLogs(): ILoggerComponent {
-  const logger = { log: jest.fn(), error: jest.fn(), debug: jest.fn(), warn: jest.fn(), info: jest.fn() }
-  return { getLogger: () => logger } as unknown as ILoggerComponent
-}
 
 function createMockConfig(overrides: Record<string, string | undefined> = {}): IConfigComponent {
   const defaults: Record<string, string | undefined> = {

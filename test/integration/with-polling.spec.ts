@@ -1,30 +1,56 @@
-import { DefaultEventsMap } from 'socket.io/dist/typed-events'
 import { Socket } from 'socket.io-client'
 import { AuthIdentity } from '@dcl/crypto'
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
+import { TestArguments } from '@dcl/test-helpers'
 import { METHOD_DCL_PERSONAL_SIGN } from '../../src/ports/server/constants'
 import { MessageType, OutcomeResponseMessage, RequestResponseMessage, RequestValidationMessage } from '../../src/ports/server/types'
+import { BaseComponents } from '../../src/types'
 import { test, testWithOverrides } from '../components'
 import { createHttpClient, createAuthWsClient, HttpPollingClient } from '../utils'
 import { createTestIdentity, generateRandomIdentityId } from '../utils/test-identity'
 
-let httpClient: HttpPollingClient
-let wsClient: Socket<DefaultEventsMap, DefaultEventsMap>
+/**
+ * Sets up an HTTP polling client (and, when `withWebSocket` is set, a socket.io client) for the
+ * enclosing context. Registers its own `beforeEach`/`afterEach` so the socket lifecycle is owned
+ * by the context that uses it rather than by module-level state. The HTTP client is a fetch
+ * wrapper with no handle to release, so only the websocket is closed on teardown.
+ */
+function usePollingClients(args: TestArguments<BaseComponents>, { withWebSocket = false }: { withWebSocket?: boolean } = {}) {
+  let httpClient: HttpPollingClient
+  let wsClient: Socket
 
-afterEach(() => {
-  if (wsClient && wsClient.connected) {
-    wsClient.close()
-  }
-})
-
-test('when sending a request message with an invalid schema', args => {
   beforeEach(async () => {
     const port = await args.components.config.requireString('HTTP_SERVER_PORT')
     httpClient = await createHttpClient(port)
+    if (withWebSocket) {
+      wsClient = await createAuthWsClient(port)
+    }
   })
 
+  afterEach(() => {
+    if (wsClient && wsClient.connected) {
+      wsClient.close()
+    }
+  })
+
+  return {
+    get http(): HttpPollingClient {
+      return httpClient
+    },
+    get ws(): Socket {
+      if (!wsClient) {
+        throw new Error('websocket client not initialized — call usePollingClients(args, { withWebSocket: true })')
+      }
+      return wsClient
+    }
+  }
+}
+
+test('when sending a request message with an invalid schema', args => {
+  const clients = usePollingClients(args)
+
   it('should respond with an invalid response message', async () => {
-    const response = await httpClient.request({})
+    const response = await clients.http.request({})
 
     expect(response).toEqual({
       error:
@@ -34,15 +60,11 @@ test('when sending a request message with an invalid schema', args => {
 })
 
 test(`when sending a request message for a method that is not ${METHOD_DCL_PERSONAL_SIGN}`, args => {
-  beforeEach(async () => {
-    const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-    wsClient = await createAuthWsClient(port)
-    httpClient = await createHttpClient(port)
-  })
+  const clients = usePollingClients(args)
 
   describe('and an auth chain is not provided', () => {
     it('should respond with an invalid response message indicating that the auth chain is required', async () => {
-      const response = await httpClient.request({
+      const response = await clients.http.request({
         method: 'method',
         params: []
       })
@@ -61,7 +83,7 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
     })
 
     it('should respond with the data of the request', async () => {
-      const requestResponse = await httpClient.request({
+      const requestResponse = await clients.http.request({
         method: 'method',
         params: [],
         authChain: testIdentity.authChain
@@ -75,13 +97,13 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
     })
 
     it('should return the sender derived from the auth chain on the recover response', async () => {
-      const requestResponse = (await httpClient.request({
+      const requestResponse = (await clients.http.request({
         method: 'method',
         params: [],
         authChain: testIdentity.authChain
       })) as RequestResponseMessage
 
-      const recoverResponse = await httpClient.recover(requestResponse.requestId)
+      const recoverResponse = await clients.http.recover(requestResponse.requestId)
 
       expect(recoverResponse.sender).toEqual(testIdentity.authChain[0].payload.toLowerCase())
     })
@@ -100,7 +122,7 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       })
 
       it('should respond with an invalid response message, indicating that the expected signer address is different', async () => {
-        const requestResponse = (await httpClient.request({
+        const requestResponse = (await clients.http.request({
           method: 'method',
           params: [],
           authChain: modifiedAuthChain
@@ -124,7 +146,7 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       })
 
       it('should respond with an invalid response message, indicating that the final authority could not be obtained', async () => {
-        const requestResponse = (await httpClient.request({
+        const requestResponse = (await clients.http.request({
           method: 'method',
           params: [],
           authChain: modifiedAuthChain
@@ -137,18 +159,15 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
 })
 
 testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending a recover message but the request has expired', args => {
-  beforeEach(async () => {
-    const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-    httpClient = await createHttpClient(port)
-  })
+  const clients = usePollingClients(args)
 
   it('should respond with an invalid response message', async () => {
-    const requestResponse = (await httpClient.request({
+    const requestResponse = (await clients.http.request({
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })) as RequestResponseMessage
 
-    const recoverResponse = await httpClient.recover(requestResponse.requestId)
+    const recoverResponse = await clients.http.recover(requestResponse.requestId)
 
     expect(recoverResponse).toEqual({
       error: `Request with id "${requestResponse.requestId}" has expired`
@@ -157,18 +176,15 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending a re
 })
 
 test('when sending a recover message', args => {
-  beforeEach(async () => {
-    const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-    httpClient = await createHttpClient(port)
-  })
+  const clients = usePollingClients(args)
 
   it('should respond with the recover data of the request', async () => {
-    const requestResponse = (await httpClient.request({
+    const requestResponse = (await clients.http.request({
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })) as RequestResponseMessage
 
-    const recoverResponse = await httpClient.recover(requestResponse.requestId)
+    const recoverResponse = await clients.http.recover(requestResponse.requestId)
 
     expect(recoverResponse).toEqual({
       expiration: requestResponse.expiration,
@@ -180,18 +196,15 @@ test('when sending a recover message', args => {
 })
 
 test('when sending an outcome message with an invalid schema', args => {
-  beforeEach(async () => {
-    const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-    httpClient = await createHttpClient(port)
-  })
+  const clients = usePollingClients(args)
 
   it('should respond with an invalid response message', async () => {
-    const requestResponse = (await httpClient.request({
+    const requestResponse = (await clients.http.request({
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })) as RequestResponseMessage
 
-    const response = await httpClient.sendSuccessfulOutcome(requestResponse.requestId, 'sender', undefined)
+    const response = await clients.http.sendSuccessfulOutcome(requestResponse.requestId, 'sender', undefined)
 
     expect(response).toEqual({
       error:
@@ -201,16 +214,17 @@ test('when sending an outcome message with an invalid schema', args => {
 })
 
 test('when sending an outcome message but the request does not exist', args => {
-  beforeEach(async () => {
-    const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-    httpClient = await createHttpClient(port)
+  const clients = usePollingClients(args)
+  let requestId: string
+  let sender: string
+
+  beforeEach(() => {
+    requestId = generateRandomIdentityId()
+    sender = createUnsafeIdentity().address
   })
 
   it('should respond with an invalid response message', async () => {
-    const requestId = generateRandomIdentityId()
-    const sender = createUnsafeIdentity().address
-
-    const response = await httpClient.sendSuccessfulOutcome(requestId, sender, 'result')
+    const response = await clients.http.sendSuccessfulOutcome(requestId, sender, 'result')
 
     expect(response).toEqual({
       error: `Request with id "${requestId}" not found`
@@ -219,19 +233,20 @@ test('when sending an outcome message but the request does not exist', args => {
 })
 
 testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending an outcome message but the request has expired', args => {
-  beforeEach(async () => {
-    const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-    httpClient = await createHttpClient(port)
+  const clients = usePollingClients(args)
+  let sender: string
+
+  beforeEach(() => {
+    sender = createUnsafeIdentity().address
   })
 
   it('should respond with an invalid response message', async () => {
-    const requestResponse = (await httpClient.request({
+    const requestResponse = (await clients.http.request({
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })) as RequestResponseMessage
 
-    const sender = createUnsafeIdentity().address
-    const outcomeResponse = await httpClient.sendSuccessfulOutcome(requestResponse.requestId, sender, 'result')
+    const outcomeResponse = await clients.http.sendSuccessfulOutcome(requestResponse.requestId, sender, 'result')
 
     expect(outcomeResponse).toEqual({
       error: `Request with id "${requestResponse.requestId}" has expired`
@@ -240,24 +255,22 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending an o
 })
 
 test('when sending a valid outcome message with the HTTP endpoints', args => {
+  const clients = usePollingClients(args, { withWebSocket: true })
   let sender: string
 
-  beforeEach(async () => {
-    const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-    httpClient = await createHttpClient(port)
-    wsClient = await createAuthWsClient(port)
+  beforeEach(() => {
     sender = createUnsafeIdentity().address
   })
 
   it('should respond with the outcome response message', async () => {
-    const requestResponse = (await httpClient.request({
+    const requestResponse = (await clients.http.request({
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })) as RequestResponseMessage
 
-    await httpClient.sendSuccessfulOutcome(requestResponse.requestId, sender, 'result')
+    await clients.http.sendSuccessfulOutcome(requestResponse.requestId, sender, 'result')
 
-    const outcomeResponse = await httpClient.getOutcome(requestResponse.requestId)
+    const outcomeResponse = await clients.http.getOutcome(requestResponse.requestId)
 
     expect(outcomeResponse).toEqual({
       requestId: requestResponse.requestId,
@@ -266,19 +279,19 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
     })
   })
 
-  it('should send the outcome response message to a websocket connected client when the outcome is sent via the HTTP', async () => {
-    const requestResponse = (await wsClient.emitWithAck('request', {
+  it('should relay the HTTP-submitted outcome to the connected websocket client', async () => {
+    const requestResponse = (await clients.ws.emitWithAck('request', {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })) as RequestResponseMessage
 
     const promiseOfAnOutcome = new Promise<OutcomeResponseMessage>((resolve, _) => {
-      wsClient.on(MessageType.OUTCOME, (data: OutcomeResponseMessage) => {
+      clients.ws.on(MessageType.OUTCOME, (data: OutcomeResponseMessage) => {
         resolve(data)
       })
     })
 
-    await httpClient.sendSuccessfulOutcome(requestResponse.requestId, sender, 'result')
+    await clients.http.sendSuccessfulOutcome(requestResponse.requestId, sender, 'result')
 
     return expect(promiseOfAnOutcome).resolves.toEqual({
       requestId: requestResponse.requestId,
@@ -288,17 +301,17 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
   })
 
   it('should respond with the outcome response message with an error', async () => {
-    const requestResponse = (await httpClient.request({
+    const requestResponse = (await clients.http.request({
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })) as RequestResponseMessage
 
-    await httpClient.sendFailedOutcome(requestResponse.requestId, sender, {
+    await clients.http.sendFailedOutcome(requestResponse.requestId, sender, {
       code: 1233,
       message: 'anErrorOccurred'
     })
 
-    const outcomeResponse = await httpClient.getOutcome(requestResponse.requestId)
+    const outcomeResponse = await clients.http.getOutcome(requestResponse.requestId)
 
     expect(outcomeResponse).toEqual({
       requestId: requestResponse.requestId,
@@ -311,14 +324,14 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
   })
 
   it('should respond with an invalid response message if calling the output twice', async () => {
-    const requestResponse = (await httpClient.request({
+    const requestResponse = (await clients.http.request({
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })) as RequestResponseMessage
 
-    await httpClient.sendSuccessfulOutcome(requestResponse.requestId, sender, 'result')
+    await clients.http.sendSuccessfulOutcome(requestResponse.requestId, sender, 'result')
 
-    const outcomeResponse = await httpClient.sendSuccessfulOutcome(requestResponse.requestId, sender, 'result')
+    const outcomeResponse = await clients.http.sendSuccessfulOutcome(requestResponse.requestId, sender, 'result')
 
     expect(outcomeResponse).toEqual({
       error: `Request with id "${requestResponse.requestId}" already has a response`
@@ -329,18 +342,15 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
 testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })(
   'when posting that a request needs validation but the request has expired',
   args => {
-    beforeEach(async () => {
-      const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-      httpClient = await createHttpClient(port)
-    })
+    const clients = usePollingClients(args)
 
     it('should respond with a 410 and an expired response message', async () => {
-      const requestResponse = (await httpClient.request({
+      const requestResponse = (await clients.http.request({
         method: METHOD_DCL_PERSONAL_SIGN,
         params: []
       })) as RequestResponseMessage
 
-      const response = await httpClient.notifyRequestValidation(requestResponse.requestId)
+      const response = await clients.http.notifyRequestValidation(requestResponse.requestId)
 
       expect(response).toEqual({
         error: `Request with id "${requestResponse.requestId}" has expired`
@@ -350,14 +360,15 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })(
 )
 
 test('when posting that a request needs validation but the request does not exist', args => {
-  beforeEach(async () => {
-    const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-    httpClient = await createHttpClient(port)
+  const clients = usePollingClients(args)
+  let requestId: string
+
+  beforeEach(() => {
+    requestId = generateRandomIdentityId()
   })
 
   it('should respond with a 404 and a not found response message', async () => {
-    const requestId = generateRandomIdentityId()
-    const response = await httpClient.notifyRequestValidation(requestId)
+    const response = await clients.http.notifyRequestValidation(requestId)
 
     expect(response).toEqual({
       error: `Request with id "${requestId}" not found`
@@ -366,30 +377,26 @@ test('when posting that a request needs validation but the request does not exis
 })
 
 test('when posting that a request needs validation and the request is valid', args => {
-  let requestResponse: RequestResponseMessage
-
-  beforeEach(async () => {
-    const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-    httpClient = await createHttpClient(port)
-    wsClient = await createAuthWsClient(port)
-  })
+  const clients = usePollingClients(args, { withWebSocket: true })
 
   describe('and there is a client connected listening for the request validation', () => {
+    let requestResponse: RequestResponseMessage
+
     beforeEach(async () => {
-      requestResponse = (await wsClient.emitWithAck('request', {
+      requestResponse = (await clients.ws.emitWithAck('request', {
         method: METHOD_DCL_PERSONAL_SIGN,
         params: []
       })) as RequestResponseMessage
     })
 
-    it('should respond with a 204 and a valid response message and send the request validation to the client', async () => {
+    it('should respond with a 204 and send the request validation to the client', async () => {
       const promiseOfRequestValidation = new Promise<RequestValidationMessage>((resolve, _) => {
-        wsClient.on(MessageType.REQUEST_VALIDATION_STATUS, (data: RequestValidationMessage) => {
+        clients.ws.on(MessageType.REQUEST_VALIDATION_STATUS, (data: RequestValidationMessage) => {
           resolve(data)
         })
       })
 
-      await httpClient.notifyRequestValidation(requestResponse.requestId)
+      await clients.http.notifyRequestValidation(requestResponse.requestId)
 
       return expect(promiseOfRequestValidation).resolves.toEqual({
         requestId: requestResponse.requestId
@@ -398,72 +405,34 @@ test('when posting that a request needs validation and the request is valid', ar
   })
 
   describe('and there is no client connected listening for the request validation', () => {
+    let requestResponse: RequestResponseMessage
+
     beforeEach(async () => {
-      requestResponse = (await httpClient.request({
+      requestResponse = (await clients.http.request({
         method: METHOD_DCL_PERSONAL_SIGN,
         params: []
       })) as RequestResponseMessage
     })
 
     it('should respond with a 204 and a valid response message', async () => {
-      return expect(httpClient.notifyRequestValidation(requestResponse.requestId)).resolves.toBeUndefined()
+      return expect(clients.http.notifyRequestValidation(requestResponse.requestId)).resolves.toBeUndefined()
     })
   })
 })
 
-// test('when getting the request validation status of a request that does not exist', args => {
-//   beforeEach(async () => {
-//     const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-//     httpClient = await createHttpClient(port)
-//   })
-
-//   it('should respond with a 404 and an error message', async () => {
-//     const response = await httpClient.getRequestValidationStatus('requestId')
-
-//     expect(response).toEqual({
-//       error: 'Request with id "requestId" not found'
-//     })
-//   })
-// })
-
-// testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })(
-//   'when getting the request validation status of a request that has expired',
-//   args => {
-//     let requestResponse: RequestResponseMessage
-
-//     beforeEach(async () => {
-//       const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-//       httpClient = await createHttpClient(port)
-//       requestResponse = (await httpClient.request({
-//         method: METHOD_DCL_PERSONAL_SIGN,
-//         params: []
-//       })) as RequestResponseMessage
-//     })
-
-//     it('should respond with a 410 and an expired response message', async () => {
-//       const response = await httpClient.getRequestValidationStatus(requestResponse.requestId)
-
-//       expect(response).toEqual({
-//         error: 'Request with id "requestId" has expired'
-//       })
-//     })
-//   }
-// )
-
 test('when getting the request validation status of a request that should not be validated', args => {
+  const clients = usePollingClients(args)
   let requestResponse: RequestResponseMessage
 
   beforeEach(async () => {
-    const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-    httpClient = await createHttpClient(port)
-    requestResponse = (await httpClient.request({
+    requestResponse = (await clients.http.request({
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })) as RequestResponseMessage
   })
 
   it('should respond with a 200 and the request validation status as false', async () => {
-    const response = await httpClient.getRequestValidationStatus(requestResponse.requestId)
+    const response = await clients.http.getRequestValidationStatus(requestResponse.requestId)
 
     expect(response).toEqual({
       requiresValidation: false
@@ -472,21 +441,20 @@ test('when getting the request validation status of a request that should not be
 })
 
 test('when getting the request validation status of a request that should be validated', args => {
+  const clients = usePollingClients(args)
   let requestResponse: RequestResponseMessage
 
   beforeEach(async () => {
-    const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-    httpClient = await createHttpClient(port)
-    requestResponse = (await httpClient.request({
+    requestResponse = (await clients.http.request({
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })) as RequestResponseMessage
 
-    await httpClient.notifyRequestValidation(requestResponse.requestId)
+    await clients.http.notifyRequestValidation(requestResponse.requestId)
   })
 
   it('should respond with a 200 and the request validation status as true', async () => {
-    const response = await httpClient.getRequestValidationStatus(requestResponse.requestId)
+    const response = await clients.http.getRequestValidationStatus(requestResponse.requestId)
 
     expect(response).toEqual({
       requiresValidation: true
