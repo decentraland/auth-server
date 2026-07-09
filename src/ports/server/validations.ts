@@ -1,6 +1,8 @@
 import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
 import { AuthChain } from '@dcl/schemas'
+import { InvalidRequestError } from '@dcl/http-commons'
+import { SimulationRequestBody } from '../../logic/simulation/types'
 import { MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from './constants'
 import {
   HttpOutcomeMessage,
@@ -191,6 +193,34 @@ const accountDeletionMetadataSchema = {
   additionalProperties: true
 }
 
+const simulationRequestSchema = {
+  type: 'object',
+  properties: {
+    chainId: {
+      type: 'integer'
+    },
+    from: {
+      type: 'string',
+      pattern: '^0x[a-fA-F0-9]{40}$'
+    },
+    to: {
+      type: 'string',
+      pattern: '^0x[a-fA-F0-9]{40}$'
+    },
+    data: {
+      type: 'string',
+      pattern: '^0x[a-fA-F0-9]*$',
+      maxLength: 200000
+    },
+    value: {
+      type: 'string',
+      pattern: '^(0x[a-fA-F0-9]{1,64}|[0-9]{1,78})$'
+    }
+  },
+  required: ['chainId', 'from', 'to'],
+  additionalProperties: false
+}
+
 const requestMessageValidator = ajv.compile(requestMessageSchema)
 const recoverMessageValidator = ajv.compile(recoverMessageSchema)
 const outcomeMessageValidator = ajv.compile(outcomeMessageSchema)
@@ -199,6 +229,7 @@ const requestValidationMessageValidator = ajv.compile(requestValidationMessageSc
 const identityIdRequestValidator = ajv.compile(identityRequestSchema)
 const checkpointRequestValidator = ajv.compile(checkpointRequestSchema)
 const accountDeletionMetadataValidator = ajv.compile(accountDeletionMetadataSchema)
+const simulationRequestValidator = ajv.compile(simulationRequestSchema)
 
 export function validateRequestMessage(msg: unknown) {
   if (!requestMessageValidator(msg)) {
@@ -272,4 +303,13 @@ export function validateAccountDeletionMetadata(msg: unknown) {
   }
 
   return msg as AccountDeletionMetadata
+}
+
+export function validateSimulationRequest(msg: unknown): SimulationRequestBody {
+  if (!simulationRequestValidator(msg)) {
+    // errorHandler maps InvalidRequestError to a 400.
+    throw new InvalidRequestError(JSON.stringify(simulationRequestValidator.errors))
+  }
+
+  return msg as SimulationRequestBody
 }
