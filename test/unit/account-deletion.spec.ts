@@ -1,4 +1,3 @@
-import { ILoggerComponent } from '@well-known-components/interfaces'
 import { createInMemoryCacheComponent } from '@dcl/memory-cache-component'
 import { IMagicAdapter, MagicRateLimitError } from '../../src/adapters/magic'
 import { createAccountDeletionComponent } from '../../src/logic/account-deletion/component'
@@ -6,11 +5,7 @@ import { AddressMismatchError, DidTokenReusedError, DidTokenStaleError } from '.
 import { IAccountDeletionComponent } from '../../src/logic/account-deletion/types'
 import { createStorageComponent } from '../../src/ports/storage/component'
 import { IStorageComponent } from '../../src/ports/storage/types'
-
-function createMockLogs(): ILoggerComponent {
-  const logger = { log: jest.fn(), error: jest.fn(), debug: jest.fn(), warn: jest.fn(), info: jest.fn() }
-  return { getLogger: () => logger } as unknown as ILoggerComponent
-}
+import { createMockLogs } from '../mocks'
 
 describe('when deleting an account', () => {
   let accountDeletion: IAccountDeletionComponent

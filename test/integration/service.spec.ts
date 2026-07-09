@@ -8,28 +8,42 @@ import { test, testWithOverrides } from '../components'
 import { createAuthWsClient } from '../utils'
 import { createTestIdentity, generateRandomIdentityId } from '../utils/test-identity'
 
-let desktopClientSocket: Socket
-let authDappSocket: Socket
+/**
+ * Connects a desktop client and an auth-dapp client for the enclosing `test()`/`describe`
+ * context. Registers its own `beforeEach` (connect) and `afterEach` (close) so the socket
+ * lifecycle is owned by the context that uses it rather than by module-level state. The
+ * returned getters always resolve to the sockets for the current test.
+ */
+function connectClients(args: TestArguments<BaseComponents>) {
+  let desktopClientSocket: Socket
+  let authDappSocket: Socket
 
-afterEach(() => {
-  desktopClientSocket.close()
-  authDappSocket.close()
-})
+  beforeEach(async () => {
+    const port = await args.components.config.requireString('HTTP_SERVER_PORT')
+    desktopClientSocket = await createAuthWsClient(port)
+    authDappSocket = await createAuthWsClient(port)
+  })
 
-async function connectClients(args: TestArguments<BaseComponents>) {
-  const port = await args.components.config.requireString('HTTP_SERVER_PORT')
+  afterEach(() => {
+    desktopClientSocket.close()
+    authDappSocket.close()
+  })
 
-  desktopClientSocket = await createAuthWsClient(port)
-  authDappSocket = await createAuthWsClient(port)
+  return {
+    get desktop(): Socket {
+      return desktopClientSocket
+    },
+    get authDapp(): Socket {
+      return authDappSocket
+    }
+  }
 }
 
 test('when sending a request message with an invalid schema', args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
+  const clients = connectClients(args)
 
   it('should respond with an invalid response message', async () => {
-    const response = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {})
+    const response = await clients.desktop.emitWithAck(MessageType.REQUEST, {})
 
     expect(response).toEqual({
       error:
@@ -39,12 +53,10 @@ test('when sending a request message with an invalid schema', args => {
 })
 
 test('when sending a request message', args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
+  const clients = connectClients(args)
 
   it('should respond with a request response message', async () => {
-    const response = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+    const response = await clients.desktop.emitWithAck(MessageType.REQUEST, {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
@@ -58,13 +70,11 @@ test('when sending a request message', args => {
 })
 
 test(`when sending a request message for a method that is not ${METHOD_DCL_PERSONAL_SIGN}`, args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
+  const clients = connectClients(args)
 
-  describe('when an auth chain is not provided', () => {
+  describe('and an auth chain is not provided', () => {
     it('should respond with an invalid response message indicating that the auth chain is required', async () => {
-      const response = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      const response = await clients.desktop.emitWithAck(MessageType.REQUEST, {
         method: 'method',
         params: []
       })
@@ -75,7 +85,7 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
     })
   })
 
-  describe('when an auth chain is provided', () => {
+  describe('and an auth chain is provided', () => {
     let testIdentity: Awaited<ReturnType<typeof createTestIdentity>>
 
     beforeEach(async () => {
@@ -83,7 +93,7 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
     })
 
     it('should respond with a request response message', async () => {
-      const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
         method: 'method',
         params: [],
         authChain: testIdentity.authChain
@@ -97,20 +107,20 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
     })
 
     it('should return the sender derived from the auth chain on the recover response', async () => {
-      const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
         method: 'method',
         params: [],
         authChain: testIdentity.authChain
       })
 
-      const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
+      const recoverResponse = await clients.authDapp.emitWithAck(MessageType.RECOVER, {
         requestId: requestResponse.requestId
       })
 
       expect(recoverResponse.sender).toEqual(testIdentity.authChain[0].payload.toLowerCase())
     })
 
-    describe('when the payload on the signer link does not match the address of the ephemeral message signer', () => {
+    describe('and the payload on the signer link does not match the address of the ephemeral message signer', () => {
       let otherAccount: ReturnType<typeof createUnsafeIdentity>
       let modifiedAuthChain: typeof testIdentity.authChain
 
@@ -124,7 +134,7 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       })
 
       it('should respond with an invalid response message, indicating that the expected signer address is different', async () => {
-        const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+        const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
           method: 'method',
           params: [],
           authChain: modifiedAuthChain
@@ -136,7 +146,7 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       })
     })
 
-    describe('when the auth chain does not have a parsable payload in the second link', () => {
+    describe('and the auth chain does not have a parsable payload in the second link', () => {
       let modifiedAuthChain: typeof testIdentity.authChain
 
       beforeEach(() => {
@@ -148,7 +158,7 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       })
 
       it('should respond with an invalid response message, indicating that the final authority could not be obtained', async () => {
-        const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+        const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
           method: 'method',
           params: [],
           authChain: modifiedAuthChain
@@ -161,12 +171,10 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
 })
 
 test('when sending a recover message with an invalid schema', args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
+  const clients = connectClients(args)
 
   it('should respond with an invalid response message', async () => {
-    const response = await authDappSocket.emitWithAck(MessageType.RECOVER, {})
+    const response = await clients.authDapp.emitWithAck(MessageType.RECOVER, {})
 
     expect(response).toEqual({
       error:
@@ -176,15 +184,15 @@ test('when sending a recover message with an invalid schema', args => {
 })
 
 test('when sending a recover message but the request does not exist', args => {
-  beforeEach(async () => {
-    await connectClients(args)
+  const clients = connectClients(args)
+  let requestId: string
+
+  beforeEach(() => {
+    requestId = generateRandomIdentityId()
   })
 
   it('should respond with an invalid response message', async () => {
-    const requestId = generateRandomIdentityId()
-    const response = await authDappSocket.emitWithAck(MessageType.RECOVER, {
-      requestId
-    })
+    const response = await clients.authDapp.emitWithAck(MessageType.RECOVER, { requestId })
 
     expect(response).toEqual({
       error: `Request with id "${requestId}" not found`
@@ -193,17 +201,15 @@ test('when sending a recover message but the request does not exist', args => {
 })
 
 testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending a recover message but the request has expired', args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
+  const clients = connectClients(args)
 
   it('should respond with an invalid response message', async () => {
-    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+    const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
-    const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
+    const recoverResponse = await clients.authDapp.emitWithAck(MessageType.RECOVER, {
       requestId: requestResponse.requestId
     })
 
@@ -214,22 +220,20 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending a re
 })
 
 test('when sending a recover message for a request that has been overridden by another one', args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
+  const clients = connectClients(args)
 
   it('should respond with an invalid response message', async () => {
-    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+    const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
-    await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+    await clients.desktop.emitWithAck(MessageType.REQUEST, {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
-    const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
+    const recoverResponse = await clients.authDapp.emitWithAck(MessageType.RECOVER, {
       requestId: requestResponse.requestId
     })
 
@@ -239,17 +243,17 @@ test('when sending a recover message for a request that has been overridden by a
   })
 
   it('should respond with a recover response message for the new request', async () => {
-    await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+    await clients.desktop.emitWithAck(MessageType.REQUEST, {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
-    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+    const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
-    const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
+    const recoverResponse = await clients.authDapp.emitWithAck(MessageType.RECOVER, {
       requestId: requestResponse.requestId
     })
 
@@ -262,17 +266,17 @@ test('when sending a recover message for a request that has been overridden by a
   })
 
   it('should not override the first request if it was sent by a different socket', async () => {
-    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+    const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
-    await authDappSocket.emitWithAck(MessageType.REQUEST, {
+    await clients.authDapp.emitWithAck(MessageType.REQUEST, {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
-    const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
+    const recoverResponse = await clients.authDapp.emitWithAck(MessageType.RECOVER, {
       requestId: requestResponse.requestId
     })
 
@@ -286,19 +290,17 @@ test('when sending a recover message for a request that has been overridden by a
 })
 
 test('when sending a recover message but the socket that sent it has disconnected', args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
+  const clients = connectClients(args)
 
   it('should still return the request data (requests survive socket disconnect)', async () => {
-    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+    const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
-    desktopClientSocket.disconnect()
+    clients.desktop.disconnect()
 
-    const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
+    const recoverResponse = await clients.authDapp.emitWithAck(MessageType.RECOVER, {
       requestId: requestResponse.requestId
     })
 
@@ -312,17 +314,15 @@ test('when sending a recover message but the socket that sent it has disconnecte
 })
 
 test('when sending a recover message', args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
+  const clients = connectClients(args)
 
   it('should respond with a recover response message', async () => {
-    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+    const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
-    const recoverResponse = await authDappSocket.emitWithAck(MessageType.RECOVER, {
+    const recoverResponse = await clients.authDapp.emitWithAck(MessageType.RECOVER, {
       requestId: requestResponse.requestId
     })
 
@@ -336,12 +336,10 @@ test('when sending a recover message', args => {
 })
 
 test('when sending an outcome message with an invalid schema', args => {
-  beforeEach(async () => {
-    await connectClients(args)
-  })
+  const clients = connectClients(args)
 
   it('should respond with an invalid response message', async () => {
-    const response = await authDappSocket.emitWithAck(MessageType.OUTCOME, {})
+    const response = await clients.authDapp.emitWithAck(MessageType.OUTCOME, {})
 
     expect(response).toEqual({
       error:
@@ -351,15 +349,17 @@ test('when sending an outcome message with an invalid schema', args => {
 })
 
 test('when sending an outcome message but the request does not exist', args => {
-  beforeEach(async () => {
-    await connectClients(args)
+  const clients = connectClients(args)
+  let requestId: string
+  let sender: string
+
+  beforeEach(() => {
+    requestId = generateRandomIdentityId()
+    sender = createUnsafeIdentity().address
   })
 
   it('should respond with an invalid response message', async () => {
-    const requestId = generateRandomIdentityId()
-    const sender = createUnsafeIdentity().address
-
-    const response = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
+    const response = await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
       requestId,
       sender,
       result: 'result'
@@ -372,18 +372,20 @@ test('when sending an outcome message but the request does not exist', args => {
 })
 
 testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending an outcome message but the request has expired', args => {
-  beforeEach(async () => {
-    await connectClients(args)
+  const clients = connectClients(args)
+  let sender: string
+
+  beforeEach(() => {
+    sender = createUnsafeIdentity().address
   })
 
   it('should respond with an invalid response message', async () => {
-    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+    const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
-    const sender = createUnsafeIdentity().address
-    const outcomeResponse = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
+    const outcomeResponse = await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
       requestId: requestResponse.requestId,
       sender,
       result: 'result'
@@ -396,20 +398,22 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending an o
 })
 
 test('when sending an outcome message but the socket that created the request disconnected', args => {
-  beforeEach(async () => {
-    await connectClients(args)
+  const clients = connectClients(args)
+  let sender: string
+
+  beforeEach(() => {
+    sender = createUnsafeIdentity().address
   })
 
   it('should accept the outcome and store it for polling (requests survive socket disconnect)', async () => {
-    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+    const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
-    desktopClientSocket.disconnect()
+    clients.desktop.disconnect()
 
-    const sender = createUnsafeIdentity().address
-    const outcomeResponse = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
+    const outcomeResponse = await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
       requestId: requestResponse.requestId,
       sender,
       result: 'result'
@@ -420,20 +424,20 @@ test('when sending an outcome message but the socket that created the request di
 })
 
 test('when the auth dapp sends an outcome message', args => {
+  const clients = connectClients(args)
   let sender: string
 
-  beforeEach(async () => {
-    await connectClients(args)
+  beforeEach(() => {
     sender = createUnsafeIdentity().address
   })
 
   it('should respond with an empty object as ack', async () => {
-    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+    const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
-    const outcomeResponse = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
+    const outcomeResponse = await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
       requestId: requestResponse.requestId,
       sender,
       result: 'result'
@@ -443,18 +447,18 @@ test('when the auth dapp sends an outcome message', args => {
   })
 
   it('should emit to the desktop client the outcome response message', async () => {
-    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+    const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
     const outcomeResponsePromise = new Promise(resolve => {
-      desktopClientSocket.on(MessageType.OUTCOME, msg => {
+      clients.desktop.on(MessageType.OUTCOME, msg => {
         resolve(msg)
       })
     })
 
-    await authDappSocket.emitWithAck(MessageType.OUTCOME, {
+    await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
       requestId: requestResponse.requestId,
       sender,
       result: 'result'
@@ -470,18 +474,18 @@ test('when the auth dapp sends an outcome message', args => {
   })
 
   it('should emit to the desktop client the outcome response message with an error', async () => {
-    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+    const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
     const outcomeResponsePromise = new Promise(resolve => {
-      desktopClientSocket.on(MessageType.OUTCOME, msg => {
+      clients.desktop.on(MessageType.OUTCOME, msg => {
         resolve(msg)
       })
     })
 
-    await authDappSocket.emitWithAck(MessageType.OUTCOME, {
+    await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
       requestId: requestResponse.requestId,
       sender,
       error: {
@@ -503,18 +507,18 @@ test('when the auth dapp sends an outcome message', args => {
   })
 
   it('should respond with an invalid response message if calling the output twice', async () => {
-    const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+    const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
       method: METHOD_DCL_PERSONAL_SIGN,
       params: []
     })
 
-    await authDappSocket.emitWithAck(MessageType.OUTCOME, {
+    await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
       requestId: requestResponse.requestId,
       sender,
       result: 'result'
     })
 
-    const outcomeResponse = await authDappSocket.emitWithAck(MessageType.OUTCOME, {
+    const outcomeResponse = await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
       requestId: requestResponse.requestId,
       sender,
       result: 'result'
@@ -529,17 +533,15 @@ test('when the auth dapp sends an outcome message', args => {
 testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })(
   'when posting that a request needs validation but the request has expired',
   args => {
-    beforeEach(async () => {
-      await connectClients(args)
-    })
+    const clients = connectClients(args)
 
     it('should respond with an error indicating that the request has expired', async () => {
-      const requestResponse = await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
         method: METHOD_DCL_PERSONAL_SIGN,
         params: []
       })
 
-      const response = await authDappSocket.emitWithAck(MessageType.REQUEST_VALIDATION_STATUS, {
+      const response = await clients.authDapp.emitWithAck(MessageType.REQUEST_VALIDATION_STATUS, {
         requestId: requestResponse.requestId
       })
 
@@ -551,15 +553,15 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })(
 )
 
 test('when posting that a request needs validation but the request does not exist', args => {
-  beforeEach(async () => {
-    await connectClients(args)
+  const clients = connectClients(args)
+  let requestId: string
+
+  beforeEach(() => {
+    requestId = generateRandomIdentityId()
   })
 
   it('should respond with an error indicating that the request does not exist', async () => {
-    const requestId = generateRandomIdentityId()
-    const response = await authDappSocket.emitWithAck(MessageType.REQUEST_VALIDATION_STATUS, {
-      requestId
-    })
+    const response = await clients.authDapp.emitWithAck(MessageType.REQUEST_VALIDATION_STATUS, { requestId })
 
     expect(response).toEqual({
       error: `Request with id "${requestId}" not found`
@@ -568,15 +570,13 @@ test('when posting that a request needs validation but the request does not exis
 })
 
 test('when posting that a request needs validation and the request is valid', args => {
-  let requestResponse: RequestResponseMessage
-
-  beforeEach(async () => {
-    await connectClients(args)
-  })
+  const clients = connectClients(args)
 
   describe('and there is a client connected listening for the request validation', () => {
+    let requestResponse: RequestResponseMessage
+
     beforeEach(async () => {
-      requestResponse = (await desktopClientSocket.emitWithAck('request', {
+      requestResponse = (await clients.desktop.emitWithAck('request', {
         method: METHOD_DCL_PERSONAL_SIGN,
         params: []
       })) as RequestResponseMessage
@@ -584,12 +584,12 @@ test('when posting that a request needs validation and the request is valid', ar
 
     it('should respond with an empty object as ack and send the request validation to the client', async () => {
       const promiseOfRequestValidation = new Promise<RequestValidationMessage>((resolve, _) => {
-        desktopClientSocket.on(MessageType.REQUEST_VALIDATION_STATUS, (data: RequestValidationMessage) => {
+        clients.desktop.on(MessageType.REQUEST_VALIDATION_STATUS, (data: RequestValidationMessage) => {
           resolve(data)
         })
       })
 
-      await authDappSocket.emitWithAck(MessageType.REQUEST_VALIDATION_STATUS, {
+      await clients.authDapp.emitWithAck(MessageType.REQUEST_VALIDATION_STATUS, {
         requestId: requestResponse.requestId
       })
 
@@ -601,8 +601,10 @@ test('when posting that a request needs validation and the request is valid', ar
   })
 
   describe('and there is no client connected listening for the request validation', () => {
+    let requestResponse: RequestResponseMessage
+
     beforeEach(async () => {
-      requestResponse = (await desktopClientSocket.emitWithAck(MessageType.REQUEST, {
+      requestResponse = (await clients.desktop.emitWithAck(MessageType.REQUEST, {
         method: METHOD_DCL_PERSONAL_SIGN,
         params: []
       })) as RequestResponseMessage
@@ -610,7 +612,7 @@ test('when posting that a request needs validation and the request is valid', ar
 
     it('should respond with an empty object as ack', async () => {
       return expect(
-        authDappSocket.emitWithAck(MessageType.REQUEST_VALIDATION_STATUS, {
+        clients.authDapp.emitWithAck(MessageType.REQUEST_VALIDATION_STATUS, {
           requestId: requestResponse.requestId
         })
       ).resolves.toEqual({})

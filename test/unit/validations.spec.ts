@@ -20,529 +20,571 @@ import {
 import { generateRandomIdentityId, createTestIdentity } from '../utils/test-identity'
 
 describe('when validating request messages', () => {
-  let validRequestMessage: RequestMessage
-  let invalidRequestMessage: Partial<RequestMessage>
-
-  beforeEach(() => {
-    validRequestMessage = {
-      method: 'eth_sendTransaction',
-      params: [{ from: '0x123', to: '0x456', value: '0x1' }]
-    }
-
-    invalidRequestMessage = {
-      // Missing required 'method' field
-      params: []
-    }
-  })
-
   describe('and the message is valid', () => {
+    let validRequestMessage: RequestMessage
+
+    beforeEach(() => {
+      validRequestMessage = {
+        method: 'eth_sendTransaction',
+        params: [{ from: '0x123', to: '0x456', value: '0x1' }]
+      }
+    })
+
     it('should return the validated message', () => {
-      const result = validateRequestMessage(validRequestMessage)
-      expect(result).toEqual(validRequestMessage)
-      expect(result.method).toBe('eth_sendTransaction')
-      expect(result.params).toHaveLength(1)
+      expect(validateRequestMessage(validRequestMessage)).toEqual(validRequestMessage)
     })
   })
 
-  describe('and the message is invalid', () => {
-    it('should throw validation error', () => {
+  describe('and the message is missing the method', () => {
+    let invalidRequestMessage: Partial<RequestMessage>
+
+    beforeEach(() => {
+      invalidRequestMessage = { params: [] }
+    })
+
+    it('should throw a validation error', () => {
       expect(() => validateRequestMessage(invalidRequestMessage)).toThrow()
     })
   })
 
   describe('and the method exceeds max length', () => {
-    it('should throw validation error', () => {
-      const messageWithLongMethod = {
-        method: 'a'.repeat(MAX_METHOD_LENGTH + 1),
-        params: []
-      }
+    let messageWithLongMethod: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      messageWithLongMethod = { method: 'a'.repeat(MAX_METHOD_LENGTH + 1), params: [] }
+    })
+
+    it('should throw a validation error', () => {
       expect(() => validateRequestMessage(messageWithLongMethod)).toThrow()
     })
   })
 
   describe('and the method is at max length', () => {
-    it('should return the validated message', () => {
-      const messageWithMaxMethod = {
-        method: 'a'.repeat(MAX_METHOD_LENGTH),
-        params: []
-      }
-      const result = validateRequestMessage(messageWithMaxMethod)
-      expect(result.method).toHaveLength(MAX_METHOD_LENGTH)
+    let messageWithMaxMethod: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      messageWithMaxMethod = { method: 'a'.repeat(MAX_METHOD_LENGTH), params: [] }
+    })
+
+    it('should return a message whose method is at the max length', () => {
+      expect(validateRequestMessage(messageWithMaxMethod).method).toHaveLength(MAX_METHOD_LENGTH)
     })
   })
 
   describe('and the params array exceeds max items', () => {
-    it('should throw validation error', () => {
-      const messageWithTooManyParams = {
-        method: 'eth_call',
-        params: Array(MAX_PARAMS_ITEMS + 1).fill({ data: 'test' })
-      }
+    let messageWithTooManyParams: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      messageWithTooManyParams = { method: 'eth_call', params: Array(MAX_PARAMS_ITEMS + 1).fill({ data: 'test' }) }
+    })
+
+    it('should throw a validation error', () => {
       expect(() => validateRequestMessage(messageWithTooManyParams)).toThrow()
     })
   })
 
   describe('and the params array is at max items', () => {
-    it('should return the validated message', () => {
-      const messageWithMaxParams = {
-        method: 'eth_call',
-        params: Array(MAX_PARAMS_ITEMS).fill({ data: 'test' })
-      }
-      const result = validateRequestMessage(messageWithMaxParams)
-      expect(result.params).toHaveLength(MAX_PARAMS_ITEMS)
+    let messageWithMaxParams: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      messageWithMaxParams = { method: 'eth_call', params: Array(MAX_PARAMS_ITEMS).fill({ data: 'test' }) }
+    })
+
+    it('should return a message with the max number of params', () => {
+      expect(validateRequestMessage(messageWithMaxParams).params).toHaveLength(MAX_PARAMS_ITEMS)
     })
   })
 })
 
 describe('when validating recover messages', () => {
-  let validRecoverMessage: RecoverMessage
-  let invalidRecoverMessage: Partial<RecoverMessage>
-
-  beforeEach(() => {
-    validRecoverMessage = {
-      requestId: generateRandomIdentityId()
-    }
-
-    invalidRecoverMessage = {
-      // Missing required 'requestId' field
-    }
-  })
-
   describe('and the message is valid', () => {
+    let validRecoverMessage: RecoverMessage
+
+    beforeEach(() => {
+      validRecoverMessage = { requestId: generateRandomIdentityId() }
+    })
+
     it('should return the validated message', () => {
-      const result = validateRecoverMessage(validRecoverMessage)
-      expect(result).toEqual(validRecoverMessage)
-      expect(result.requestId).toBe(validRecoverMessage.requestId)
+      expect(validateRecoverMessage(validRecoverMessage)).toEqual(validRecoverMessage)
     })
   })
 
-  describe('and the message is invalid', () => {
-    it('should throw validation error', () => {
+  describe('and the message is missing the requestId', () => {
+    let invalidRecoverMessage: Partial<RecoverMessage>
+
+    beforeEach(() => {
+      invalidRecoverMessage = {}
+    })
+
+    it('should throw a validation error', () => {
       expect(() => validateRecoverMessage(invalidRecoverMessage)).toThrow()
     })
   })
 
   describe('and the requestId exceeds max length', () => {
-    it('should throw validation error', () => {
-      const messageWithLongRequestId = {
-        requestId: 'a'.repeat(MAX_REQUEST_ID_LENGTH + 1)
-      }
+    let messageWithLongRequestId: { requestId: string }
+
+    beforeEach(() => {
+      messageWithLongRequestId = { requestId: 'a'.repeat(MAX_REQUEST_ID_LENGTH + 1) }
+    })
+
+    it('should throw a validation error', () => {
       expect(() => validateRecoverMessage(messageWithLongRequestId)).toThrow()
     })
   })
 
   describe('and the requestId is at max length', () => {
-    it('should return the validated message', () => {
-      const messageWithMaxRequestId = {
-        requestId: 'a'.repeat(MAX_REQUEST_ID_LENGTH)
-      }
-      const result = validateRecoverMessage(messageWithMaxRequestId)
-      expect(result.requestId).toHaveLength(MAX_REQUEST_ID_LENGTH)
+    let messageWithMaxRequestId: { requestId: string }
+
+    beforeEach(() => {
+      messageWithMaxRequestId = { requestId: 'a'.repeat(MAX_REQUEST_ID_LENGTH) }
+    })
+
+    it('should return a message whose requestId is at the max length', () => {
+      expect(validateRecoverMessage(messageWithMaxRequestId).requestId).toHaveLength(MAX_REQUEST_ID_LENGTH)
     })
   })
 })
 
 describe('when validating outcome messages', () => {
-  let validOutcomeMessageWithResult: OutcomeMessage
-  let validOutcomeMessageWithError: OutcomeMessage
-  let invalidOutcomeMessage: Partial<OutcomeMessage>
   let requestId: string
   let sender: string
 
   beforeEach(() => {
     requestId = generateRandomIdentityId()
     sender = createUnsafeIdentity().address
-    validOutcomeMessageWithResult = {
-      requestId,
-      sender,
-      result: { transactionHash: '0xabcdef' }
-    }
-
-    validOutcomeMessageWithError = {
-      requestId,
-      sender,
-      error: {
-        code: 1233,
-        message: 'Transaction failed'
-      }
-    }
-
-    invalidOutcomeMessage = {
-      requestId,
-      sender
-      // Missing required 'result' or 'error' field
-    }
   })
 
-  describe('and the message has valid result', () => {
+  describe('and the message has a valid result', () => {
+    let validOutcomeMessageWithResult: OutcomeMessage
+
+    beforeEach(() => {
+      validOutcomeMessageWithResult = { requestId, sender, result: { transactionHash: '0xabcdef' } }
+    })
+
     it('should return the validated message', () => {
-      const result = validateOutcomeMessage(validOutcomeMessageWithResult)
-      expect(result).toEqual(validOutcomeMessageWithResult)
-      expect(result.result).toEqual({ transactionHash: '0xabcdef' })
+      expect(validateOutcomeMessage(validOutcomeMessageWithResult)).toEqual(validOutcomeMessageWithResult)
     })
   })
 
-  describe('and the message has valid error', () => {
+  describe('and the message has a valid error', () => {
+    let validOutcomeMessageWithError: OutcomeMessage
+
+    beforeEach(() => {
+      validOutcomeMessageWithError = { requestId, sender, error: { code: 1233, message: 'Transaction failed' } }
+    })
+
     it('should return the validated message', () => {
-      const result = validateOutcomeMessage(validOutcomeMessageWithError)
-      expect(result).toEqual(validOutcomeMessageWithError)
-      expect(result.error).toEqual({
-        code: 1233,
-        message: 'Transaction failed'
-      })
+      expect(validateOutcomeMessage(validOutcomeMessageWithError)).toEqual(validOutcomeMessageWithError)
     })
   })
 
-  describe('and the message is invalid', () => {
-    it('should throw validation error', () => {
+  describe('and the message has neither a result nor an error', () => {
+    let invalidOutcomeMessage: Partial<OutcomeMessage>
+
+    beforeEach(() => {
+      invalidOutcomeMessage = { requestId, sender }
+    })
+
+    it('should throw a validation error', () => {
       expect(() => validateOutcomeMessage(invalidOutcomeMessage)).toThrow()
     })
   })
 
   describe('and the requestId exceeds max length', () => {
-    it('should throw validation error', () => {
-      const messageWithLongRequestId = {
+    let messageWithLongRequestId: Record<string, unknown>
+
+    beforeEach(() => {
+      messageWithLongRequestId = {
         requestId: 'a'.repeat(MAX_REQUEST_ID_LENGTH + 1),
         sender: '0x1234567890123456789012345678901234567890',
         result: { data: 'test' }
       }
+    })
+
+    it('should throw a validation error', () => {
       expect(() => validateOutcomeMessage(messageWithLongRequestId)).toThrow()
     })
   })
 
   describe('and the sender is not a valid Ethereum address', () => {
-    it('should throw validation error for invalid format', () => {
-      const messageWithInvalidSender = {
-        requestId: generateRandomIdentityId(),
-        sender: 'invalid-sender-address',
-        result: { data: 'test' }
-      }
-      expect(() => validateOutcomeMessage(messageWithInvalidSender)).toThrow()
+    describe('and the sender has an arbitrary invalid format', () => {
+      let messageWithInvalidSender: Record<string, unknown>
+
+      beforeEach(() => {
+        messageWithInvalidSender = { requestId: generateRandomIdentityId(), sender: 'invalid-sender-address', result: { data: 'test' } }
+      })
+
+      it('should throw a validation error', () => {
+        expect(() => validateOutcomeMessage(messageWithInvalidSender)).toThrow()
+      })
     })
 
-    it('should throw validation error for address without 0x prefix', () => {
-      const messageWithoutPrefix = {
-        requestId: generateRandomIdentityId(),
-        sender: '1234567890123456789012345678901234567890',
-        result: { data: 'test' }
-      }
-      expect(() => validateOutcomeMessage(messageWithoutPrefix)).toThrow()
+    describe('and the sender is missing the 0x prefix', () => {
+      let messageWithoutPrefix: Record<string, unknown>
+
+      beforeEach(() => {
+        messageWithoutPrefix = {
+          requestId: generateRandomIdentityId(),
+          sender: '1234567890123456789012345678901234567890',
+          result: { data: 'test' }
+        }
+      })
+
+      it('should throw a validation error', () => {
+        expect(() => validateOutcomeMessage(messageWithoutPrefix)).toThrow()
+      })
     })
 
-    it('should throw validation error for address with wrong length', () => {
-      const messageWithShortAddress = {
-        requestId: generateRandomIdentityId(),
-        sender: '0x123456789012345678901234567890123456789', // 39 chars instead of 40
-        result: { data: 'test' }
-      }
-      expect(() => validateOutcomeMessage(messageWithShortAddress)).toThrow()
+    describe('and the sender has the wrong length', () => {
+      let messageWithShortAddress: Record<string, unknown>
+
+      beforeEach(() => {
+        messageWithShortAddress = {
+          requestId: generateRandomIdentityId(),
+          sender: '0x123456789012345678901234567890123456789', // 39 chars instead of 40
+          result: { data: 'test' }
+        }
+      })
+
+      it('should throw a validation error', () => {
+        expect(() => validateOutcomeMessage(messageWithShortAddress)).toThrow()
+      })
     })
 
-    it('should throw validation error for address with invalid characters', () => {
-      const messageWithInvalidChars = {
-        requestId: generateRandomIdentityId(),
-        sender: '0xGGGG567890123456789012345678901234567890', // G is not hex
-        result: { data: 'test' }
-      }
-      expect(() => validateOutcomeMessage(messageWithInvalidChars)).toThrow()
+    describe('and the sender has invalid characters', () => {
+      let messageWithInvalidChars: Record<string, unknown>
+
+      beforeEach(() => {
+        messageWithInvalidChars = {
+          requestId: generateRandomIdentityId(),
+          sender: '0xGGGG567890123456789012345678901234567890', // G is not hex
+          result: { data: 'test' }
+        }
+      })
+
+      it('should throw a validation error', () => {
+        expect(() => validateOutcomeMessage(messageWithInvalidChars)).toThrow()
+      })
     })
   })
 
   describe('and the sender is a valid Ethereum address', () => {
-    it('should return the validated message for lowercase address', () => {
-      const messageWithLowercaseSender = {
-        requestId: generateRandomIdentityId(),
-        sender: '0xabcdef7890123456789012345678901234567890',
-        result: { data: 'test' }
-      }
-      const result = validateOutcomeMessage(messageWithLowercaseSender)
-      expect(result.sender).toBe('0xabcdef7890123456789012345678901234567890')
+    describe('and the address is lowercase', () => {
+      let messageWithLowercaseSender: Record<string, unknown>
+
+      beforeEach(() => {
+        messageWithLowercaseSender = {
+          requestId: generateRandomIdentityId(),
+          sender: '0xabcdef7890123456789012345678901234567890',
+          result: { data: 'test' }
+        }
+      })
+
+      it('should return the message with the lowercase sender', () => {
+        expect(validateOutcomeMessage(messageWithLowercaseSender).sender).toBe('0xabcdef7890123456789012345678901234567890')
+      })
     })
 
-    it('should return the validated message for uppercase address', () => {
-      const messageWithUppercaseSender = {
-        requestId: generateRandomIdentityId(),
-        sender: '0xABCDEF7890123456789012345678901234567890',
-        result: { data: 'test' }
-      }
-      const result = validateOutcomeMessage(messageWithUppercaseSender)
-      expect(result.sender).toBe('0xABCDEF7890123456789012345678901234567890')
+    describe('and the address is uppercase', () => {
+      let messageWithUppercaseSender: Record<string, unknown>
+
+      beforeEach(() => {
+        messageWithUppercaseSender = {
+          requestId: generateRandomIdentityId(),
+          sender: '0xABCDEF7890123456789012345678901234567890',
+          result: { data: 'test' }
+        }
+      })
+
+      it('should return the message with the uppercase sender', () => {
+        expect(validateOutcomeMessage(messageWithUppercaseSender).sender).toBe('0xABCDEF7890123456789012345678901234567890')
+      })
     })
 
-    it('should return the validated message for mixed case address', () => {
-      const messageWithMixedCaseSender = {
-        requestId: generateRandomIdentityId(),
-        sender: '0xAbCdEf7890123456789012345678901234567890',
-        result: { data: 'test' }
-      }
-      const result = validateOutcomeMessage(messageWithMixedCaseSender)
-      expect(result.sender).toBe('0xAbCdEf7890123456789012345678901234567890')
+    describe('and the address is mixed case', () => {
+      let messageWithMixedCaseSender: Record<string, unknown>
+
+      beforeEach(() => {
+        messageWithMixedCaseSender = {
+          requestId: generateRandomIdentityId(),
+          sender: '0xAbCdEf7890123456789012345678901234567890',
+          result: { data: 'test' }
+        }
+      })
+
+      it('should return the message with the mixed case sender', () => {
+        expect(validateOutcomeMessage(messageWithMixedCaseSender).sender).toBe('0xAbCdEf7890123456789012345678901234567890')
+      })
     })
   })
 
   describe('and the error message exceeds max length', () => {
-    it('should throw validation error', () => {
-      const messageWithLongErrorMessage = {
+    let messageWithLongErrorMessage: Record<string, unknown>
+
+    beforeEach(() => {
+      messageWithLongErrorMessage = {
         requestId: generateRandomIdentityId(),
         sender: '0x1234567890123456789012345678901234567890',
-        error: {
-          code: 1000,
-          message: 'a'.repeat(MAX_ERROR_MESSAGE_LENGTH + 1)
-        }
+        error: { code: 1000, message: 'a'.repeat(MAX_ERROR_MESSAGE_LENGTH + 1) }
       }
+    })
+
+    it('should throw a validation error', () => {
       expect(() => validateOutcomeMessage(messageWithLongErrorMessage)).toThrow()
     })
   })
 
   describe('and the error message is at max length', () => {
-    it('should return the validated message', () => {
-      const messageWithMaxErrorMessage = {
+    let messageWithMaxErrorMessage: Record<string, unknown>
+
+    beforeEach(() => {
+      messageWithMaxErrorMessage = {
         requestId: generateRandomIdentityId(),
         sender: '0x1234567890123456789012345678901234567890',
-        error: {
-          code: 1000,
-          message: 'a'.repeat(MAX_ERROR_MESSAGE_LENGTH)
-        }
+        error: { code: 1000, message: 'a'.repeat(MAX_ERROR_MESSAGE_LENGTH) }
       }
-      const result = validateOutcomeMessage(messageWithMaxErrorMessage)
-      expect(result.error?.message).toHaveLength(MAX_ERROR_MESSAGE_LENGTH)
+    })
+
+    it('should return a message whose error message is at the max length', () => {
+      expect(validateOutcomeMessage(messageWithMaxErrorMessage).error?.message).toHaveLength(MAX_ERROR_MESSAGE_LENGTH)
     })
   })
 })
 
 describe('when validating request validation messages', () => {
-  let validRequestValidationMessage: RequestValidationMessage
-  let invalidRequestValidationMessage: Partial<RequestValidationMessage>
-
-  beforeEach(() => {
-    validRequestValidationMessage = {
-      requestId: generateRandomIdentityId()
-    }
-
-    invalidRequestValidationMessage = {
-      // Missing required 'requestId' field
-    }
-  })
-
   describe('and the message is valid', () => {
+    let validRequestValidationMessage: RequestValidationMessage
+
+    beforeEach(() => {
+      validRequestValidationMessage = { requestId: generateRandomIdentityId() }
+    })
+
     it('should return the validated message', () => {
-      const result = validateRequestValidationMessage(validRequestValidationMessage)
-      expect(result).toEqual(validRequestValidationMessage)
-      expect(result.requestId).toBe(validRequestValidationMessage.requestId)
+      expect(validateRequestValidationMessage(validRequestValidationMessage)).toEqual(validRequestValidationMessage)
     })
   })
 
-  describe('and the message is invalid', () => {
-    it('should throw validation error', () => {
+  describe('and the message is missing the requestId', () => {
+    let invalidRequestValidationMessage: Partial<RequestValidationMessage>
+
+    beforeEach(() => {
+      invalidRequestValidationMessage = {}
+    })
+
+    it('should throw a validation error', () => {
       expect(() => validateRequestValidationMessage(invalidRequestValidationMessage)).toThrow()
     })
   })
 
   describe('and the requestId exceeds max length', () => {
-    it('should throw validation error', () => {
-      const messageWithLongRequestId = {
-        requestId: 'a'.repeat(MAX_REQUEST_ID_LENGTH + 1)
-      }
+    let messageWithLongRequestId: { requestId: string }
+
+    beforeEach(() => {
+      messageWithLongRequestId = { requestId: 'a'.repeat(MAX_REQUEST_ID_LENGTH + 1) }
+    })
+
+    it('should throw a validation error', () => {
       expect(() => validateRequestValidationMessage(messageWithLongRequestId)).toThrow()
     })
   })
 
   describe('and the requestId is at max length', () => {
-    it('should return the validated message', () => {
-      const messageWithMaxRequestId = {
-        requestId: 'a'.repeat(MAX_REQUEST_ID_LENGTH)
-      }
-      const result = validateRequestValidationMessage(messageWithMaxRequestId)
-      expect(result.requestId).toHaveLength(MAX_REQUEST_ID_LENGTH)
+    let messageWithMaxRequestId: { requestId: string }
+
+    beforeEach(() => {
+      messageWithMaxRequestId = { requestId: 'a'.repeat(MAX_REQUEST_ID_LENGTH) }
+    })
+
+    it('should return a message whose requestId is at the max length', () => {
+      expect(validateRequestValidationMessage(messageWithMaxRequestId).requestId).toHaveLength(MAX_REQUEST_ID_LENGTH)
     })
   })
 })
 
 describe('when validating identity IDs', () => {
-  let validIdentityId: string
-  let invalidIdentityId: string
-  let emptyIdentityId: string
+  describe('and the identity ID is a valid UUID v4', () => {
+    let validIdentityId: string
 
-  beforeEach(() => {
-    validIdentityId = generateRandomIdentityId()
-    invalidIdentityId = 'invalid-uuid-format'
-    emptyIdentityId = ''
-  })
+    beforeEach(() => {
+      validIdentityId = generateRandomIdentityId()
+    })
 
-  describe('and the identity ID is valid UUID v4', () => {
     it('should return true', () => {
-      const result = validateIdentityId(validIdentityId)
-      expect(result).toBe(true)
+      expect(validateIdentityId(validIdentityId)).toBe(true)
     })
   })
 
-  describe('and the identity ID has invalid format', () => {
+  describe('and the identity ID has an invalid format', () => {
+    let invalidIdentityId: string
+
+    beforeEach(() => {
+      invalidIdentityId = 'invalid-uuid-format'
+    })
+
     it('should return false', () => {
-      const result = validateIdentityId(invalidIdentityId)
-      expect(result).toBe(false)
+      expect(validateIdentityId(invalidIdentityId)).toBe(false)
     })
   })
 
   describe('and the identity ID is empty', () => {
+    let emptyIdentityId: string
+
+    beforeEach(() => {
+      emptyIdentityId = ''
+    })
+
     it('should return false', () => {
-      const result = validateIdentityId(emptyIdentityId)
-      expect(result).toBe(false)
+      expect(validateIdentityId(emptyIdentityId)).toBe(false)
     })
   })
 
   describe('and the identity ID is null', () => {
     it('should return false', () => {
-      const result = validateIdentityId(null as unknown as string)
-      expect(result).toBe(false)
+      expect(validateIdentityId(null as unknown as string)).toBe(false)
     })
   })
 
   describe('and the identity ID is not a string', () => {
     it('should return false', () => {
-      const result = validateIdentityId(123 as unknown as string)
-      expect(result).toBe(false)
+      expect(validateIdentityId(123 as unknown as string)).toBe(false)
     })
   })
 })
 
 describe('when validating HTTP outcome messages', () => {
-  let validHttpOutcomeMessage: HttpOutcomeMessage
-  let invalidHttpOutcomeMessage: Partial<HttpOutcomeMessage>
-  let sender: string
-
-  beforeEach(() => {
-    sender = createUnsafeIdentity().address
-
-    validHttpOutcomeMessage = {
-      sender,
-      result: { transactionHash: '0xabcdef' }
-    }
-
-    invalidHttpOutcomeMessage = {
-      // Missing required 'sender' field
-      result: { transactionHash: '0xabcdef' }
-    }
-  })
-
   describe('and the message is valid', () => {
+    let sender: string
+    let validHttpOutcomeMessage: HttpOutcomeMessage
+
+    beforeEach(() => {
+      sender = createUnsafeIdentity().address
+      validHttpOutcomeMessage = { sender, result: { transactionHash: '0xabcdef' } }
+    })
+
     it('should return the validated message', () => {
-      const result = validateHttpOutcomeMessage(validHttpOutcomeMessage)
-      expect(result).toEqual(validHttpOutcomeMessage)
-      expect(result.sender).toBe(sender)
-      expect(result.result).toEqual({ transactionHash: '0xabcdef' })
+      expect(validateHttpOutcomeMessage(validHttpOutcomeMessage)).toEqual(validHttpOutcomeMessage)
     })
   })
 
-  describe('and the message is invalid', () => {
-    it('should throw validation error', () => {
+  describe('and the message is missing the sender', () => {
+    let invalidHttpOutcomeMessage: Partial<HttpOutcomeMessage>
+
+    beforeEach(() => {
+      invalidHttpOutcomeMessage = { result: { transactionHash: '0xabcdef' } }
+    })
+
+    it('should throw a validation error', () => {
       expect(() => validateHttpOutcomeMessage(invalidHttpOutcomeMessage)).toThrow()
     })
   })
 
   describe('and the sender is not a valid Ethereum address', () => {
-    it('should throw validation error for invalid format', () => {
-      const messageWithInvalidSender = {
-        sender: 'invalid-sender-address',
-        result: { data: 'test' }
-      }
-      expect(() => validateHttpOutcomeMessage(messageWithInvalidSender)).toThrow()
+    describe('and the sender has an arbitrary invalid format', () => {
+      let messageWithInvalidSender: Record<string, unknown>
+
+      beforeEach(() => {
+        messageWithInvalidSender = { sender: 'invalid-sender-address', result: { data: 'test' } }
+      })
+
+      it('should throw a validation error', () => {
+        expect(() => validateHttpOutcomeMessage(messageWithInvalidSender)).toThrow()
+      })
     })
 
-    it('should throw validation error for address without 0x prefix', () => {
-      const messageWithoutPrefix = {
-        sender: '1234567890123456789012345678901234567890',
-        result: { data: 'test' }
-      }
-      expect(() => validateHttpOutcomeMessage(messageWithoutPrefix)).toThrow()
+    describe('and the sender is missing the 0x prefix', () => {
+      let messageWithoutPrefix: Record<string, unknown>
+
+      beforeEach(() => {
+        messageWithoutPrefix = { sender: '1234567890123456789012345678901234567890', result: { data: 'test' } }
+      })
+
+      it('should throw a validation error', () => {
+        expect(() => validateHttpOutcomeMessage(messageWithoutPrefix)).toThrow()
+      })
     })
   })
 
   describe('and the sender is a valid Ethereum address', () => {
-    it('should return the validated message', () => {
-      const messageWithValidSender = {
-        sender: '0x1234567890123456789012345678901234567890',
-        result: { data: 'test' }
-      }
-      const result = validateHttpOutcomeMessage(messageWithValidSender)
-      expect(result.sender).toBe('0x1234567890123456789012345678901234567890')
+    let messageWithValidSender: Record<string, unknown>
+
+    beforeEach(() => {
+      messageWithValidSender = { sender: '0x1234567890123456789012345678901234567890', result: { data: 'test' } }
+    })
+
+    it('should return the message with the valid sender', () => {
+      expect(validateHttpOutcomeMessage(messageWithValidSender).sender).toBe('0x1234567890123456789012345678901234567890')
     })
   })
 
   describe('and the error message exceeds max length', () => {
-    it('should throw validation error', () => {
-      const messageWithLongErrorMessage = {
+    let messageWithLongErrorMessage: Record<string, unknown>
+
+    beforeEach(() => {
+      messageWithLongErrorMessage = {
         sender: '0x1234567890123456789012345678901234567890',
-        error: {
-          code: 1000,
-          message: 'a'.repeat(MAX_ERROR_MESSAGE_LENGTH + 1)
-        }
+        error: { code: 1000, message: 'a'.repeat(MAX_ERROR_MESSAGE_LENGTH + 1) }
       }
+    })
+
+    it('should throw a validation error', () => {
       expect(() => validateHttpOutcomeMessage(messageWithLongErrorMessage)).toThrow()
     })
   })
 
   describe('and the error message is at max length', () => {
-    it('should return the validated message', () => {
-      const messageWithMaxErrorMessage = {
+    let messageWithMaxErrorMessage: Record<string, unknown>
+
+    beforeEach(() => {
+      messageWithMaxErrorMessage = {
         sender: '0x1234567890123456789012345678901234567890',
-        error: {
-          code: 1000,
-          message: 'a'.repeat(MAX_ERROR_MESSAGE_LENGTH)
-        }
+        error: { code: 1000, message: 'a'.repeat(MAX_ERROR_MESSAGE_LENGTH) }
       }
-      const result = validateHttpOutcomeMessage(messageWithMaxErrorMessage)
-      expect(result.error?.message).toHaveLength(MAX_ERROR_MESSAGE_LENGTH)
+    })
+
+    it('should return a message whose error message is at the max length', () => {
+      expect(validateHttpOutcomeMessage(messageWithMaxErrorMessage).error?.message).toHaveLength(MAX_ERROR_MESSAGE_LENGTH)
     })
   })
 })
 
 describe('when validating identity requests', () => {
-  let validIdentityRequest: unknown
+  describe('and the message is valid', () => {
+    let validIdentityRequest: unknown
 
-  beforeEach(async () => {
-    const testIdentity = await createTestIdentity()
+    beforeEach(async () => {
+      const testIdentity = await createTestIdentity()
+      // Convert Date to ISO string as expected by the schema
+      const identityWithStringExpiration = {
+        ...testIdentity,
+        expiration: testIdentity.expiration.toISOString()
+      }
+      validIdentityRequest = { identity: identityWithStringExpiration }
+    })
 
-    // Convert Date to ISO string as expected by the schema
-    const identityWithStringExpiration = {
-      ...testIdentity,
-      expiration: testIdentity.expiration.toISOString()
-    }
-
-    validIdentityRequest = {
-      identity: identityWithStringExpiration
-    }
+    it('should return the validated message', () => {
+      expect(validateIdentityRequest(validIdentityRequest)).toEqual(validIdentityRequest)
+    })
   })
 
-  it('should return the validated message', () => {
-    const result = validateIdentityRequest(validIdentityRequest)
-    expect(result).toEqual(validIdentityRequest)
-    expect(result.identity).toBeDefined()
-    expect(result.identity.expiration).toBeDefined()
-    expect(result.identity.ephemeralIdentity).toBeDefined()
-    expect(result.identity.authChain).toBeDefined()
-  })
-
-  describe('and the message is missing identity field', () => {
+  describe('and the message is missing the identity field', () => {
     let invalidIdentityRequest: unknown
 
     beforeEach(() => {
-      invalidIdentityRequest = {
-        // Missing required 'identity' field
-        expiration: new Date().toISOString()
-      }
+      invalidIdentityRequest = { expiration: new Date().toISOString() }
     })
 
-    it('should throw validation error', () => {
+    it('should throw a validation error', () => {
       expect(() => validateIdentityRequest(invalidIdentityRequest)).toThrow()
     })
   })
 
-  describe('and the message has invalid identity structure', () => {
+  describe('and the message has an invalid identity structure', () => {
     let invalidIdentityRequestInvalidIdentity: unknown
 
     beforeEach(() => {
       invalidIdentityRequestInvalidIdentity = {
         identity: {
-          // Invalid identity structure
           expiration: 'invalid-date',
           ephemeralIdentity: {
             address: 'invalid-address',
@@ -554,21 +596,31 @@ describe('when validating identity requests', () => {
       }
     })
 
-    it('should throw validation error', () => {
+    it('should throw a validation error', () => {
       expect(() => validateIdentityRequest(invalidIdentityRequestInvalidIdentity)).toThrow()
     })
   })
 
   describe('and the message is undefined', () => {
-    it('should throw validation error', () => {
+    it('should throw a validation error', () => {
       expect(() => validateIdentityRequest(undefined)).toThrow()
     })
   })
 
-  describe('and the message is not an object', () => {
-    it('should throw validation error', () => {
+  describe('and the message is a string', () => {
+    it('should throw a validation error', () => {
       expect(() => validateIdentityRequest('invalid-string')).toThrow()
+    })
+  })
+
+  describe('and the message is a number', () => {
+    it('should throw a validation error', () => {
       expect(() => validateIdentityRequest(123)).toThrow()
+    })
+  })
+
+  describe('and the message is an array', () => {
+    it('should throw a validation error', () => {
       expect(() => validateIdentityRequest([])).toThrow()
     })
   })

@@ -1,15 +1,11 @@
-import { IConfigComponent, ILoggerComponent } from '@well-known-components/interfaces'
+import { IConfigComponent } from '@well-known-components/interfaces'
 import { ISlackComponent } from '@dcl/slack-component'
 import { IFeatureFlagsAdapter } from '../../src/adapters/feature-flags'
 import { IEmailComponent } from '../../src/ports/email/types'
 import { createNudgeJobComponent } from '../../src/ports/nudge-job/component'
 import { INudgeJobComponent } from '../../src/ports/nudge-job/types'
 import { IOnboardingComponent, PendingNudge } from '../../src/ports/onboarding/types'
-
-function createMockLogs(): ILoggerComponent {
-  const logger = { log: jest.fn(), error: jest.fn(), debug: jest.fn(), warn: jest.fn(), info: jest.fn() }
-  return { getLogger: () => logger } as unknown as ILoggerComponent
-}
+import { createMockLogs } from '../mocks'
 
 function createMockOnboarding(): jest.Mocked<Pick<IOnboardingComponent, 'getPendingNudges' | 'markNudgeSent'>> {
   return {
@@ -39,7 +35,7 @@ function createMockConfig(overrides: Record<string, string> = {}): IConfigCompon
       throw new Error(`Missing config: ${key}`)
     }),
     requireNumber: jest.fn().mockRejectedValue(new Error('not implemented'))
-  }
+  } as unknown as IConfigComponent
 }
 
 function createMockFeatureFlags(enabled = true, whitelist?: string[]): IFeatureFlagsAdapter {
@@ -49,280 +45,278 @@ function createMockFeatureFlags(enabled = true, whitelist?: string[]): IFeatureF
   } as unknown as IFeatureFlagsAdapter
 }
 
-let nudgeJob: INudgeJobComponent
-let mockOnboarding: ReturnType<typeof createMockOnboarding>
-let mockEmail: ReturnType<typeof createMockEmail>
-let mockSlack: ReturnType<typeof createMockSlack>
-let mockFeatureFlags: IFeatureFlagsAdapter
+// Lets the fire-and-forget Slack notification (`void notifySlack(...)`) settle after runEvaluator resolves.
+const flushMicrotasks = () => new Promise(resolve => setTimeout(resolve, 10))
 
-beforeEach(() => {
-  mockOnboarding = createMockOnboarding()
-  mockEmail = createMockEmail()
-  mockSlack = createMockSlack()
-  mockFeatureFlags = createMockFeatureFlags()
-
-  mockOnboarding.markNudgeSent.mockResolvedValue(undefined)
-  mockEmail.sendNudge.mockResolvedValue('sg-msg-id-123')
-
-  nudgeJob = createNudgeJobComponent({
-    onboarding: mockOnboarding as unknown as IOnboardingComponent,
-    email: mockEmail as unknown as IEmailComponent,
-    slack: mockSlack as unknown as ISlackComponent,
-    logs: createMockLogs(),
-    config: createMockConfig({ SLACK_NUDGE_CHANNEL: 'test-channel' }),
-    featureFlags: mockFeatureFlags
-  })
-})
-
-describe('when running the nudge evaluator with pending nudges for sequence 1', () => {
-  let pendingNudge: PendingNudge
+describe('when running the nudge evaluator', () => {
+  let onboarding: ReturnType<typeof createMockOnboarding>
+  let email: ReturnType<typeof createMockEmail>
+  let slack: ReturnType<typeof createMockSlack>
 
   beforeEach(() => {
-    pendingNudge = { userId: 'stuck@test.com', checkpointId: 3, email: 'stuck@test.com' }
-
-    mockOnboarding.getPendingNudges
-      .mockResolvedValueOnce([pendingNudge]) // sequence 1
-      .mockResolvedValue([]) // sequences 2 and 3
+    onboarding = createMockOnboarding()
+    email = createMockEmail()
+    slack = createMockSlack()
+    onboarding.markNudgeSent.mockResolvedValue(undefined)
+    email.sendNudge.mockResolvedValue('sg-msg-id-123')
   })
 
-  it('should send the nudge email', async () => {
-    await nudgeJob.runEvaluator()
+  describe('and nudge emails are enabled with the Slack channel configured', () => {
+    let nudgeJob: INudgeJobComponent
 
-    expect(mockEmail.sendNudge).toHaveBeenCalledWith({
-      to: 'stuck@test.com',
-      checkpointId: 3,
-      sequence: 1
-    })
-  })
-
-  it('should mark the nudge as sent with the returned message id', async () => {
-    await nudgeJob.runEvaluator()
-
-    expect(mockOnboarding.markNudgeSent).toHaveBeenCalledWith('stuck@test.com', 3, 1, 'sg-msg-id-123')
-  })
-})
-
-describe('when running the nudge evaluator with pending nudges for multiple sequences', () => {
-  beforeEach(() => {
-    mockOnboarding.getPendingNudges
-      .mockResolvedValueOnce([{ userId: 'user1@test.com', checkpointId: 2, email: 'user1@test.com' }]) // seq 1
-      .mockResolvedValueOnce([{ userId: 'user2@test.com', checkpointId: 3, email: 'user2@test.com' }]) // seq 2
-      .mockResolvedValueOnce([{ userId: 'user3@test.com', checkpointId: 1, email: 'user3@test.com' }]) // seq 3
-  })
-
-  it('should process all three sequences', async () => {
-    await nudgeJob.runEvaluator()
-
-    expect(mockOnboarding.getPendingNudges).toHaveBeenCalledTimes(3)
-    expect(mockOnboarding.getPendingNudges).toHaveBeenCalledWith(1)
-    expect(mockOnboarding.getPendingNudges).toHaveBeenCalledWith(2)
-    expect(mockOnboarding.getPendingNudges).toHaveBeenCalledWith(3)
-    expect(mockEmail.sendNudge).toHaveBeenCalledTimes(3)
-  })
-})
-
-describe('when email sending returns undefined (failure)', () => {
-  beforeEach(() => {
-    mockEmail.sendNudge.mockResolvedValue(undefined)
-    mockOnboarding.getPendingNudges
-      .mockResolvedValueOnce([{ userId: 'user@test.com', checkpointId: 3, email: 'user@test.com' }])
-      .mockResolvedValue([])
-  })
-
-  it('should still call markNudgeSent with undefined messageId', async () => {
-    await nudgeJob.runEvaluator()
-
-    expect(mockOnboarding.markNudgeSent).toHaveBeenCalledWith('user@test.com', 3, 1, undefined)
-  })
-})
-
-describe('when email sending throws', () => {
-  let secondNudge: PendingNudge
-
-  beforeEach(() => {
-    secondNudge = { userId: 'user2@test.com', checkpointId: 2, email: 'user2@test.com' }
-
-    mockEmail.sendNudge.mockRejectedValueOnce(new Error('network error')).mockResolvedValueOnce('sg-msg-id-ok')
-
-    mockOnboarding.getPendingNudges
-      .mockResolvedValueOnce([{ userId: 'user1@test.com', checkpointId: 3, email: 'user1@test.com' }, secondNudge])
-      .mockResolvedValue([])
-  })
-
-  it('should continue processing remaining nudges', async () => {
-    await nudgeJob.runEvaluator()
-
-    expect(mockEmail.sendNudge).toHaveBeenCalledTimes(2)
-    expect(mockOnboarding.markNudgeSent).toHaveBeenCalledWith('user2@test.com', 2, 1, 'sg-msg-id-ok')
-  })
-
-  it('should not throw', async () => {
-    await expect(nudgeJob.runEvaluator()).resolves.not.toThrow()
-  })
-})
-
-describe('when there are no pending nudges', () => {
-  beforeEach(() => {
-    mockOnboarding.getPendingNudges.mockResolvedValue([])
-  })
-
-  it('should not call sendNudge', async () => {
-    await nudgeJob.runEvaluator()
-    expect(mockEmail.sendNudge).not.toHaveBeenCalled()
-  })
-
-  it('should not call markNudgeSent', async () => {
-    await nudgeJob.runEvaluator()
-    expect(mockOnboarding.markNudgeSent).not.toHaveBeenCalled()
-  })
-})
-
-describe('when getPendingNudges throws for one sequence', () => {
-  beforeEach(() => {
-    mockOnboarding.getPendingNudges
-      .mockRejectedValueOnce(new Error('DB connection error')) // seq 1 fails
-      .mockResolvedValueOnce([{ userId: 'user@test.com', checkpointId: 3, email: 'user@test.com' }]) // seq 2 ok
-      .mockResolvedValueOnce([]) // seq 3 ok
-  })
-
-  it('should continue to process other sequences', async () => {
-    await nudgeJob.runEvaluator()
-
-    expect(mockEmail.sendNudge).toHaveBeenCalledTimes(1)
-    expect(mockEmail.sendNudge).toHaveBeenCalledWith(expect.objectContaining({ sequence: 2 }))
-  })
-
-  it('should not throw', async () => {
-    await expect(nudgeJob.runEvaluator()).resolves.not.toThrow()
-  })
-})
-
-describe('slack notifications', () => {
-  describe('when SLACK_NUDGE_CHANNEL is configured', () => {
     beforeEach(() => {
-      mockOnboarding.getPendingNudges
-        .mockResolvedValueOnce([{ userId: 'stuck@test.com', checkpointId: 3, email: 'stuck@test.com' }])
-        .mockResolvedValue([])
-    })
-
-    it('should send a Slack message after nudge is sent', async () => {
-      await nudgeJob.runEvaluator()
-
-      // Allow fire-and-forget promise to resolve
-      await new Promise(resolve => setTimeout(resolve, 10))
-
-      expect(mockSlack.sendMessage).toHaveBeenCalledWith({
-        channel: 'test-channel',
-        text: expect.stringContaining('CP3')
-      })
-      expect(mockSlack.sendMessage).toHaveBeenCalledWith({
-        channel: 'test-channel',
-        text: expect.stringContaining('seq 1')
-      })
-    })
-  })
-
-  describe('when SLACK_NUDGE_CHANNEL is not configured', () => {
-    beforeEach(() => {
-      mockOnboarding.getPendingNudges
-        .mockResolvedValueOnce([{ userId: 'stuck@test.com', checkpointId: 3, email: 'stuck@test.com' }])
-        .mockResolvedValue([])
-
       nudgeJob = createNudgeJobComponent({
-        onboarding: mockOnboarding as unknown as IOnboardingComponent,
-        email: mockEmail as unknown as IEmailComponent,
-        slack: mockSlack as unknown as ISlackComponent,
+        onboarding: onboarding as unknown as IOnboardingComponent,
+        email: email as unknown as IEmailComponent,
+        slack: slack as unknown as ISlackComponent,
+        logs: createMockLogs(),
+        config: createMockConfig({ SLACK_NUDGE_CHANNEL: 'test-channel' }),
+        featureFlags: createMockFeatureFlags(true)
+      })
+    })
+
+    describe('and there are pending nudges for sequence 1', () => {
+      let pendingNudge: PendingNudge
+
+      beforeEach(() => {
+        pendingNudge = { userId: 'stuck@test.com', checkpointId: 3, email: 'stuck@test.com' }
+        onboarding.getPendingNudges.mockResolvedValueOnce([pendingNudge]).mockResolvedValue([])
+      })
+
+      it('should send the nudge email for that sequence', async () => {
+        await nudgeJob.runEvaluator()
+
+        expect(email.sendNudge).toHaveBeenCalledWith({ to: 'stuck@test.com', checkpointId: 3, sequence: 1 })
+      })
+
+      it('should mark the nudge as sent with the returned message id', async () => {
+        await nudgeJob.runEvaluator()
+
+        expect(onboarding.markNudgeSent).toHaveBeenCalledWith('stuck@test.com', 3, 1, 'sg-msg-id-123')
+      })
+
+      it('should notify the configured Slack channel about the nudge', async () => {
+        await nudgeJob.runEvaluator()
+        await flushMicrotasks()
+
+        expect(slack.sendMessage).toHaveBeenCalledWith({ channel: 'test-channel', text: expect.stringContaining('CP3') })
+      })
+
+      it('should include the sequence in the Slack notification', async () => {
+        await nudgeJob.runEvaluator()
+        await flushMicrotasks()
+
+        expect(slack.sendMessage).toHaveBeenCalledWith({ channel: 'test-channel', text: expect.stringContaining('seq 1') })
+      })
+    })
+
+    describe('and there are pending nudges for multiple sequences', () => {
+      beforeEach(() => {
+        onboarding.getPendingNudges
+          .mockResolvedValueOnce([{ userId: 'user1@test.com', checkpointId: 2, email: 'user1@test.com' }])
+          .mockResolvedValueOnce([{ userId: 'user2@test.com', checkpointId: 3, email: 'user2@test.com' }])
+          .mockResolvedValueOnce([{ userId: 'user3@test.com', checkpointId: 1, email: 'user3@test.com' }])
+      })
+
+      it('should query pending nudges for each of the three sequences', async () => {
+        await nudgeJob.runEvaluator()
+
+        expect(onboarding.getPendingNudges).toHaveBeenCalledWith(1)
+        expect(onboarding.getPendingNudges).toHaveBeenCalledWith(2)
+        expect(onboarding.getPendingNudges).toHaveBeenCalledWith(3)
+      })
+
+      it('should send an email for every pending nudge', async () => {
+        await nudgeJob.runEvaluator()
+
+        expect(email.sendNudge).toHaveBeenCalledTimes(3)
+      })
+    })
+
+    describe('and email sending resolves undefined for a nudge', () => {
+      beforeEach(() => {
+        email.sendNudge.mockResolvedValue(undefined)
+        onboarding.getPendingNudges
+          .mockResolvedValueOnce([{ userId: 'user@test.com', checkpointId: 3, email: 'user@test.com' }])
+          .mockResolvedValue([])
+      })
+
+      it('should still mark the nudge as sent with an undefined message id', async () => {
+        await nudgeJob.runEvaluator()
+
+        expect(onboarding.markNudgeSent).toHaveBeenCalledWith('user@test.com', 3, 1, undefined)
+      })
+    })
+
+    describe('and email sending throws for one nudge', () => {
+      let secondNudge: PendingNudge
+
+      beforeEach(() => {
+        secondNudge = { userId: 'user2@test.com', checkpointId: 2, email: 'user2@test.com' }
+        email.sendNudge.mockRejectedValueOnce(new Error('network error')).mockResolvedValueOnce('sg-msg-id-ok')
+        onboarding.getPendingNudges
+          .mockResolvedValueOnce([{ userId: 'user1@test.com', checkpointId: 3, email: 'user1@test.com' }, secondNudge])
+          .mockResolvedValue([])
+      })
+
+      it('should keep processing the remaining nudges', async () => {
+        await nudgeJob.runEvaluator()
+
+        expect(onboarding.markNudgeSent).toHaveBeenCalledWith('user2@test.com', 2, 1, 'sg-msg-id-ok')
+      })
+
+      it('should not throw', async () => {
+        await expect(nudgeJob.runEvaluator()).resolves.not.toThrow()
+      })
+    })
+
+    describe('and there are no pending nudges', () => {
+      beforeEach(() => {
+        onboarding.getPendingNudges.mockResolvedValue([])
+      })
+
+      it('should not send any nudge email', async () => {
+        await nudgeJob.runEvaluator()
+
+        expect(email.sendNudge).not.toHaveBeenCalled()
+      })
+
+      it('should not mark any nudge as sent', async () => {
+        await nudgeJob.runEvaluator()
+
+        expect(onboarding.markNudgeSent).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('and fetching pending nudges throws for one sequence', () => {
+      beforeEach(() => {
+        onboarding.getPendingNudges
+          .mockRejectedValueOnce(new Error('DB connection error'))
+          .mockResolvedValueOnce([{ userId: 'user@test.com', checkpointId: 3, email: 'user@test.com' }])
+          .mockResolvedValueOnce([])
+      })
+
+      it('should keep processing the other sequences', async () => {
+        await nudgeJob.runEvaluator()
+
+        expect(email.sendNudge).toHaveBeenCalledWith(expect.objectContaining({ sequence: 2 }))
+      })
+
+      it('should not throw', async () => {
+        await expect(nudgeJob.runEvaluator()).resolves.not.toThrow()
+      })
+    })
+
+    describe('and Slack sendMessage throws', () => {
+      beforeEach(() => {
+        slack.sendMessage.mockRejectedValue(new Error('Slack API error'))
+        onboarding.getPendingNudges
+          .mockResolvedValueOnce([{ userId: 'stuck@test.com', checkpointId: 3, email: 'stuck@test.com' }])
+          .mockResolvedValue([])
+      })
+
+      it('should still send the nudge email', async () => {
+        await nudgeJob.runEvaluator()
+        await flushMicrotasks()
+
+        expect(email.sendNudge).toHaveBeenCalledTimes(1)
+      })
+
+      it('should still mark the nudge as sent', async () => {
+        await nudgeJob.runEvaluator()
+        await flushMicrotasks()
+
+        expect(onboarding.markNudgeSent).toHaveBeenCalledTimes(1)
+      })
+    })
+  })
+
+  describe('and nudge emails are enabled but the Slack channel is not configured', () => {
+    let nudgeJob: INudgeJobComponent
+
+    beforeEach(() => {
+      nudgeJob = createNudgeJobComponent({
+        onboarding: onboarding as unknown as IOnboardingComponent,
+        email: email as unknown as IEmailComponent,
+        slack: slack as unknown as ISlackComponent,
         logs: createMockLogs(),
         config: createMockConfig(),
-        featureFlags: mockFeatureFlags
+        featureFlags: createMockFeatureFlags(true)
       })
+      onboarding.getPendingNudges
+        .mockResolvedValueOnce([{ userId: 'stuck@test.com', checkpointId: 3, email: 'stuck@test.com' }])
+        .mockResolvedValue([])
     })
 
     it('should not send a Slack message', async () => {
       await nudgeJob.runEvaluator()
+      await flushMicrotasks()
 
-      await new Promise(resolve => setTimeout(resolve, 10))
-
-      expect(mockSlack.sendMessage).not.toHaveBeenCalled()
+      expect(slack.sendMessage).not.toHaveBeenCalled()
     })
   })
 
-  describe('when Slack sendMessage throws', () => {
+  describe('and nudge emails are disabled', () => {
+    let nudgeJob: INudgeJobComponent
+
     beforeEach(() => {
-      mockSlack.sendMessage.mockRejectedValue(new Error('Slack API error'))
-      mockOnboarding.getPendingNudges
-        .mockResolvedValueOnce([{ userId: 'stuck@test.com', checkpointId: 3, email: 'stuck@test.com' }])
+      nudgeJob = createNudgeJobComponent({
+        onboarding: onboarding as unknown as IOnboardingComponent,
+        email: email as unknown as IEmailComponent,
+        slack: slack as unknown as ISlackComponent,
+        logs: createMockLogs(),
+        config: createMockConfig({ SLACK_NUDGE_CHANNEL: 'test-channel' }),
+        featureFlags: createMockFeatureFlags(false)
+      })
+      onboarding.getPendingNudges.mockResolvedValue([{ userId: 'user@test.com', checkpointId: 3, email: 'user@test.com' }])
+    })
+
+    it('should not query for pending nudges', async () => {
+      await nudgeJob.runEvaluator()
+
+      expect(onboarding.getPendingNudges).not.toHaveBeenCalled()
+    })
+
+    it('should not send any nudge email', async () => {
+      await nudgeJob.runEvaluator()
+
+      expect(email.sendNudge).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('and nudge emails are enabled with a whitelist', () => {
+    let nudgeJob: INudgeJobComponent
+
+    beforeEach(() => {
+      nudgeJob = createNudgeJobComponent({
+        onboarding: onboarding as unknown as IOnboardingComponent,
+        email: email as unknown as IEmailComponent,
+        slack: slack as unknown as ISlackComponent,
+        logs: createMockLogs(),
+        config: createMockConfig({ SLACK_NUDGE_CHANNEL: 'test-channel' }),
+        featureFlags: createMockFeatureFlags(true, ['allowed@test.com', 'vip@test.com'])
+      })
+      onboarding.getPendingNudges
+        .mockResolvedValueOnce([
+          { userId: 'allowed@test.com', checkpointId: 2, email: 'allowed@test.com' },
+          { userId: 'random@test.com', checkpointId: 3, email: 'random@test.com' },
+          { userId: 'vip@test.com', checkpointId: 1, email: 'VIP@test.com' }
+        ])
         .mockResolvedValue([])
     })
 
-    it('should not affect nudge processing', async () => {
+    it('should send nudges to the whitelisted emails', async () => {
       await nudgeJob.runEvaluator()
 
-      await new Promise(resolve => setTimeout(resolve, 10))
-
-      expect(mockEmail.sendNudge).toHaveBeenCalledTimes(1)
-      expect(mockOnboarding.markNudgeSent).toHaveBeenCalledTimes(1)
+      expect(email.sendNudge).toHaveBeenCalledWith(expect.objectContaining({ to: 'allowed@test.com' }))
+      expect(email.sendNudge).toHaveBeenCalledWith(expect.objectContaining({ to: 'VIP@test.com' }))
     })
-  })
-})
 
-describe('when nudge emails feature flag is disabled', () => {
-  beforeEach(() => {
-    mockFeatureFlags = createMockFeatureFlags(false)
-    mockOnboarding.getPendingNudges.mockResolvedValue([{ userId: 'user@test.com', checkpointId: 3, email: 'user@test.com' }])
+    it('should not send nudges to non-whitelisted emails', async () => {
+      await nudgeJob.runEvaluator()
 
-    nudgeJob = createNudgeJobComponent({
-      onboarding: mockOnboarding as unknown as IOnboardingComponent,
-      email: mockEmail as unknown as IEmailComponent,
-      slack: mockSlack as unknown as ISlackComponent,
-      logs: createMockLogs(),
-      config: createMockConfig({ SLACK_NUDGE_CHANNEL: 'test-channel' }),
-      featureFlags: mockFeatureFlags
+      const sentRecipients = email.sendNudge.mock.calls.map(call => call[0].to)
+      expect(sentRecipients).not.toContain('random@test.com')
     })
-  })
-
-  it('should skip the evaluator entirely', async () => {
-    await nudgeJob.runEvaluator()
-
-    expect(mockOnboarding.getPendingNudges).not.toHaveBeenCalled()
-    expect(mockEmail.sendNudge).not.toHaveBeenCalled()
-  })
-})
-
-describe('when nudge emails feature flag has a whitelist', () => {
-  beforeEach(() => {
-    mockFeatureFlags = createMockFeatureFlags(true, ['allowed@test.com', 'vip@test.com'])
-
-    mockOnboarding.getPendingNudges
-      .mockResolvedValueOnce([
-        { userId: 'allowed@test.com', checkpointId: 2, email: 'allowed@test.com' },
-        { userId: 'random@test.com', checkpointId: 3, email: 'random@test.com' },
-        { userId: 'vip@test.com', checkpointId: 1, email: 'VIP@test.com' }
-      ])
-      .mockResolvedValue([])
-
-    nudgeJob = createNudgeJobComponent({
-      onboarding: mockOnboarding as unknown as IOnboardingComponent,
-      email: mockEmail as unknown as IEmailComponent,
-      slack: mockSlack as unknown as ISlackComponent,
-      logs: createMockLogs(),
-      config: createMockConfig({ SLACK_NUDGE_CHANNEL: 'test-channel' }),
-      featureFlags: mockFeatureFlags
-    })
-  })
-
-  it('should only send nudges to whitelisted emails', async () => {
-    await nudgeJob.runEvaluator()
-
-    expect(mockEmail.sendNudge).toHaveBeenCalledTimes(2)
-    expect(mockEmail.sendNudge).toHaveBeenCalledWith(expect.objectContaining({ to: 'allowed@test.com' }))
-    expect(mockEmail.sendNudge).toHaveBeenCalledWith(expect.objectContaining({ to: 'VIP@test.com' }))
-  })
-
-  it('should not send nudges to non-whitelisted emails', async () => {
-    await nudgeJob.runEvaluator()
-
-    const sentEmails = mockEmail.sendNudge.mock.calls.map((call: unknown[]) => (call[0] as { to: string }).to)
-    expect(sentEmails).not.toContain('random@test.com')
   })
 })

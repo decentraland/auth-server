@@ -12,7 +12,7 @@ test('when testing identity endpoints', args => {
     baseUrl = `http://localhost:${port}`
   })
 
-  describe('when creating an identity', () => {
+  describe('and creating an identity', () => {
     describe('and the request body is valid', () => {
       let validRequestData: { identity: AuthIdentity }
       let testIdentity: AuthIdentity
@@ -30,13 +30,10 @@ test('when testing identity endpoints', args => {
           body: validRequestData,
           identity: testIdentity
         })
-        const responseBody = await response.json()
-        console.log('responseBody', responseBody)
         expect(response.status).toBe(201)
 
-        expect(responseBody).toHaveProperty('identityId')
+        const responseBody = await response.json()
         expect(responseBody).toHaveProperty('expiration')
-        expect(typeof responseBody.identityId).toBe('string')
         expect(responseBody.identityId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
       })
     })
@@ -166,7 +163,7 @@ test('when testing identity endpoints', args => {
     })
   })
 
-  describe('when retrieving an identity', () => {
+  describe('and retrieving an identity', () => {
     let identityId: string
     let requestData: { identity: AuthIdentity }
     let testIdentity: AuthIdentity
@@ -409,23 +406,35 @@ test('when testing identity endpoints', args => {
     })
 
     describe('and the identity was evicted by Redis TTL', () => {
-      it('should respond with 404 and evicted message including createdAt', async () => {
-        // Spy on getIdentity to return null, simulating Redis TTL eviction
-        // The tombstone (identity status) is still in Redis because it has a longer TTL
-        const spy = jest.spyOn(args.components.storage, 'getIdentity').mockResolvedValueOnce(null)
+      let getIdentitySpy: jest.SpyInstance
+      let response: Response
+      let responseBody: { error: string; createdAt: string }
 
-        const response = await fetch(`${baseUrl}/identities/${identityId}`, {
-          method: 'GET'
-        })
+      beforeEach(async () => {
+        // Spy on getIdentity to return null, simulating Redis TTL eviction. The tombstone
+        // (identity status) is still in Redis because it has a longer TTL.
+        getIdentitySpy = jest.spyOn(args.components.storage, 'getIdentity').mockResolvedValueOnce(null)
 
+        response = await fetch(`${baseUrl}/identities/${identityId}`, { method: 'GET' })
+        responseBody = await response.json()
+      })
+
+      afterEach(() => {
+        // resetMocks clears mock state but does not restore a spy's original implementation.
+        getIdentitySpy.mockRestore()
+      })
+
+      it('should respond with a 404 status code', () => {
         expect(response.status).toBe(404)
+      })
 
-        const responseBody = await response.json()
+      it('should respond with an evicted error message', () => {
         expect(responseBody.error).toBe('Identity was evicted')
+      })
+
+      it('should include a valid createdAt timestamp of the evicted identity', () => {
         expect(responseBody).toHaveProperty('createdAt')
         expect(new Date(responseBody.createdAt).getTime()).not.toBeNaN()
-
-        spy.mockRestore()
       })
     })
 
