@@ -68,6 +68,11 @@ export async function createTenderlyAdapter({
           to,
           input,
           value,
+          // Simulate with zero gas price so the sender is never charged for gas. Decentraland
+          // transactions are relayed as meta-transactions where the gas tank (relayer) pays,
+          // and the `from` we simulate (the user) usually holds no native balance — without
+          // this, Tenderly would report a spurious "insufficient funds for gas" revert.
+          gas_price: '0',
           simulation_type: 'full',
           save: false,
           save_if_fails: false

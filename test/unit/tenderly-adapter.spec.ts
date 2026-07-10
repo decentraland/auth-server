@@ -90,6 +90,13 @@ describe('when using the Tenderly adapter', () => {
         rawLogs: [{ address: '0xdead', topics: ['0x01'], data: '0x' }]
       })
     })
+
+    it('should simulate with a zero gas price so the sender is not charged for gas', async () => {
+      await adapter.simulate(params)
+
+      const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body)
+      expect(body.gas_price).toBe('0')
+    })
   })
 
   describe('and Tenderly responds with 200 but a top-level error object', () => {
