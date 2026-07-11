@@ -15,6 +15,7 @@ import {
   getRequestValidationStatusHandler,
   notifyRequestValidationHandler
 } from './handlers/requests'
+import { createSimulationHandler } from './handlers/simulations'
 
 // We return the entire router because it will be easier to test than a whole server
 export async function setupRouter(globalContext: GlobalContext): Promise<Router<GlobalContext>> {
@@ -34,6 +35,22 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
       .map(origin => origin.trim().toLowerCase())
       .filter(origin => origin.length > 0)
   )
+
+  // Exact-match allowlist of browser Origins permitted to call the simulation
+  // endpoint (defense-in-depth on top of CORS). Empty disables the check.
+  const simulationAllowedOrigins = new Set(
+    ((await config.getString('SIMULATION_ALLOWED_ORIGINS')) || '')
+      .split(';')
+      .map(origin => origin.trim().toLowerCase())
+      .filter(origin => origin.length > 0)
+  )
+  const simulationRateLimit = {
+    max: await config.requireNumber('SIMULATION_RATE_LIMIT_MAX'),
+    windowSeconds: await config.requireNumber('SIMULATION_RATE_LIMIT_WINDOW_SECONDS')
+  }
+  // Global (IP-independent) cap over the same window, protecting the paid Tenderly
+  // upstream from a distributed flood that stays under the per-IP budget.
+  const simulationRateLimitGlobalMax = (await config.getNumber('SIMULATION_RATE_LIMIT_GLOBAL_MAX')) ?? 600
 
   // Signed-fetch middleware (ADR-44). Blocks scene-originated requests.
   const signedFetchMiddleware = wellKnownComponents({
@@ -59,6 +76,9 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
   router.get('/v2/requests/:requestId/validation', getRequestValidationStatusHandler)
   router.get('/requests/:requestId', getOutcomeHandler)
   router.post('/v2/requests/:requestId/outcome', createOutcomeHandler)
+
+  // Transaction simulation endpoint (Tenderly-backed). Public, rate-limited per IP.
+  router.post('/simulations', createSimulationHandler(simulationAllowedOrigins, simulationRateLimit, simulationRateLimitGlobalMax))
 
   // Identity endpoints
   router.post('/identities', signedFetchMiddleware, createIdentityHandler)

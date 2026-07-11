@@ -3,13 +3,16 @@ import type { IFeaturesComponent } from '@dcl/features-component'
 import type { ISlackComponent } from '@dcl/slack-component'
 import type { IFeatureFlagsAdapter } from './adapters/feature-flags'
 import type { IMagicAdapter } from './adapters/magic'
+import type { ITenderlyAdapter } from './adapters/tenderly'
 import type { IAccountDeletionComponent } from './logic/account-deletion'
+import type { ISimulationComponent } from './logic/simulation'
 import type { ISocketServerComponent } from './logic/socket-server'
 import type { metricDeclarations } from './metrics'
 import type { IPgComponent } from './ports/db/types'
 import type { IEmailComponent } from './ports/email/types'
 import type { INudgeJobComponent } from './ports/nudge-job/types'
 import type { IOnboardingComponent } from './ports/onboarding/types'
+import type { IRateLimiterComponent } from './ports/rate-limiter'
 import type { IStorageComponent } from './ports/storage/types'
 import type { IConfigComponent, ILoggerComponent, IMetricsComponent, ITracerComponent } from '@well-known-components/interfaces'
 
@@ -24,7 +27,10 @@ export type BaseComponents = {
   features: IFeaturesComponent
   featureFlags: IFeatureFlagsAdapter
   magic: IMagicAdapter
+  tenderly: ITenderlyAdapter
   accountDeletion: IAccountDeletionComponent
+  simulation: ISimulationComponent
+  rateLimiter: IRateLimiterComponent
   nudgeJob: INudgeJobComponent
   db: IPgComponent
   email: IEmailComponent

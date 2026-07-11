@@ -11,13 +11,16 @@ import { ISlackComponent } from '@dcl/slack-component'
 import { createRunner } from '@dcl/test-helpers'
 import { createTracerComponent } from '@dcl/tracer-component'
 import { IMagicAdapter } from '../src/adapters/magic'
+import { ITenderlyAdapter } from '../src/adapters/tenderly'
 import { createAccountDeletionComponent } from '../src/logic/account-deletion'
 import { parseCorsOrigins } from '../src/logic/cors'
+import { createSimulationComponent } from '../src/logic/simulation'
 import { createSocketServerComponent } from '../src/logic/socket-server'
 import { metricDeclarations } from '../src/metrics'
 import { IEmailComponent } from '../src/ports/email/types'
 import { createNudgeJobComponent } from '../src/ports/nudge-job/component'
 import { createOnboardingComponent } from '../src/ports/onboarding/component'
+import { createRateLimiterComponent } from '../src/ports/rate-limiter'
 import { MAX_BODY_SIZE_BYTES } from '../src/ports/server/constants'
 import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
@@ -74,6 +77,24 @@ export function createMockMagicAdapter(): IMagicAdapter {
 }
 
 /**
+ * Creates a mock Tenderly adapter. Tests control its behavior per-case via
+ * `args.components.tenderly.simulate`.
+ */
+export function createMockTenderlyAdapter(): ITenderlyAdapter {
+  return {
+    simulate: jest.fn().mockResolvedValue({
+      status: true,
+      errorMessage: null,
+      assetChanges: [],
+      exposureChanges: [],
+      rawLogs: [],
+      balanceChanges: [],
+      events: []
+    })
+  } as unknown as ITenderlyAdapter
+}
+
+/**
  * Behaves like Jest "describe" function, used to describe a test for a
  * use case, it creates a whole new program and components to run an
  * isolated test.
@@ -118,12 +139,18 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
   const storage = createStorageComponent({ cache })
   const onboarding = createOnboardingComponent({ db, logs })
   const magic = createMockMagicAdapter()
+  const tenderly = createMockTenderlyAdapter()
   const accountDeletion = createAccountDeletionComponent({
     magic,
     storage,
     logs,
     didTokenMaxAgeSeconds: overrides.didTokenMaxAgeSeconds ?? 120
   })
+  const rateLimiter = createRateLimiterComponent({ cache })
+  const supportedChainIds = (await config.requireString('SIMULATION_SUPPORTED_CHAIN_IDS'))
+    .split(',')
+    .map(chainId => parseInt(chainId.trim(), 10))
+  const simulation = await createSimulationComponent({ tenderly, logs }, { supportedChainIds })
   const email = createMockEmailComponent()
   const slack: ISlackComponent = {
     sendMessage: jest.fn().mockResolvedValue(undefined)
@@ -168,7 +195,10 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     features,
     featureFlags,
     magic,
+    tenderly,
     accountDeletion,
+    simulation,
+    rateLimiter,
     nudgeJob,
     db,
     email,
