@@ -80,6 +80,12 @@ describe('when using the Tenderly adapter', () => {
       )
     })
 
+    it('should pass the configured timeout to the fetch component so the request is actually bounded', async () => {
+      await adapter.simulate(params)
+
+      expect(fetchMock).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ timeout: 6000 }))
+    })
+
     it('should map the response into the narrowed simulation result', async () => {
       const result = await adapter.simulate(params)
 

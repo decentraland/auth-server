@@ -80,10 +80,12 @@ export async function createTenderlyAdapter({
           save: false,
           save_if_fails: false
         }),
-        signal: AbortSignal.timeout(timeoutMs)
+        // Use the fetch component's own `timeout` (which arms an AbortController it controls).
+        // A caller-supplied `signal` is overwritten by the component, so it would be a no-op here.
+        timeout: timeoutMs
       })
     } catch (e) {
-      // Network failure or AbortError (timeout). Nothing to drain.
+      // Network failure or a timeout abort thrown by the fetch component. Nothing to drain.
       logger.warn(`Tenderly simulation call failed (to=${to}, networkId=${networkId}): ${isErrorWithMessage(e) ? e.message : 'unknown error'}`)
       throw new TenderlyUnavailableError('Tenderly request failed or timed out')
     }
