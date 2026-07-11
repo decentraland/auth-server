@@ -1,7 +1,7 @@
 import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
-import { AuthChain } from '@dcl/schemas'
 import { InvalidRequestError } from '@dcl/http-commons'
+import { AuthChain } from '@dcl/schemas'
 import { SimulationRequestBody } from '../../logic/simulation/types'
 import { MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from './constants'
 import {
