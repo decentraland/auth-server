@@ -21,6 +21,8 @@ export type TenderlyAssetChange = {
   amount?: string
   raw_amount?: string
   dollar_value?: string
+  /** NFT token id for ERC721/1155 transfers (Tenderly omits it for fungible transfers). */
+  token_id?: string
   token_info?: TenderlyTokenInfo
 }
 

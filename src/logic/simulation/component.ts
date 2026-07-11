@@ -1,4 +1,4 @@
-import { formatEther, id, Interface } from 'ethers'
+import { formatEther, formatUnits, id, Interface } from 'ethers'
 import { TenderlyAssetChange, TenderlySimulationResult } from '../../adapters/tenderly'
 import { AppComponents } from '../../types'
 import { InvalidSimulationParamsError, UnsupportedChainError } from './errors'
@@ -43,6 +43,12 @@ function asStringProp(record: Record<string, unknown> | null, key: string): stri
   return typeof value === 'string' ? value : null
 }
 
+/** Reads a numeric property from an unknown value, or null. */
+function asNumberProp(record: Record<string, unknown> | null, key: string): number | null {
+  const value = record ? record[key] : undefined
+  return typeof value === 'number' ? value : null
+}
+
 /** Maps a Tenderly token standard to our DTO enum. */
 function mapStandard(standard?: string): AssetChange['standard'] {
   switch ((standard ?? '').toLowerCase()) {
@@ -77,31 +83,33 @@ function assetChangeKey(change: Pick<AssetChange, 'contractAddress' | 'tokenId' 
   return `${change.contractAddress ?? ''}:${change.tokenId ?? ''}:${change.from ?? ''}:${change.to ?? ''}`
 }
 
-/** Token symbol/name looked up by contract address (lowercased). */
-type TokenMeta = { symbol: string | null; name: string | null }
+/** Token symbol/name/decimals looked up by contract address (lowercased). */
+type TokenMeta = { symbol: string | null; name: string | null; decimals: number | null }
 
 /**
- * Builds a contract-address ⇒ { symbol, name } index from Tenderly's
+ * Builds a contract-address ⇒ { symbol, name, decimals } index from Tenderly's
  * `asset_changes[].token_info` and the (undocumented) `exposure_changes`,
- * used to enrich approvals decoded from raw logs.
+ * used to enrich approvals decoded from raw logs (including formatting finite
+ * ERC20 allowances with the token's decimals).
  */
 function buildTokenMetaIndex(assetChanges: TenderlyAssetChange[], exposureChanges: unknown[]): Map<string, TokenMeta> {
   const index = new Map<string, TokenMeta>()
 
-  const record = (address: string | null, symbol: string | null, name: string | null) => {
+  const record = (address: string | null, symbol: string | null, name: string | null, decimals: number | null) => {
     if (!address) return
     const key = address.toLowerCase()
     const existing = index.get(key)
     index.set(key, {
       symbol: symbol ?? existing?.symbol ?? null,
-      name: name ?? existing?.name ?? null
+      name: name ?? existing?.name ?? null,
+      decimals: decimals ?? existing?.decimals ?? null
     })
   }
 
   for (const change of assetChanges) {
     const tokenInfo = change.token_info
     if (tokenInfo?.contract_address) {
-      record(tokenInfo.contract_address, tokenInfo.symbol ?? null, tokenInfo.name ?? null)
+      record(tokenInfo.contract_address, tokenInfo.symbol ?? null, tokenInfo.name ?? null, tokenInfo.decimals ?? null)
     }
   }
 
@@ -111,7 +119,8 @@ function buildTokenMetaIndex(assetChanges: TenderlyAssetChange[], exposureChange
     const contract = asStringProp(tokenInfo, 'contract_address') ?? asStringProp(exposureRecord, 'contract_address')
     const symbol = asStringProp(tokenInfo, 'symbol') ?? asStringProp(exposureRecord, 'symbol')
     const name = asStringProp(tokenInfo, 'name') ?? asStringProp(exposureRecord, 'name')
-    record(contract, symbol, name)
+    const decimals = asNumberProp(tokenInfo, 'decimals') ?? asNumberProp(exposureRecord, 'decimals')
+    record(contract, symbol, name, decimals)
   }
 
   return index
@@ -120,25 +129,44 @@ function buildTokenMetaIndex(assetChanges: TenderlyAssetChange[], exposureChange
 /**
  * Decodes token approvals from raw EVM logs — the PRIMARY approval source.
  * Routes each log by topic0 and topic count, then enriches symbol/name from the
- * token metadata index and dedupes by (contract, owner, spender, tokenId).
+ * token metadata index and dedupes by (kind, contract, owner, spender, tokenId).
+ *
+ * Dedup keeps the LAST occurrence of a given key: ERC20 resets emit
+ * `approve(0)` then `approve(MAX)` as two `Approval` logs to the same spender
+ * (ERC20 tokenId is always null so they collide), and the final unlimited
+ * allowance is the one we must warn about.
  */
 function decodeApprovals(rawLogs: TenderlySimulationResult['rawLogs'], tokenMeta: Map<string, TokenMeta>): ApprovalChange[] {
-  const approvals: ApprovalChange[] = []
-  const seen = new Set<string>()
+  const approvals = new Map<string, ApprovalChange>()
 
   const push = (approval: ApprovalChange) => {
     const meta = tokenMeta.get(approval.contractAddress.toLowerCase())
     if (meta) {
       approval.symbol = approval.symbol ?? meta.symbol
       approval.name = approval.name ?? meta.name
+      // Format a finite ERC20 allowance into a human-readable amount when the
+      // token's decimals are known; leave null otherwise (frontend handles it).
+      if (
+        approval.kind === 'approval' &&
+        approval.standard === 'erc20' &&
+        !approval.isUnlimited &&
+        approval.amount === null &&
+        approval.rawAmount !== null &&
+        meta.decimals !== null
+      ) {
+        approval.amount = formatUnits(BigInt(approval.rawAmount), meta.decimals)
+      }
     }
-    const dedupeKey = `${approval.contractAddress}:${approval.owner}:${approval.spender}:${approval.tokenId ?? ''}`
-    if (seen.has(dedupeKey)) return
-    seen.add(dedupeKey)
-    approvals.push(approval)
+    // Include `kind` so an `approval` and `approvalForAll` for the same triple
+    // don't collide; `.set()` means a later occurrence overwrites an earlier one.
+    const dedupeKey = `${approval.kind}:${approval.contractAddress}:${approval.owner}:${approval.spender}:${approval.tokenId ?? ''}`
+    approvals.set(dedupeKey, approval)
   }
 
   for (const log of rawLogs) {
+    // Defensively skip malformed logs (missing topics/address) so a single bad
+    // entry can't throw and defeat the fail-open decoding of the rest.
+    if (!log || !Array.isArray(log.topics) || typeof log.address !== 'string') continue
     const topic0 = log.topics[0]?.toLowerCase()
     const contractAddress = log.address.toLowerCase()
 
@@ -184,7 +212,9 @@ function decodeApprovals(rawLogs: TenderlySimulationResult['rawLogs'], tokenMeta
         const approved = parsed.args.approved as boolean
         push({
           kind: 'approvalForAll',
-          standard: log.topics.length === 4 ? 'erc721' : 'unknown',
+          // ApprovalForAll(address,address,bool) always has exactly 3 topics, so
+          // erc721 vs erc1155 can't be told apart from an ApprovalForAll's topics.
+          standard: 'unknown',
           owner: (parsed.args.owner as string).toLowerCase(),
           spender: (parsed.args.operator as string).toLowerCase(),
           amount: null,
@@ -202,7 +232,7 @@ function decodeApprovals(rawLogs: TenderlySimulationResult['rawLogs'], tokenMeta
     }
   }
 
-  return approvals
+  return [...approvals.values()]
 }
 
 /**
@@ -230,12 +260,17 @@ function decodeErc1155Transfers(rawLogs: TenderlySimulationResult['rawLogs']): A
   })
 
   for (const log of rawLogs) {
+    // Defensively skip malformed logs (missing topics/address) so a single bad
+    // entry can't throw and defeat the fail-open decoding of the rest.
+    if (!log || !Array.isArray(log.topics) || typeof log.address !== 'string') continue
     const topic0 = log.topics[0]?.toLowerCase()
     try {
       if (topic0 === TRANSFER_SINGLE_TOPIC) {
         const parsed = transferSingleInterface.parseLog({ topics: log.topics, data: log.data })
         if (!parsed) continue
-        changes.push(build(log.address, parsed.args.from as string, parsed.args.to as string, parsed.args.id as bigint, parsed.args.value as bigint))
+        changes.push(
+          build(log.address, parsed.args.from as string, parsed.args.to as string, parsed.args.id as bigint, parsed.args.value as bigint)
+        )
       } else if (topic0 === TRANSFER_BATCH_TOPIC) {
         const parsed = transferBatchInterface.parseLog({ topics: log.topics, data: log.data })
         if (!parsed) continue
@@ -311,7 +346,7 @@ export async function createSimulationComponent(
       to: lowerOrNull(change.to),
       amount: change.amount ?? null,
       rawAmount: change.raw_amount ?? null,
-      tokenId: null,
+      tokenId: change.token_id ?? null,
       contractAddress: lowerOrNull(change.token_info?.contract_address),
       symbol: change.token_info?.symbol ?? null,
       name: change.token_info?.name ?? null,
@@ -334,9 +369,10 @@ export async function createSimulationComponent(
       }
     }
 
-    // 7. Native-value fallback — synthesize a native transfer when value > 0 and
-    //    Tenderly did not already report one.
-    if (BigInt(value) > 0n && !assetChanges.some(change => change.standard === 'native')) {
+    // 7. Native-value fallback — synthesize a native transfer when the tx succeeded,
+    //    value > 0 and Tenderly did not already report one. A reverted tx moves no
+    //    value, so we must not invent a transfer for it.
+    if (status === 'success' && BigInt(value) > 0n && !assetChanges.some(change => change.standard === 'native')) {
       assetChanges.push({
         type: 'transfer',
         standard: 'native',
@@ -354,7 +390,9 @@ export async function createSimulationComponent(
       })
     }
 
-    logger.debug(`Simulated tx on chain ${body.chainId}: status=${status} assets=${assetChanges.length} approvals=${approvalChanges.length}`)
+    logger.debug(
+      `Simulated tx on chain ${body.chainId}: status=${status} assets=${assetChanges.length} approvals=${approvalChanges.length}`
+    )
 
     const response: SimulationResponseBody = {
       status,

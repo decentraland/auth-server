@@ -13,7 +13,10 @@ import { getClientIp, parseJsonBody } from '../utils'
 //
 // `allowedOrigins` is an exact-match allowlist of browser Origins (empty = skip).
 // `rateLimit` is the per-IP fixed-window budget (max requests per window).
-export function createSimulationHandler(allowedOrigins: Set<string>, rateLimit: { max: number; windowSeconds: number }) {
+// `globalMax` is a second, IP-independent cap over the same window protecting the
+// paid Tenderly upstream: `X-Forwarded-For` is client-spoofable, so the per-IP
+// budget alone cannot bound total upstream spend.
+export function createSimulationHandler(allowedOrigins: Set<string>, rateLimit: { max: number; windowSeconds: number }, globalMax: number) {
   return async function simulationHandler(context: HandlerContextWithPath<'simulation' | 'rateLimiter' | 'logs', '/simulations'>) {
     const {
       components: { simulation, rateLimiter, logs },
@@ -33,11 +36,22 @@ export function createSimulationHandler(allowedOrigins: Set<string>, rateLimit: 
 
     // 2. Rate limit per client IP.
     const ip = getClientIp(request.headers)
-    const { allowed, retryAfterSeconds } = await rateLimiter.consume('simulations', ip, rateLimit)
-    if (!allowed) {
+    const perIp = await rateLimiter.consume('simulations', ip, rateLimit)
+    if (!perIp.allowed) {
       return {
         status: 429,
-        headers: { 'Retry-After': String(retryAfterSeconds) },
+        headers: { 'Retry-After': String(perIp.retryAfterSeconds) },
+        body: { error: 'Too many requests' } satisfies InvalidResponseMessage
+      }
+    }
+
+    // 2b. Global cap over the same window, independent of the (spoofable) client
+    //     IP, so a distributed flood cannot run up the paid Tenderly upstream.
+    const global = await rateLimiter.consume('simulations-global', 'all', { max: globalMax, windowSeconds: rateLimit.windowSeconds })
+    if (!global.allowed) {
+      return {
+        status: 429,
+        headers: { 'Retry-After': String(global.retryAfterSeconds) },
         body: { error: 'Too many requests' } satisfies InvalidResponseMessage
       }
     }
@@ -52,9 +66,17 @@ export function createSimulationHandler(allowedOrigins: Set<string>, rateLimit: 
     } catch (e) {
       const message = isErrorWithMessage(e) ? e.message : 'Unknown error'
 
-      if (e instanceof UnsupportedChainError || e instanceof InvalidSimulationParamsError || e instanceof TenderlyBadRequestError) {
+      // Our own client-input errors carry safe, controlled messages we can echo.
+      if (e instanceof UnsupportedChainError || e instanceof InvalidSimulationParamsError) {
         logger.log(`Simulation rejected: ${message}`)
         return { status: 400, body: { error: message } satisfies InvalidResponseMessage }
+      }
+
+      // Tenderly's 400 detail is uncontrolled upstream text — log it, but return a
+      // generic message so upstream internals are never echoed to the client.
+      if (e instanceof TenderlyBadRequestError) {
+        logger.log(`Simulation rejected by Tenderly: ${message}`)
+        return { status: 400, body: { error: 'Invalid simulation request' } satisfies InvalidResponseMessage }
       }
 
       if (e instanceof TenderlyRateLimitError) {

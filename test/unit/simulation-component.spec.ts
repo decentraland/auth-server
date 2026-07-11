@@ -447,4 +447,142 @@ describe('when simulating a transaction', () => {
       ])
     })
   })
+
+  describe('and an ERC20 allowance is reset from zero to unlimited to the same spender', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          rawLogs: [erc20ApprovalLog(FROM, SPENDER, 0n, TOKEN), erc20ApprovalLog(FROM, SPENDER, MAX_UINT256, TOKEN)]
+        })
+      )
+    })
+
+    it('should collapse the two Approval logs into a single approval change', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.approvalChanges).toHaveLength(1)
+    })
+
+    it('should keep the last occurrence and flag it as unlimited', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.approvalChanges[0]).toMatchObject({ isUnlimited: true, rawAmount: MAX_UINT256.toString() })
+    })
+  })
+
+  describe('and the transaction would revert while sending a native value', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO, value: '1000000000000000000' }
+      tenderly.simulate.mockResolvedValue(baseResult({ status: false, errorMessage: 'execution reverted' }))
+    })
+
+    it('should not synthesize a native asset change for the reverted transaction', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges.some(change => change.standard === 'native')).toBe(false)
+    })
+  })
+
+  describe('and a raw log is malformed with no topics array', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          rawLogs: [{ address: TOKEN, data: '0x' } as unknown as TenderlyRawLog, erc20ApprovalLog(FROM, SPENDER, 1000n, TOKEN)]
+        })
+      )
+    })
+
+    it('should resolve without throwing', async () => {
+      await expect(component.simulateTransaction(body)).resolves.toBeDefined()
+    })
+
+    it('should still decode the well-formed approval and skip the malformed log', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.approvalChanges).toHaveLength(1)
+    })
+  })
+
+  describe('and Tenderly reports an ERC721 transfer with a token id', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          assetChanges: [
+            {
+              type: 'Transfer',
+              from: FROM,
+              to: TO,
+              token_id: '512',
+              token_info: { standard: 'ERC721', contract_address: TOKEN }
+            }
+          ]
+        })
+      )
+    })
+
+    it('should map the Tenderly token_id into the asset change tokenId', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges[0].tokenId).toBe('512')
+    })
+  })
+
+  describe('and an ERC1155 transfer is reported by both Tenderly and a raw log', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          assetChanges: [
+            {
+              type: 'Transfer',
+              from: FROM,
+              to: TO,
+              token_id: '5',
+              token_info: { standard: 'ERC1155', contract_address: TOKEN }
+            }
+          ],
+          rawLogs: [transferSingleLog(FROM, FROM, TO, 5n, 3n, TOKEN)]
+        })
+      )
+    })
+
+    it('should deduplicate them into a single asset change', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges).toHaveLength(1)
+    })
+  })
+
+  describe('and a finite ERC20 approval has token decimals known from asset changes', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          assetChanges: [{ type: 'Transfer', token_info: { standard: 'ERC20', contract_address: TOKEN, decimals: 6 } }],
+          rawLogs: [erc20ApprovalLog(FROM, SPENDER, 500n * 1000000n, TOKEN)]
+        })
+      )
+    })
+
+    it('should format the approval amount using the token decimals', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.approvalChanges[0].amount).toBe('500.0')
+    })
+  })
 })

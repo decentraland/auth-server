@@ -1,4 +1,4 @@
-import { ITenderlyAdapter, TenderlySimulationResult, TenderlyUnavailableError } from '../../src/adapters/tenderly'
+import { ITenderlyAdapter, TenderlyBadRequestError, TenderlySimulationResult, TenderlyUnavailableError } from '../../src/adapters/tenderly'
 import { test } from '../components'
 
 const FROM = '0x1111111111111111111111111111111111111111'
@@ -169,6 +169,28 @@ test('when simulating a transaction via the endpoint', args => {
     })
   })
 
+  describe('and Tenderly rejects the request as a bad request with upstream detail', () => {
+    let body: Record<string, unknown>
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO, value: '0' }
+      tenderly.simulate.mockRejectedValue(new TenderlyBadRequestError('some upstream detail'))
+    })
+
+    it('should respond with 400', async () => {
+      const response = await postSimulation(baseUrl, body, '203.0.113.7')
+
+      expect(response.status).toBe(400)
+    })
+
+    it('should not echo the upstream Tenderly detail in the response body', async () => {
+      const response = await postSimulation(baseUrl, body, '203.0.113.8')
+      const responseBody = await response.json()
+
+      expect(JSON.stringify(responseBody)).not.toContain('some upstream detail')
+    })
+  })
+
   describe('and the per-IP rate limit is exceeded within a window', () => {
     let body: Record<string, unknown>
     let max: number
@@ -188,6 +210,48 @@ test('when simulating a transaction via the endpoint', args => {
       const blocked = await postSimulation(baseUrl, body, '203.0.113.99')
       expect(blocked.status).toBe(429)
       expect(blocked.headers.get('retry-after')).not.toBeNull()
+    })
+  })
+})
+
+test('when the global simulation rate limit is exceeded across multiple IPs', args => {
+  let baseUrl: string
+  let tenderly: jest.Mocked<Pick<ITenderlyAdapter, 'simulate'>>
+
+  beforeEach(async () => {
+    const port = await args.components.config.requireString('HTTP_SERVER_PORT')
+    baseUrl = `http://localhost:${port}`
+    tenderly = args.components.tenderly as jest.Mocked<Pick<ITenderlyAdapter, 'simulate'>>
+  })
+
+  describe('and the global cap has been filled by requests from several IPs each below the per-IP cap', () => {
+    let body: Record<string, unknown>
+
+    beforeEach(async () => {
+      body = { chainId: 137, from: FROM, to: TO, value: '0' }
+      tenderly.simulate.mockResolvedValue(successResult())
+
+      const globalMax = await args.components.config.requireNumber('SIMULATION_RATE_LIMIT_GLOBAL_MAX')
+      const perIpMax = await args.components.config.requireNumber('SIMULATION_RATE_LIMIT_MAX')
+
+      // Fill the global bucket exactly to its cap, spreading requests across enough
+      // distinct IPs that no single IP reaches the per-IP cap first.
+      let sent = 0
+      let ipOctet = 0
+      while (sent < globalMax) {
+        const inThisIp = Math.min(perIpMax, globalMax - sent)
+        for (let i = 0; i < inThisIp; i++) {
+          await postSimulation(baseUrl, body, `198.51.100.${ipOctet}`)
+          sent++
+        }
+        ipOctet++
+      }
+    })
+
+    it('should respond with 429 to a request from a different IP', async () => {
+      const blocked = await postSimulation(baseUrl, body, '198.51.100.250')
+
+      expect(blocked.status).toBe(429)
     })
   })
 })
