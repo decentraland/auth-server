@@ -356,7 +356,13 @@ export async function createSimulationComponent(
 
     logger.debug(`Simulated tx on chain ${body.chainId}: status=${status} assets=${assetChanges.length} approvals=${approvalChanges.length}`)
 
-    const response: SimulationResponseBody = { status, assetChanges, approvalChanges }
+    const response: SimulationResponseBody = {
+      status,
+      assetChanges,
+      approvalChanges,
+      balanceChanges: result.balanceChanges,
+      events: result.events
+    }
     if (status === 'reverted' && result.errorMessage) {
       response.error = result.errorMessage
     }

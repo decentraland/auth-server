@@ -44,7 +44,16 @@ function transferBatchLog(operator: string, from: string, to: string, ids: bigin
 }
 
 function baseResult(overrides: Partial<TenderlySimulationResult> = {}): TenderlySimulationResult {
-  return { status: true, errorMessage: null, assetChanges: [], exposureChanges: [], rawLogs: [], ...overrides }
+  return {
+    status: true,
+    errorMessage: null,
+    assetChanges: [],
+    exposureChanges: [],
+    rawLogs: [],
+    balanceChanges: [],
+    events: [],
+    ...overrides
+  }
 }
 
 describe('when simulating a transaction', () => {
@@ -168,6 +177,32 @@ describe('when simulating a transaction', () => {
           dollarValue: '1.50'
         }
       ])
+    })
+  })
+
+  describe('and Tenderly reports net balance changes and decoded events', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          balanceChanges: [{ address: FROM.toLowerCase(), dollarValue: '-12.34' }],
+          events: [{ name: 'Transfer', address: TOKEN.toLowerCase() }]
+        })
+      )
+    })
+
+    it('should include the net balance changes from the adapter result', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.balanceChanges).toEqual([{ address: FROM.toLowerCase(), dollarValue: '-12.34' }])
+    })
+
+    it('should include the decoded events from the adapter result', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.events).toEqual([{ name: 'Transfer', address: TOKEN.toLowerCase() }])
     })
   })
 

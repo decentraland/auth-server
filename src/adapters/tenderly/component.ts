@@ -5,6 +5,8 @@ import { ITenderlyAdapter, TenderlyRawLog, TenderlySimulateParams, TenderlySimul
 
 const DEFAULT_API_URL = 'https://api.tenderly.co'
 const DEFAULT_TIMEOUT_MS = 6000
+// Upper bound on decoded event logs returned, to keep the response payload small.
+const MAX_EVENTS = 50
 
 /** Shape of the Tenderly `/simulate` JSON response we consume (all fields best-effort). */
 type TenderlyRawResponse = {
@@ -15,7 +17,8 @@ type TenderlyRawResponse = {
     transaction_info?: {
       asset_changes?: TenderlySimulationResult['assetChanges'] | null
       exposure_changes?: unknown[] | null
-      logs?: Array<{ raw?: TenderlyRawLog }> | null
+      balance_changes?: Array<{ address?: string; dollar_value?: string | number | null }> | null
+      logs?: Array<{ name?: string | null; raw?: TenderlyRawLog }> | null
     } | null
   } | null
 }
@@ -131,6 +134,18 @@ export async function createTenderlyAdapter({
       .map(entry => entry.raw)
       .filter((raw): raw is TenderlyRawLog => Boolean(raw))
 
+    const balanceChanges = (transactionInfo?.balance_changes ?? [])
+      .map(bc => ({
+        address: String(bc.address ?? '').toLowerCase(),
+        dollarValue: bc.dollar_value != null ? String(bc.dollar_value) : null
+      }))
+      .filter(bc => bc.address !== '')
+
+    const events = (transactionInfo?.logs ?? [])
+      .map(log => ({ name: log.name ?? null, address: String(log.raw?.address ?? '').toLowerCase() }))
+      .filter(event => event.address !== '')
+      .slice(0, MAX_EVENTS)
+
     logger.log(`Tenderly simulation ok (to=${to}, networkId=${networkId}, status=${transaction?.status ?? 'unknown'})`)
 
     return {
@@ -138,7 +153,9 @@ export async function createTenderlyAdapter({
       errorMessage: transaction?.error_info?.error_message ?? null,
       assetChanges: transactionInfo?.asset_changes ?? [],
       exposureChanges: transactionInfo?.exposure_changes ?? [],
-      rawLogs
+      rawLogs,
+      balanceChanges,
+      events
     }
   }
 

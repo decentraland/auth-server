@@ -60,7 +60,8 @@ describe('when using the Tenderly adapter', () => {
             transaction_info: {
               asset_changes: [{ type: 'Transfer', token_info: { standard: 'ERC20' } }],
               exposure_changes: [{ contract_address: '0xabc' }],
-              logs: [{ raw: { address: '0xdead', topics: ['0x01'], data: '0x' } }, { other: true }]
+              balance_changes: [{ address: '0xAbCdEf0000000000000000000000000000000001', dollar_value: '12.34' }],
+              logs: [{ name: 'Transfer', raw: { address: '0xDEAD', topics: ['0x01'], data: '0x' } }, { other: true }]
             }
           }
         })
@@ -87,8 +88,22 @@ describe('when using the Tenderly adapter', () => {
         errorMessage: null,
         assetChanges: [{ type: 'Transfer', token_info: { standard: 'ERC20' } }],
         exposureChanges: [{ contract_address: '0xabc' }],
-        rawLogs: [{ address: '0xdead', topics: ['0x01'], data: '0x' }]
+        rawLogs: [{ address: '0xDEAD', topics: ['0x01'], data: '0x' }],
+        balanceChanges: [{ address: '0xabcdef0000000000000000000000000000000001', dollarValue: '12.34' }],
+        events: [{ name: 'Transfer', address: '0xdead' }]
       })
+    })
+
+    it('should map the net balance changes with lowercased addresses and stringified dollar values', async () => {
+      const result = await adapter.simulate(params)
+
+      expect(result.balanceChanges).toEqual([{ address: '0xabcdef0000000000000000000000000000000001', dollarValue: '12.34' }])
+    })
+
+    it('should map the decoded event names alongside the lowercased emitting address', async () => {
+      const result = await adapter.simulate(params)
+
+      expect(result.events).toEqual([{ name: 'Transfer', address: '0xdead' }])
     })
 
     it('should simulate with a zero gas price so the sender is not charged for gas', async () => {
@@ -96,6 +111,55 @@ describe('when using the Tenderly adapter', () => {
 
       const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body)
       expect(body.gas_price).toBe('0')
+    })
+  })
+
+  describe('and Tenderly reports a balance change without a dollar value', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: true,
+            error_info: null,
+            transaction_info: {
+              balance_changes: [{ address: '0xFEED' }],
+              logs: []
+            }
+          }
+        })
+      })
+    })
+
+    it('should map the balance change with a null dollar value and lowercased address', async () => {
+      const result = await adapter.simulate(params)
+
+      expect(result.balanceChanges).toEqual([{ address: '0xfeed', dollarValue: null }])
+    })
+  })
+
+  describe('and Tenderly reports a log without a decoded name', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: true,
+            error_info: null,
+            transaction_info: {
+              logs: [{ raw: { address: '0xBEEF', topics: [], data: '0x' } }]
+            }
+          }
+        })
+      })
+    })
+
+    it('should map the event with a null name and lowercased address', async () => {
+      const result = await adapter.simulate(params)
+
+      expect(result.events).toEqual([{ name: null, address: '0xbeef' }])
     })
   })
 

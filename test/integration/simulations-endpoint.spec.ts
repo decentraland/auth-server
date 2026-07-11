@@ -6,7 +6,16 @@ const TO = '0x2222222222222222222222222222222222222222'
 const TOKEN = '0x4444444444444444444444444444444444444444'
 
 function successResult(overrides: Partial<TenderlySimulationResult> = {}): TenderlySimulationResult {
-  return { status: true, errorMessage: null, assetChanges: [], exposureChanges: [], rawLogs: [], ...overrides }
+  return {
+    status: true,
+    errorMessage: null,
+    assetChanges: [],
+    exposureChanges: [],
+    rawLogs: [],
+    balanceChanges: [],
+    events: [],
+    ...overrides
+  }
 }
 
 async function postSimulation(baseUrl: string, body: unknown, ip: string): Promise<Response> {
@@ -51,7 +60,9 @@ test('when simulating a transaction via the endpoint', args => {
                 decimals: 18
               }
             }
-          ]
+          ],
+          balanceChanges: [{ address: FROM, dollarValue: '-2.00' }],
+          events: [{ name: 'Transfer', address: TOKEN }]
         })
       )
     })
@@ -80,7 +91,9 @@ test('when simulating a transaction via the endpoint', args => {
             dollarValue: '2.00'
           }
         ],
-        approvalChanges: []
+        approvalChanges: [],
+        balanceChanges: [{ address: FROM, dollarValue: '-2.00' }],
+        events: [{ name: 'Transfer', address: TOKEN }]
       })
     })
   })

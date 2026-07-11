@@ -46,6 +46,10 @@ export type TenderlySimulationResult = {
   exposureChanges: unknown[]
   /** Raw EVM logs, used as the primary source for decoding approvals and ERC1155 transfers. */
   rawLogs: TenderlyRawLog[]
+  /** Net per-address USD balance deltas reported by Tenderly (addresses lowercased). */
+  balanceChanges: Array<{ address: string; dollarValue: string | null }>
+  /** Decoded event log names alongside their emitting contract (addresses lowercased, capped). */
+  events: Array<{ name: string | null; address: string }>
 }
 
 /** Parameters for a single Tenderly simulation call. */

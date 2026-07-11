@@ -87,7 +87,9 @@ export function createMockTenderlyAdapter(): ITenderlyAdapter {
       errorMessage: null,
       assetChanges: [],
       exposureChanges: [],
-      rawLogs: []
+      rawLogs: [],
+      balanceChanges: [],
+      events: []
     })
   } as unknown as ITenderlyAdapter
 }
