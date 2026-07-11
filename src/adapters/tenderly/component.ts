@@ -86,7 +86,9 @@ export async function createTenderlyAdapter({
       })
     } catch (e) {
       // Network failure or a timeout abort thrown by the fetch component. Nothing to drain.
-      logger.warn(`Tenderly simulation call failed (to=${to}, networkId=${networkId}): ${isErrorWithMessage(e) ? e.message : 'unknown error'}`)
+      logger.warn(
+        `Tenderly simulation call failed (to=${to}, networkId=${networkId}): ${isErrorWithMessage(e) ? e.message : 'unknown error'}`
+      )
       throw new TenderlyUnavailableError('Tenderly request failed or timed out')
     }
 
@@ -132,9 +134,7 @@ export async function createTenderlyAdapter({
     const transaction = json.transaction
     const transactionInfo = transaction?.transaction_info
 
-    const rawLogs = (transactionInfo?.logs ?? [])
-      .map(entry => entry.raw)
-      .filter((raw): raw is TenderlyRawLog => Boolean(raw))
+    const rawLogs = (transactionInfo?.logs ?? []).map(entry => entry.raw).filter((raw): raw is TenderlyRawLog => Boolean(raw))
 
     const balanceChanges = (transactionInfo?.balance_changes ?? [])
       .map(bc => ({

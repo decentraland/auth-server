@@ -147,7 +147,9 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     didTokenMaxAgeSeconds: overrides.didTokenMaxAgeSeconds ?? 120
   })
   const rateLimiter = createRateLimiterComponent({ cache })
-  const supportedChainIds = (await config.requireString('SIMULATION_SUPPORTED_CHAIN_IDS')).split(',').map(chainId => parseInt(chainId.trim(), 10))
+  const supportedChainIds = (await config.requireString('SIMULATION_SUPPORTED_CHAIN_IDS'))
+    .split(',')
+    .map(chainId => parseInt(chainId.trim(), 10))
   const simulation = await createSimulationComponent({ tenderly, logs }, { supportedChainIds })
   const email = createMockEmailComponent()
   const slack: ISlackComponent = {
