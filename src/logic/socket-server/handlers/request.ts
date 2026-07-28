@@ -1,6 +1,6 @@
 import { randomInt } from 'crypto'
 import { v4 as uuid } from 'uuid'
-import { InvalidResponseMessage, RequestMessage, RequestResponseMessage } from '../../../ports/server/types'
+import { InvalidResponseMessage, RequestResponseMessage, ValidatedRequestMessage } from '../../../ports/server/types'
 import { validateRequestMessage } from '../../../ports/server/validations'
 import { validateAuthChain } from '../../auth-chain'
 import { isErrorWithMessage } from '../../error-handling'
@@ -21,7 +21,7 @@ export function createRequestSocketHandler(options: SocketRequestExpirationOptio
 
     logger.log('Received a request')
 
-    let msg: RequestMessage
+    let msg: ValidatedRequestMessage
     try {
       msg = validateRequestMessage(data)
     } catch (e) {
@@ -33,7 +33,7 @@ export function createRequestSocketHandler(options: SocketRequestExpirationOptio
 
     // Same validation as the HTTP /requests handler (shared to avoid drift).
     try {
-      sender = (await validateAuthChain(msg.authChain || [])).sender
+      sender = (await validateAuthChain(msg.authChain)).sender
     } catch (e) {
       logger.log('Received a request with an invalid auth chain')
       return { error: isErrorWithMessage(e) ? e.message : 'Unknown error' } satisfies InvalidResponseMessage

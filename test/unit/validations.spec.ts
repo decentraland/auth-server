@@ -1,5 +1,6 @@
 import { Authenticator } from '@dcl/crypto'
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
+import { AuthChain, AuthLinkType } from '@dcl/schemas'
 import { isEphemeralMessage } from '../../src/logic/auth-chain'
 import { MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from '../../src/ports/server/constants'
 import {
@@ -8,7 +9,8 @@ import {
   OutcomeMessage,
   RequestValidationMessage,
   HttpOutcomeMessage,
-  IdentityRequest
+  IdentityRequest,
+  ValidatedRequestMessage
 } from '../../src/ports/server/types'
 import {
   validateRequestMessage,
@@ -22,14 +24,24 @@ import {
 } from '../../src/ports/server/validations'
 import { generateRandomIdentityId, createTestIdentity } from '../utils/test-identity'
 
+/**
+ * A well-shaped auth chain. `validateRequestMessage` only requires the chain to be present and to
+ * match the schema — signatures are verified separately by `validateAuthChain` — so a single SIGNER
+ * link is enough to exercise these cases.
+ */
+function createStubAuthChain(): AuthChain {
+  return [{ type: AuthLinkType.SIGNER, payload: '0x1234567890123456789012345678901234567890', signature: '' }]
+}
+
 describe('when validating request messages', () => {
   describe('and the message is valid', () => {
-    let validRequestMessage: RequestMessage
+    let validRequestMessage: ValidatedRequestMessage
 
     beforeEach(() => {
       validRequestMessage = {
         method: 'eth_sendTransaction',
-        params: [{ from: '0x123', to: '0x456', value: '0x1' }]
+        params: [{ from: '0x123', to: '0x456', value: '0x1' }],
+        authChain: createStubAuthChain()
       }
     })
 
@@ -63,10 +75,10 @@ describe('when validating request messages', () => {
   })
 
   describe('and the method is at max length', () => {
-    let messageWithMaxMethod: { method: string; params: unknown[] }
+    let messageWithMaxMethod: { method: string; params: unknown[]; authChain: AuthChain }
 
     beforeEach(() => {
-      messageWithMaxMethod = { method: 'a'.repeat(MAX_METHOD_LENGTH), params: [] }
+      messageWithMaxMethod = { method: 'a'.repeat(MAX_METHOD_LENGTH), params: [], authChain: createStubAuthChain() }
     })
 
     it('should return a message whose method is at the max length', () => {
@@ -87,10 +99,14 @@ describe('when validating request messages', () => {
   })
 
   describe('and the params array is at max items', () => {
-    let messageWithMaxParams: { method: string; params: unknown[] }
+    let messageWithMaxParams: { method: string; params: unknown[]; authChain: AuthChain }
 
     beforeEach(() => {
-      messageWithMaxParams = { method: 'eth_call', params: Array(MAX_PARAMS_ITEMS).fill({ data: 'test' }) }
+      messageWithMaxParams = {
+        method: 'eth_call',
+        params: Array(MAX_PARAMS_ITEMS).fill({ data: 'test' }),
+        authChain: createStubAuthChain()
+      }
     })
 
     it('should return a message with the max number of params', () => {
@@ -123,12 +139,13 @@ describe('when validating request messages', () => {
   })
 
   describe('and the method is personal_sign for an ordinary message', () => {
-    let messageWithPersonalSign: RequestMessage
+    let messageWithPersonalSign: ValidatedRequestMessage
 
     beforeEach(() => {
       messageWithPersonalSign = {
         method: 'personal_sign',
-        params: ['Please sign to confirm your order', '0x1234567890123456789012345678901234567890']
+        params: ['Please sign to confirm your order', '0x1234567890123456789012345678901234567890'],
+        authChain: createStubAuthChain()
       }
     })
 
@@ -211,14 +228,42 @@ describe('when validating request messages', () => {
   })
 
   describe('and the method is a non signing wallet method', () => {
-    let messageWithNonSigningMethod: RequestMessage
+    let messageWithNonSigningMethod: ValidatedRequestMessage
 
     beforeEach(() => {
-      messageWithNonSigningMethod = { method: 'wallet_switchEthereumChain', params: [{ chainId: '0x1' }] }
+      messageWithNonSigningMethod = {
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0x1' }],
+        authChain: createStubAuthChain()
+      }
     })
 
     it('should return the validated message', () => {
       expect(validateRequestMessage(messageWithNonSigningMethod)).toEqual(messageWithNonSigningMethod)
+    })
+  })
+
+  describe('and the auth chain is not provided', () => {
+    let messageWithoutAuthChain: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      messageWithoutAuthChain = { method: 'eth_sendTransaction', params: [{ from: '0x123', to: '0x456' }] }
+    })
+
+    it('should throw an error indicating that the auth chain is required', () => {
+      expect(() => validateRequestMessage(messageWithoutAuthChain)).toThrow('Auth chain is required')
+    })
+  })
+
+  describe('and the auth chain is not provided for a disallowed method', () => {
+    let disallowedMessageWithoutAuthChain: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      disallowedMessageWithoutAuthChain = { method: 'dcl_personal_sign', params: [] }
+    })
+
+    it('should throw the disallowed method error rather than the auth chain one', () => {
+      expect(() => validateRequestMessage(disallowedMessageWithoutAuthChain)).toThrow('The dcl_personal_sign method is not allowed')
     })
   })
 })

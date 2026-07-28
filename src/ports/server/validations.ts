@@ -13,7 +13,8 @@ import {
   RequestValidationMessage,
   IdentityRequest,
   CheckpointRequest,
-  AccountDeletionMetadata
+  AccountDeletionMetadata,
+  ValidatedRequestMessage
 } from './types'
 
 const ajv = new Ajv({ allowUnionTypes: true })
@@ -32,6 +33,10 @@ const requestMessageSchema = {
     },
     authChain: AuthChain.schema
   },
+  // `authChain` is required on every request, but deliberately not listed here: presence is checked
+  // right after this schema runs so a client gets `Auth chain is required` instead of an Ajv error
+  // blob. `validateRequestMessage` is what guarantees the field, and it narrows its return type to
+  // `ValidatedRequestMessage` to say so.
   required: ['method', 'params'],
   additionalProperties: false
 }
@@ -237,15 +242,15 @@ export function isDisallowedMethod(method: string): boolean {
   return DISALLOWED_METHODS.has(method.trim().toLowerCase())
 }
 
-export function validateRequestMessage(msg: unknown) {
+export function validateRequestMessage(msg: unknown): ValidatedRequestMessage {
   if (!requestMessageValidator(msg)) {
     throw new Error(JSON.stringify(requestMessageValidator.errors))
   }
 
   const requestMessage = msg as RequestMessage
 
-  // Both checks live here rather than in either handler so the socket and HTTP entry points, which
-  // share this validator, cannot drift apart on what they accept.
+  // Every check below lives here rather than in either handler so the socket and HTTP entry points,
+  // which share this validator, cannot drift apart on what they accept.
   if (isDisallowedMethod(requestMessage.method)) {
     // Normalised so the message is identical whatever casing the caller used.
     throw new Error(`The ${requestMessage.method.trim().toLowerCase()} method is not allowed`)
@@ -257,7 +262,13 @@ export function validateRequestMessage(msg: unknown) {
     throw new Error('Signing a Decentraland ephemeral message is not allowed')
   }
 
-  return requestMessage
+  // Checked last so a caller on a retired flow is told which method to stop using, rather than being
+  // sent to fix an auth chain on a request that would be refused regardless.
+  if (!requestMessage.authChain) {
+    throw new Error('Auth chain is required')
+  }
+
+  return requestMessage as ValidatedRequestMessage
 }
 
 export function validateRecoverMessage(msg: unknown) {

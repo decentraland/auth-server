@@ -9,9 +9,9 @@ import {
   MessageType,
   OutcomeResponseMessage,
   RecoverResponseMessage,
-  RequestMessage,
   RequestResponseMessage,
-  RequestValidationStatusMessage
+  RequestValidationStatusMessage,
+  ValidatedRequestMessage
 } from '../../ports/server/types'
 import { validateHttpOutcomeMessage, validateRequestMessage } from '../../ports/server/validations'
 import { StorageRequest } from '../../ports/storage/types'
@@ -32,7 +32,7 @@ export function createRequestHandler({ requestExpirationInSeconds }: RequestExpi
     } = context
 
     const data = await parseJsonBody(context.request)
-    let msg: RequestMessage
+    let msg: ValidatedRequestMessage
 
     try {
       msg = validateRequestMessage(data)
@@ -46,7 +46,7 @@ export function createRequestHandler({ requestExpirationInSeconds }: RequestExpi
     let sender: string
 
     try {
-      sender = (await validateAuthChain(msg.authChain || [])).sender
+      sender = (await validateAuthChain(msg.authChain)).sender
     } catch (e) {
       return {
         status: 400,
