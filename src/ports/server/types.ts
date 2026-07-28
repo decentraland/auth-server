@@ -15,8 +15,22 @@ export type Request = {
   params: any[]
 }
 
+/**
+ * A `request` message as it arrives from a client, before validation. `authChain` is optional here
+ * because that is the truth about untrusted input, not because it is optional in the API contract —
+ * see `ValidatedRequestMessage`.
+ */
 export type RequestMessage = Request & {
   authChain?: AuthChain
+}
+
+/**
+ * A `request` message that has passed `validateRequestMessage`. The auth chain is required on every
+ * request (as `docs/openapi.yaml` declares), and the validator guarantees it is present, so
+ * handlers can hand it straight to `validateAuthChain` without a fallback.
+ */
+export type ValidatedRequestMessage = RequestMessage & {
+  authChain: AuthChain
 }
 
 export type LiveResponseMessage = {

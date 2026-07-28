@@ -1,4 +1,7 @@
+import { Authenticator } from '@dcl/crypto'
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
+import { AuthChain, AuthLinkType } from '@dcl/schemas'
+import { isEphemeralMessage } from '../../src/logic/auth-chain'
 import { MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from '../../src/ports/server/constants'
 import {
   RequestMessage,
@@ -6,7 +9,8 @@ import {
   OutcomeMessage,
   RequestValidationMessage,
   HttpOutcomeMessage,
-  IdentityRequest
+  IdentityRequest,
+  ValidatedRequestMessage
 } from '../../src/ports/server/types'
 import {
   validateRequestMessage,
@@ -15,18 +19,29 @@ import {
   validateRequestValidationMessage,
   validateIdentityId,
   validateHttpOutcomeMessage,
-  validateIdentityRequest
+  validateIdentityRequest,
+  isDisallowedMethod
 } from '../../src/ports/server/validations'
 import { generateRandomIdentityId, createTestIdentity } from '../utils/test-identity'
 
+/**
+ * A well-shaped auth chain. `validateRequestMessage` only requires the chain to be present and to
+ * match the schema — signatures are verified separately by `validateAuthChain` — so a single SIGNER
+ * link is enough to exercise these cases.
+ */
+function createStubAuthChain(): AuthChain {
+  return [{ type: AuthLinkType.SIGNER, payload: '0x1234567890123456789012345678901234567890', signature: '' }]
+}
+
 describe('when validating request messages', () => {
   describe('and the message is valid', () => {
-    let validRequestMessage: RequestMessage
+    let validRequestMessage: ValidatedRequestMessage
 
     beforeEach(() => {
       validRequestMessage = {
         method: 'eth_sendTransaction',
-        params: [{ from: '0x123', to: '0x456', value: '0x1' }]
+        params: [{ from: '0x123', to: '0x456', value: '0x1' }],
+        authChain: createStubAuthChain()
       }
     })
 
@@ -60,10 +75,10 @@ describe('when validating request messages', () => {
   })
 
   describe('and the method is at max length', () => {
-    let messageWithMaxMethod: { method: string; params: unknown[] }
+    let messageWithMaxMethod: { method: string; params: unknown[]; authChain: AuthChain }
 
     beforeEach(() => {
-      messageWithMaxMethod = { method: 'a'.repeat(MAX_METHOD_LENGTH), params: [] }
+      messageWithMaxMethod = { method: 'a'.repeat(MAX_METHOD_LENGTH), params: [], authChain: createStubAuthChain() }
     })
 
     it('should return a message whose method is at the max length', () => {
@@ -84,14 +99,253 @@ describe('when validating request messages', () => {
   })
 
   describe('and the params array is at max items', () => {
-    let messageWithMaxParams: { method: string; params: unknown[] }
+    let messageWithMaxParams: { method: string; params: unknown[]; authChain: AuthChain }
 
     beforeEach(() => {
-      messageWithMaxParams = { method: 'eth_call', params: Array(MAX_PARAMS_ITEMS).fill({ data: 'test' }) }
+      messageWithMaxParams = {
+        method: 'eth_call',
+        params: Array(MAX_PARAMS_ITEMS).fill({ data: 'test' }),
+        authChain: createStubAuthChain()
+      }
     })
 
     it('should return a message with the max number of params', () => {
       expect(validateRequestMessage(messageWithMaxParams).params).toHaveLength(MAX_PARAMS_ITEMS)
+    })
+  })
+
+  describe('and the method is dcl_personal_sign', () => {
+    let messageWithDclPersonalSign: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      messageWithDclPersonalSign = { method: 'dcl_personal_sign', params: [] }
+    })
+
+    it('should throw an error indicating that the dcl_personal_sign method is not allowed', () => {
+      expect(() => validateRequestMessage(messageWithDclPersonalSign)).toThrow('The dcl_personal_sign method is not allowed')
+    })
+  })
+
+  describe('and the method is dcl_personal_sign written in a different casing', () => {
+    let messageWithMixedCaseMethod: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      messageWithMixedCaseMethod = { method: 'DCL_Personal_Sign', params: [] }
+    })
+
+    it('should throw an error indicating that the dcl_personal_sign method is not allowed', () => {
+      expect(() => validateRequestMessage(messageWithMixedCaseMethod)).toThrow('The dcl_personal_sign method is not allowed')
+    })
+  })
+
+  describe('and the method is personal_sign for an ordinary message', () => {
+    let messageWithPersonalSign: ValidatedRequestMessage
+
+    beforeEach(() => {
+      messageWithPersonalSign = {
+        method: 'personal_sign',
+        params: ['Please sign to confirm your order', '0x1234567890123456789012345678901234567890'],
+        authChain: createStubAuthChain()
+      }
+    })
+
+    it('should return the validated message', () => {
+      expect(validateRequestMessage(messageWithPersonalSign)).toEqual(messageWithPersonalSign)
+    })
+  })
+
+  describe('and the method is personal_sign for a Decentraland ephemeral message', () => {
+    let messageWithEphemeralPayload: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      messageWithEphemeralPayload = {
+        method: 'personal_sign',
+        params: [Authenticator.getEphemeralMessage('0x1234567890123456789012345678901234567890', new Date('2100-01-01T00:00:00.000Z'))]
+      }
+    })
+
+    it('should throw an error indicating that signing an ephemeral message is not allowed', () => {
+      expect(() => validateRequestMessage(messageWithEphemeralPayload)).toThrow('Signing a Decentraland ephemeral message is not allowed')
+    })
+  })
+
+  describe('and the method is personal_sign for a hex encoded Decentraland ephemeral message', () => {
+    let messageWithHexEphemeralPayload: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      const ephemeralMessage = Authenticator.getEphemeralMessage(
+        '0x1234567890123456789012345678901234567890',
+        new Date('2100-01-01T00:00:00.000Z')
+      )
+      messageWithHexEphemeralPayload = {
+        method: 'personal_sign',
+        params: [`0x${Buffer.from(ephemeralMessage, 'utf8').toString('hex')}`]
+      }
+    })
+
+    it('should throw an error indicating that signing an ephemeral message is not allowed', () => {
+      expect(() => validateRequestMessage(messageWithHexEphemeralPayload)).toThrow(
+        'Signing a Decentraland ephemeral message is not allowed'
+      )
+    })
+  })
+
+  describe('and the method is eth_sign for a Decentraland ephemeral message', () => {
+    let messageWithEphemeralPayload: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      messageWithEphemeralPayload = {
+        method: 'eth_sign',
+        params: [
+          '0x1234567890123456789012345678901234567890',
+          Authenticator.getEphemeralMessage('0x1234567890123456789012345678901234567890', new Date('2100-01-01T00:00:00.000Z'))
+        ]
+      }
+    })
+
+    it('should throw an error indicating that signing an ephemeral message is not allowed', () => {
+      expect(() => validateRequestMessage(messageWithEphemeralPayload)).toThrow('Signing a Decentraland ephemeral message is not allowed')
+    })
+  })
+
+  describe('and the method is personal_sign for an ephemeral message with a disguised first line', () => {
+    let messageWithDisguisedEphemeralPayload: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      messageWithDisguisedEphemeralPayload = {
+        method: 'personal_sign',
+        params: [
+          'Totally harmless greeting\nEphemeral address: 0x1234567890123456789012345678901234567890\nExpiration: 2100-01-01T00:00:00.000Z'
+        ]
+      }
+    })
+
+    it('should throw an error indicating that signing an ephemeral message is not allowed', () => {
+      expect(() => validateRequestMessage(messageWithDisguisedEphemeralPayload)).toThrow(
+        'Signing a Decentraland ephemeral message is not allowed'
+      )
+    })
+  })
+
+  describe('and the method is a non signing wallet method', () => {
+    let messageWithNonSigningMethod: ValidatedRequestMessage
+
+    beforeEach(() => {
+      messageWithNonSigningMethod = {
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0x1' }],
+        authChain: createStubAuthChain()
+      }
+    })
+
+    it('should return the validated message', () => {
+      expect(validateRequestMessage(messageWithNonSigningMethod)).toEqual(messageWithNonSigningMethod)
+    })
+  })
+
+  describe('and the auth chain is not provided', () => {
+    let messageWithoutAuthChain: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      messageWithoutAuthChain = { method: 'eth_sendTransaction', params: [{ from: '0x123', to: '0x456' }] }
+    })
+
+    it('should throw an error indicating that the auth chain is required', () => {
+      expect(() => validateRequestMessage(messageWithoutAuthChain)).toThrow('Auth chain is required')
+    })
+  })
+
+  describe('and the auth chain is not provided for a disallowed method', () => {
+    let disallowedMessageWithoutAuthChain: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      disallowedMessageWithoutAuthChain = { method: 'dcl_personal_sign', params: [] }
+    })
+
+    it('should throw the disallowed method error rather than the auth chain one', () => {
+      expect(() => validateRequestMessage(disallowedMessageWithoutAuthChain)).toThrow('The dcl_personal_sign method is not allowed')
+    })
+  })
+})
+
+describe('when checking whether a method is disallowed', () => {
+  describe('and the method is dcl_personal_sign', () => {
+    let disallowedMethod: string
+
+    beforeEach(() => {
+      disallowedMethod = 'dcl_personal_sign'
+    })
+
+    it('should return true', () => {
+      expect(isDisallowedMethod(disallowedMethod)).toBe(true)
+    })
+  })
+
+  describe('and the method is personal_sign', () => {
+    let allowedMethod: string
+
+    beforeEach(() => {
+      allowedMethod = 'personal_sign'
+    })
+
+    it('should return false', () => {
+      expect(isDisallowedMethod(allowedMethod)).toBe(false)
+    })
+  })
+})
+
+describe('when checking whether a value is a Decentraland ephemeral message', () => {
+  describe('and the value is an ephemeral message', () => {
+    let ephemeralMessage: string
+
+    beforeEach(() => {
+      ephemeralMessage = Authenticator.getEphemeralMessage(
+        '0x1234567890123456789012345678901234567890',
+        new Date('2100-01-01T00:00:00.000Z')
+      )
+    })
+
+    it('should return true', () => {
+      expect(isEphemeralMessage(ephemeralMessage)).toBe(true)
+    })
+  })
+
+  describe('and the value is an expired ephemeral message', () => {
+    let expiredEphemeralMessage: string
+
+    beforeEach(() => {
+      expiredEphemeralMessage = Authenticator.getEphemeralMessage(
+        '0x1234567890123456789012345678901234567890',
+        new Date('2020-01-01T00:00:00.000Z')
+      )
+    })
+
+    it('should return true', () => {
+      expect(isEphemeralMessage(expiredEphemeralMessage)).toBe(true)
+    })
+  })
+
+  describe('and the value is an ordinary message', () => {
+    let ordinaryMessage: string
+
+    beforeEach(() => {
+      ordinaryMessage = 'Please sign to confirm your order'
+    })
+
+    it('should return false', () => {
+      expect(isEphemeralMessage(ordinaryMessage)).toBe(false)
+    })
+  })
+
+  describe('and the value is hex encoded transaction data', () => {
+    let transactionData: string
+
+    beforeEach(() => {
+      transactionData = '0xa9059cbb0000000000000000000000001234567890123456789012345678901234567890'
+    })
+
+    it('should return false', () => {
+      expect(isEphemeralMessage(transactionData)).toBe(false)
     })
   })
 })

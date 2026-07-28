@@ -25,7 +25,6 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
   const onboardingApiKey = await config.requireString('ONBOARDING_API_KEY')
   const adminEnabled = (await config.getString('ONBOARDING_ADMIN_ENABLED')) === 'true'
   const requestExpirationInSeconds = await config.requireNumber('REQUEST_EXPIRATION_IN_SECONDS')
-  const dclPersonalSignExpirationInSeconds = await config.requireNumber('DCL_PERSONAL_SIGN_REQUEST_EXPIRATION_IN_SECONDS')
 
   // Exact-match allowlist of browser Origins permitted to call the account
   // deletion endpoint (defense-in-depth on top of CORS). Empty disables the check.
@@ -70,7 +69,7 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
   router.get('/health/live', liveHandler)
 
   // Request lifecycle endpoints
-  router.post('/requests', createRequestHandler({ requestExpirationInSeconds, dclPersonalSignExpirationInSeconds }))
+  router.post('/requests', createRequestHandler({ requestExpirationInSeconds }))
   router.get('/v2/requests/:requestId', getRequestHandler)
   router.post('/v2/requests/:requestId/validation', notifyRequestValidationHandler)
   router.get('/v2/requests/:requestId/validation', getRequestValidationStatusHandler)

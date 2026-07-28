@@ -2,7 +2,7 @@
 
 [![Coverage Status](https://coveralls.io/repos/github/decentraland/auth-server/badge.svg?branch=main)](https://coveralls.io/github/decentraland/auth-server?branch=main)
 
-This server facilitates communication between the Decentraland client and the auth dapp on the browser. It allows the client to execute wallet methods (`eth_sendTransaction`, `personal_sign`, etc.) using the wallet the user has on their browser by leveraging the auth dapp.
+This server facilitates communication between the Decentraland client and the auth dapp on the browser. It allows the client to execute wallet methods (`eth_sendTransaction`, `personal_sign`, etc.) using the wallet the user has on their browser by leveraging the auth dapp. The `dcl_personal_sign` method, and signing a Decentraland ephemeral message under any other method, are rejected — see [Requests](docs/requests.md#what-cannot-be-requested).
 
 ## Table of Contents
 
@@ -167,6 +167,7 @@ curl -X POST http://localhost:8080/admin/onboarding/send-test-email \
 ```
 
 Parameters:
+
 - `to` (string) — recipient email address
 - `checkpointId` (1–7) — which checkpoint's content to use
 - `sequence` (1, 2, 3) — which SendGrid template to use

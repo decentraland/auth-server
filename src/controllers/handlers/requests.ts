@@ -3,16 +3,15 @@ import { v4 as uuid } from 'uuid'
 import { validateAuthChain } from '../../logic/auth-chain'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { loadActiveRequest, logInboundRequestStateError, RequestStateError, requestStateErrorToHttpResponse } from '../../logic/requests'
-import { METHOD_DCL_PERSONAL_SIGN } from '../../ports/server/constants'
 import {
   HttpOutcomeMessage,
   InvalidResponseMessage,
   MessageType,
   OutcomeResponseMessage,
   RecoverResponseMessage,
-  RequestMessage,
   RequestResponseMessage,
-  RequestValidationStatusMessage
+  RequestValidationStatusMessage,
+  ValidatedRequestMessage
 } from '../../ports/server/types'
 import { validateHttpOutcomeMessage, validateRequestMessage } from '../../ports/server/validations'
 import { StorageRequest } from '../../ports/storage/types'
@@ -23,18 +22,17 @@ export type RequestsHandlerComponents = 'storage' | 'logs' | 'socketServer'
 
 export type RequestExpirationOptions = {
   requestExpirationInSeconds: number
-  dclPersonalSignExpirationInSeconds: number
 }
 
 // POST /requests — register a new request
-export function createRequestHandler({ requestExpirationInSeconds, dclPersonalSignExpirationInSeconds }: RequestExpirationOptions) {
+export function createRequestHandler({ requestExpirationInSeconds }: RequestExpirationOptions) {
   return async function requestHandler(context: HandlerContextWithPath<RequestsHandlerComponents, '/requests'>) {
     const {
       components: { storage }
     } = context
 
     const data = await parseJsonBody(context.request)
-    let msg: RequestMessage
+    let msg: ValidatedRequestMessage
 
     try {
       msg = validateRequestMessage(data)
@@ -45,24 +43,19 @@ export function createRequestHandler({ requestExpirationInSeconds, dclPersonalSi
       }
     }
 
-    let sender: string | undefined
+    let sender: string
 
-    if (msg.method !== METHOD_DCL_PERSONAL_SIGN) {
-      try {
-        const { sender: validatedSender } = await validateAuthChain(msg.authChain || [])
-        sender = validatedSender
-      } catch (e) {
-        return {
-          status: 400,
-          body: { error: isErrorWithMessage(e) ? e.message : 'Unknown error' } satisfies InvalidResponseMessage
-        }
+    try {
+      sender = (await validateAuthChain(msg.authChain)).sender
+    } catch (e) {
+      return {
+        status: 400,
+        body: { error: isErrorWithMessage(e) ? e.message : 'Unknown error' } satisfies InvalidResponseMessage
       }
     }
 
     const requestId = uuid()
-    const expiration = new Date(
-      Date.now() + (msg.method !== METHOD_DCL_PERSONAL_SIGN ? requestExpirationInSeconds : dclPersonalSignExpirationInSeconds) * 1000
-    )
+    const expiration = new Date(Date.now() + requestExpirationInSeconds * 1000)
     // Cryptographically secure so the pairing code the user visually confirms can't be predicted.
     const code = randomInt(0, 100)
 
@@ -72,7 +65,7 @@ export function createRequestHandler({ requestExpirationInSeconds, dclPersonalSi
       code,
       method: msg.method,
       params: msg.params,
-      sender: sender?.toLowerCase(),
+      sender: sender.toLowerCase(),
       requiresValidation: false
     })
 

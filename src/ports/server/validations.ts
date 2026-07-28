@@ -2,8 +2,9 @@ import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
 import { InvalidRequestError } from '@dcl/http-commons'
 import { AuthChain } from '@dcl/schemas'
+import { isEphemeralMessage } from '../../logic/auth-chain'
 import { SimulationRequestBody } from '../../logic/simulation/types'
-import { MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from './constants'
+import { DISALLOWED_METHODS, MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from './constants'
 import {
   HttpOutcomeMessage,
   OutcomeMessage,
@@ -12,7 +13,8 @@ import {
   RequestValidationMessage,
   IdentityRequest,
   CheckpointRequest,
-  AccountDeletionMetadata
+  AccountDeletionMetadata,
+  ValidatedRequestMessage
 } from './types'
 
 const ajv = new Ajv({ allowUnionTypes: true })
@@ -31,6 +33,10 @@ const requestMessageSchema = {
     },
     authChain: AuthChain.schema
   },
+  // `authChain` is required on every request, but deliberately not listed here: presence is checked
+  // right after this schema runs so a client gets `Auth chain is required` instead of an Ajv error
+  // blob. `validateRequestMessage` is what guarantees the field, and it narrows its return type to
+  // `ValidatedRequestMessage` to say so.
   required: ['method', 'params'],
   additionalProperties: false
 }
@@ -231,12 +237,38 @@ const checkpointRequestValidator = ajv.compile(checkpointRequestSchema)
 const accountDeletionMetadataValidator = ajv.compile(accountDeletionMetadataSchema)
 const simulationRequestValidator = ajv.compile(simulationRequestSchema)
 
-export function validateRequestMessage(msg: unknown) {
+/** Whether `method` is one this service refuses to create requests for. See `DISALLOWED_METHODS`. */
+export function isDisallowedMethod(method: string): boolean {
+  return DISALLOWED_METHODS.has(method.trim().toLowerCase())
+}
+
+export function validateRequestMessage(msg: unknown): ValidatedRequestMessage {
   if (!requestMessageValidator(msg)) {
     throw new Error(JSON.stringify(requestMessageValidator.errors))
   }
 
-  return msg as RequestMessage
+  const requestMessage = msg as RequestMessage
+
+  // Every check below lives here rather than in either handler so the socket and HTTP entry points,
+  // which share this validator, cannot drift apart on what they accept.
+  if (isDisallowedMethod(requestMessage.method)) {
+    // Normalised so the message is identical whatever casing the caller used.
+    throw new Error(`The ${requestMessage.method.trim().toLowerCase()} method is not allowed`)
+  }
+
+  // Refuse any method used to sign a Decentraland ephemeral message, which would reproduce the
+  // removed dcl_personal_sign flow under a different name.
+  if (requestMessage.params.some(param => typeof param === 'string' && isEphemeralMessage(param))) {
+    throw new Error('Signing a Decentraland ephemeral message is not allowed')
+  }
+
+  // Checked last so a caller on a retired flow is told which method to stop using, rather than being
+  // sent to fix an auth chain on a request that would be refused regardless.
+  if (!requestMessage.authChain) {
+    throw new Error('Auth chain is required')
+  }
+
+  return requestMessage as ValidatedRequestMessage
 }
 
 export function validateRecoverMessage(msg: unknown) {

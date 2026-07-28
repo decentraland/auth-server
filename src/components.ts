@@ -29,7 +29,6 @@ import { AppComponents, GlobalContext } from './types'
 export async function initComponents(): Promise<AppComponents> {
   const config = await createDotEnvConfigComponent({ path: ['.env.default', '.env'] })
   const requestExpirationInSeconds = await config.requireNumber('REQUEST_EXPIRATION_IN_SECONDS')
-  const dclPersonalSignExpirationInSeconds = await config.requireNumber('DCL_PERSONAL_SIGN_REQUEST_EXPIRATION_IN_SECONDS')
   const didTokenMaxAgeSeconds = await config.requireNumber('MAGIC_DID_TOKEN_MAX_AGE_SECONDS')
   const tracer = await createTracerComponent()
   const logs = await createLogComponent({ tracer })
@@ -86,7 +85,6 @@ export async function initComponents(): Promise<AppComponents> {
     { logs, storage, tracer, server },
     {
       requestExpirationInSeconds,
-      dclPersonalSignExpirationInSeconds,
       cors: { origin: cors.origin, methods: await config.requireString('CORS_METHODS') }
     }
   )
