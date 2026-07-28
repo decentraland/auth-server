@@ -4,7 +4,8 @@
 
 **Key Capabilities:**
 
-- Creates and manages request objects that encapsulate wallet method calls (eth_sendTransaction, personal_sign, dcl_personal_sign)
+- Creates and manages request objects that encapsulate wallet method calls (eth_sendTransaction, personal_sign)
+- Rejects the dcl_personal_sign method, and any request whose params carry a Decentraland ephemeral message, so the removed sign-in flow cannot be reproduced under another method name
 - Generates unique request IDs with expiration timestamps and visual verification codes
 - Relays wallet method execution results from browser dApp back to desktop client
 - Manages request lifecycle: creation, expiration, consumption, and cleanup on socket disconnect

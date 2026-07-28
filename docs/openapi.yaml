@@ -6,7 +6,7 @@ info:
     API for Auth server with HTTP endpoints and Socket.IO WebSocket protocol.
 
     This server facilitates communication between the Decentraland clients and the auth dapp on the browser.
-    It allows the desktop client to execute wallet methods (eth_sendTransaction, personal_sign, etc.) using the wallet 
+    It allows the desktop client to execute wallet methods (eth_sendTransaction, personal_sign, etc.) using the wallet
     the user has on their browser.
 
     ### Request Lifecycle
@@ -26,9 +26,18 @@ info:
 
     ### Authentication
 
-    - For methods other than `dcl_personal_sign`, an `authChain` is required and will be validated.
-    - For `dcl_personal_sign`, no `authChain` is required initially.
+    - An `authChain` is required on every request and will be validated.
     - Signature validation is performed using `@dcl/crypto` Authenticator.
+
+    ### What cannot be requested
+
+    - The `dcl_personal_sign` method, in any casing.
+    - Signing a Decentraland ephemeral message under any other method: a request is refused when any
+      of its string params parses as one (`Ephemeral address:` / `Expiration:` lines), plain text or
+      hex-encoded. That payload is what mints an auth identity, so blocking only the method name
+      would leave the removed sign-in flow reproducible via `personal_sign` or `eth_sign`.
+    - Ordinary signing is unaffected: `personal_sign`, `eth_sign` and `eth_signTypedData*` are
+      accepted for messages that are not ephemeral messages.
   version: 1.0.0
   contact:
     name: Decentraland
@@ -143,9 +152,10 @@ paths:
         Creates a new authentication request that can be executed by the auth dapp.
 
         **Important:**
-        - For methods other than `dcl_personal_sign`, the `authChain` field is **required** and will be validated.
-        - For `dcl_personal_sign`, the `authChain` field is **optional**.
+        - The `authChain` field is **required** and will be validated.
         - Signature validation is performed using `@dcl/crypto` Authenticator.
+        - The `dcl_personal_sign` method is rejected, as is signing a Decentraland ephemeral message
+          under any other method. Ordinary `personal_sign` / `eth_sign` requests are accepted.
         - The request will expire after the configured expiration time (default: 5 minutes).
       operationId: createRequest
       security: []
@@ -170,12 +180,6 @@ paths:
                     - type: ECDSA_EPHEMERAL
                       payload: '...'
                       signature: '...'
-              dclPersonalSign:
-                summary: DCL personal sign request (no authChain required)
-                value:
-                  method: dcl_personal_sign
-                  params:
-                    - "DCL Signed Message:\nEphemeral address: 0x...\nExpiration: ..."
       responses:
         '201':
           description: Request created successfully
@@ -195,9 +199,17 @@ paths:
                 $ref: '#/components/schemas/InvalidResponseMessage'
               examples:
                 missingAuthChain:
-                  summary: Missing auth chain for non-dcl_personal_sign method
+                  summary: Missing auth chain
                   value:
                     error: 'Auth chain is required'
+                disallowedMethod:
+                  summary: dcl_personal_sign requested
+                  value:
+                    error: 'The dcl_personal_sign method is not allowed'
+                ephemeralMessagePayload:
+                  summary: Ephemeral message passed to a signing method
+                  value:
+                    error: 'Signing a Decentraland ephemeral message is not allowed'
                 invalidSignature:
                   summary: Signature validation failed
                   value:
@@ -661,7 +673,7 @@ components:
       properties:
         method:
           type: string
-          description: Wallet method to execute (e.g., 'eth_sendTransaction', 'personal_sign', 'dcl_personal_sign')
+          description: Wallet method to execute (e.g., 'eth_sendTransaction', 'personal_sign')
           example: 'personal_sign'
         params:
           type: array
@@ -671,12 +683,12 @@ components:
         authChain:
           $ref: '#/components/schemas/AuthChain'
           description: |
-            Optional authentication chain. 
-            **Required** for methods other than `dcl_personal_sign`.
-            **Optional** for `dcl_personal_sign` method.
+            Authentication chain of the wallet owner. **Required** — the signature is
+            validated and the owner address is stored as the request `sender`.
       required:
         - method
         - params
+        - authChain
       additionalProperties: false
     AuthChain:
       type: array
@@ -951,7 +963,8 @@ x-websocket:
         description: |
           Validates request structure and auth chain:
           - Validates JSON schema using Ajv
-          - For methods other than `dcl_personal_sign`, validates that authChain is present
+          - Rejects the dcl_personal_sign method and params carrying a Decentraland ephemeral message
+          - Validates that authChain is present
           - Validates authChain signature using @dcl/crypto Authenticator
           - Checks that ephemeral address can be extracted from authChain
     recover:
@@ -1054,7 +1067,7 @@ x-websocket:
     type: ethereum-signature
     description: |
       Ethereum signature validation via @dcl/crypto Authenticator.
-      - For non-dcl_personal_sign methods, authChain is validated on request creation
+      - authChain is validated on request creation
       - Signature validation ensures the request is authorized by the wallet owner
   cors:
     description: |

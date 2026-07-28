@@ -1,4 +1,6 @@
+import { Authenticator } from '@dcl/crypto'
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
+import { isEphemeralMessage } from '../../src/logic/auth-chain'
 import { MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from '../../src/ports/server/constants'
 import {
   RequestMessage,
@@ -15,7 +17,8 @@ import {
   validateRequestValidationMessage,
   validateIdentityId,
   validateHttpOutcomeMessage,
-  validateIdentityRequest
+  validateIdentityRequest,
+  isDisallowedMethod
 } from '../../src/ports/server/validations'
 import { generateRandomIdentityId, createTestIdentity } from '../utils/test-identity'
 
@@ -92,6 +95,212 @@ describe('when validating request messages', () => {
 
     it('should return a message with the max number of params', () => {
       expect(validateRequestMessage(messageWithMaxParams).params).toHaveLength(MAX_PARAMS_ITEMS)
+    })
+  })
+
+  describe('and the method is dcl_personal_sign', () => {
+    let messageWithDclPersonalSign: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      messageWithDclPersonalSign = { method: 'dcl_personal_sign', params: [] }
+    })
+
+    it('should throw an error indicating that the dcl_personal_sign method is not allowed', () => {
+      expect(() => validateRequestMessage(messageWithDclPersonalSign)).toThrow('The dcl_personal_sign method is not allowed')
+    })
+  })
+
+  describe('and the method is dcl_personal_sign written in a different casing', () => {
+    let messageWithMixedCaseMethod: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      messageWithMixedCaseMethod = { method: 'DCL_Personal_Sign', params: [] }
+    })
+
+    it('should throw an error indicating that the dcl_personal_sign method is not allowed', () => {
+      expect(() => validateRequestMessage(messageWithMixedCaseMethod)).toThrow('The dcl_personal_sign method is not allowed')
+    })
+  })
+
+  describe('and the method is personal_sign for an ordinary message', () => {
+    let messageWithPersonalSign: RequestMessage
+
+    beforeEach(() => {
+      messageWithPersonalSign = {
+        method: 'personal_sign',
+        params: ['Please sign to confirm your order', '0x1234567890123456789012345678901234567890']
+      }
+    })
+
+    it('should return the validated message', () => {
+      expect(validateRequestMessage(messageWithPersonalSign)).toEqual(messageWithPersonalSign)
+    })
+  })
+
+  describe('and the method is personal_sign for a Decentraland ephemeral message', () => {
+    let messageWithEphemeralPayload: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      messageWithEphemeralPayload = {
+        method: 'personal_sign',
+        params: [Authenticator.getEphemeralMessage('0x1234567890123456789012345678901234567890', new Date('2100-01-01T00:00:00.000Z'))]
+      }
+    })
+
+    it('should throw an error indicating that signing an ephemeral message is not allowed', () => {
+      expect(() => validateRequestMessage(messageWithEphemeralPayload)).toThrow('Signing a Decentraland ephemeral message is not allowed')
+    })
+  })
+
+  describe('and the method is personal_sign for a hex encoded Decentraland ephemeral message', () => {
+    let messageWithHexEphemeralPayload: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      const ephemeralMessage = Authenticator.getEphemeralMessage(
+        '0x1234567890123456789012345678901234567890',
+        new Date('2100-01-01T00:00:00.000Z')
+      )
+      messageWithHexEphemeralPayload = {
+        method: 'personal_sign',
+        params: [`0x${Buffer.from(ephemeralMessage, 'utf8').toString('hex')}`]
+      }
+    })
+
+    it('should throw an error indicating that signing an ephemeral message is not allowed', () => {
+      expect(() => validateRequestMessage(messageWithHexEphemeralPayload)).toThrow(
+        'Signing a Decentraland ephemeral message is not allowed'
+      )
+    })
+  })
+
+  describe('and the method is eth_sign for a Decentraland ephemeral message', () => {
+    let messageWithEphemeralPayload: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      messageWithEphemeralPayload = {
+        method: 'eth_sign',
+        params: [
+          '0x1234567890123456789012345678901234567890',
+          Authenticator.getEphemeralMessage('0x1234567890123456789012345678901234567890', new Date('2100-01-01T00:00:00.000Z'))
+        ]
+      }
+    })
+
+    it('should throw an error indicating that signing an ephemeral message is not allowed', () => {
+      expect(() => validateRequestMessage(messageWithEphemeralPayload)).toThrow('Signing a Decentraland ephemeral message is not allowed')
+    })
+  })
+
+  describe('and the method is personal_sign for an ephemeral message with a disguised first line', () => {
+    let messageWithDisguisedEphemeralPayload: { method: string; params: unknown[] }
+
+    beforeEach(() => {
+      messageWithDisguisedEphemeralPayload = {
+        method: 'personal_sign',
+        params: [
+          'Totally harmless greeting\nEphemeral address: 0x1234567890123456789012345678901234567890\nExpiration: 2100-01-01T00:00:00.000Z'
+        ]
+      }
+    })
+
+    it('should throw an error indicating that signing an ephemeral message is not allowed', () => {
+      expect(() => validateRequestMessage(messageWithDisguisedEphemeralPayload)).toThrow(
+        'Signing a Decentraland ephemeral message is not allowed'
+      )
+    })
+  })
+
+  describe('and the method is a non signing wallet method', () => {
+    let messageWithNonSigningMethod: RequestMessage
+
+    beforeEach(() => {
+      messageWithNonSigningMethod = { method: 'wallet_switchEthereumChain', params: [{ chainId: '0x1' }] }
+    })
+
+    it('should return the validated message', () => {
+      expect(validateRequestMessage(messageWithNonSigningMethod)).toEqual(messageWithNonSigningMethod)
+    })
+  })
+})
+
+describe('when checking whether a method is disallowed', () => {
+  describe('and the method is dcl_personal_sign', () => {
+    let disallowedMethod: string
+
+    beforeEach(() => {
+      disallowedMethod = 'dcl_personal_sign'
+    })
+
+    it('should return true', () => {
+      expect(isDisallowedMethod(disallowedMethod)).toBe(true)
+    })
+  })
+
+  describe('and the method is personal_sign', () => {
+    let allowedMethod: string
+
+    beforeEach(() => {
+      allowedMethod = 'personal_sign'
+    })
+
+    it('should return false', () => {
+      expect(isDisallowedMethod(allowedMethod)).toBe(false)
+    })
+  })
+})
+
+describe('when checking whether a value is a Decentraland ephemeral message', () => {
+  describe('and the value is an ephemeral message', () => {
+    let ephemeralMessage: string
+
+    beforeEach(() => {
+      ephemeralMessage = Authenticator.getEphemeralMessage(
+        '0x1234567890123456789012345678901234567890',
+        new Date('2100-01-01T00:00:00.000Z')
+      )
+    })
+
+    it('should return true', () => {
+      expect(isEphemeralMessage(ephemeralMessage)).toBe(true)
+    })
+  })
+
+  describe('and the value is an expired ephemeral message', () => {
+    let expiredEphemeralMessage: string
+
+    beforeEach(() => {
+      expiredEphemeralMessage = Authenticator.getEphemeralMessage(
+        '0x1234567890123456789012345678901234567890',
+        new Date('2020-01-01T00:00:00.000Z')
+      )
+    })
+
+    it('should return true', () => {
+      expect(isEphemeralMessage(expiredEphemeralMessage)).toBe(true)
+    })
+  })
+
+  describe('and the value is an ordinary message', () => {
+    let ordinaryMessage: string
+
+    beforeEach(() => {
+      ordinaryMessage = 'Please sign to confirm your order'
+    })
+
+    it('should return false', () => {
+      expect(isEphemeralMessage(ordinaryMessage)).toBe(false)
+    })
+  })
+
+  describe('and the value is hex encoded transaction data', () => {
+    let transactionData: string
+
+    beforeEach(() => {
+      transactionData = '0xa9059cbb0000000000000000000000001234567890123456789012345678901234567890'
+    })
+
+    it('should return false', () => {
+      expect(isEphemeralMessage(transactionData)).toBe(false)
     })
   })
 })

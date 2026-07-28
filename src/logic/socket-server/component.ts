@@ -11,7 +11,6 @@ import { ISocketServerComponent, SocketHandlerContext } from './types'
 
 export type SocketServerOptions = {
   requestExpirationInSeconds: number
-  dclPersonalSignExpirationInSeconds: number
   cors: {
     origin: RegExp[]
     methods: string
@@ -20,7 +19,7 @@ export type SocketServerOptions = {
 
 export async function createSocketServerComponent(
   { logs, storage, tracer, server }: Pick<AppComponents, 'logs' | 'storage' | 'tracer' | 'server'>,
-  { requestExpirationInSeconds, dclPersonalSignExpirationInSeconds, cors }: SocketServerOptions
+  { requestExpirationInSeconds, cors }: SocketServerOptions
 ): Promise<ISocketServerComponent> {
   const logger = logs.getLogger('websocket-server')
 
@@ -40,7 +39,7 @@ export async function createSocketServerComponent(
   const isSocketConnected: ISocketServerComponent['isSocketConnected'] = socketId => !!sockets[socketId]
 
   // Socket message handlers bound to their events + tracing spans — the socket analog of the HTTP router.
-  const routes = getSocketRoutes({ requestExpirationInSeconds, dclPersonalSignExpirationInSeconds })
+  const routes = getSocketRoutes({ requestExpirationInSeconds })
 
   const onConnection = (socket: Socket) =>
     tracer.span('websocket-connection', () => {

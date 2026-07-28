@@ -1,8 +1,7 @@
 import { Socket } from 'socket.io-client'
-import { AuthIdentity } from '@dcl/crypto'
+import { Authenticator, AuthIdentity } from '@dcl/crypto'
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
 import { TestArguments } from '@dcl/test-helpers'
-import { METHOD_DCL_PERSONAL_SIGN } from '../../src/ports/server/constants'
 import { MessageType, OutcomeResponseMessage, RequestResponseMessage, RequestValidationMessage } from '../../src/ports/server/types'
 import { BaseComponents } from '../../src/types'
 import { test, testWithOverrides } from '../components'
@@ -46,6 +45,29 @@ function usePollingClients(args: TestArguments<BaseComponents>, { withWebSocket 
   }
 }
 
+/**
+ * Creates a fresh auth identity for the enclosing `test()`/`describe` context. Every request
+ * requires a valid auth chain, so each test that registers one needs an identity. Registers its
+ * own `beforeEach` so the identity is scoped to the current test.
+ */
+function useTestIdentity() {
+  let identity: AuthIdentity
+
+  beforeEach(async () => {
+    identity = await createTestIdentity()
+  })
+
+  return {
+    get authChain(): AuthIdentity['authChain'] {
+      return identity.authChain
+    },
+    /** The owner address the server derives from the auth chain and stores as the request sender. */
+    get owner(): string {
+      return identity.authChain[0].payload.toLowerCase()
+    }
+  }
+}
+
 test('when sending a request message with an invalid schema', args => {
   const clients = usePollingClients(args)
 
@@ -59,7 +81,7 @@ test('when sending a request message with an invalid schema', args => {
   })
 })
 
-test(`when sending a request message for a method that is not ${METHOD_DCL_PERSONAL_SIGN}`, args => {
+test('when sending a request message', args => {
   const clients = usePollingClients(args)
 
   describe('and an auth chain is not provided', () => {
@@ -75,18 +97,84 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
     })
   })
 
-  describe('and an auth chain is provided', () => {
-    let testIdentity: AuthIdentity
+  describe('and the method is dcl_personal_sign', () => {
+    const identity = useTestIdentity()
 
-    beforeEach(async () => {
-      testIdentity = await createTestIdentity()
+    it('should respond with an invalid response message indicating that the method is not allowed', async () => {
+      const response = await clients.http.request({
+        method: 'dcl_personal_sign',
+        params: [],
+        authChain: identity.authChain
+      })
+
+      expect(response).toEqual({
+        error: 'The dcl_personal_sign method is not allowed'
+      })
     })
+  })
+
+  describe('and the method signs a Decentraland ephemeral message', () => {
+    const identity = useTestIdentity()
+    let ephemeralMessage: string
+
+    beforeEach(() => {
+      ephemeralMessage = Authenticator.getEphemeralMessage(
+        '0x1234567890123456789012345678901234567890',
+        new Date(Date.now() + 24 * 60 * 60 * 1000)
+      )
+    })
+
+    it('should respond with an invalid response message indicating that signing an ephemeral message is not allowed', async () => {
+      const response = await clients.http.request({
+        method: 'personal_sign',
+        params: [ephemeralMessage],
+        authChain: identity.authChain
+      })
+
+      expect(response).toEqual({
+        error: 'Signing a Decentraland ephemeral message is not allowed'
+      })
+    })
+
+    it('should respond with an invalid response message when the ephemeral message is hex encoded', async () => {
+      const response = await clients.http.request({
+        method: 'personal_sign',
+        params: [`0x${Buffer.from(ephemeralMessage, 'utf8').toString('hex')}`],
+        authChain: identity.authChain
+      })
+
+      expect(response).toEqual({
+        error: 'Signing a Decentraland ephemeral message is not allowed'
+      })
+    })
+  })
+
+  describe('and the method signs an ordinary message', () => {
+    const identity = useTestIdentity()
+
+    it('should respond with the data of the request', async () => {
+      const response = await clients.http.request({
+        method: 'personal_sign',
+        params: ['Please sign to confirm your order', '0x1234567890123456789012345678901234567890'],
+        authChain: identity.authChain
+      })
+
+      expect(response).toEqual({
+        requestId: expect.any(String),
+        expiration: expect.any(String),
+        code: expect.any(Number)
+      })
+    })
+  })
+
+  describe('and an auth chain is provided', () => {
+    const identity = useTestIdentity()
 
     it('should respond with the data of the request', async () => {
       const requestResponse = await clients.http.request({
         method: 'method',
         params: [],
-        authChain: testIdentity.authChain
+        authChain: identity.authChain
       })
 
       expect(requestResponse).toEqual({
@@ -100,21 +188,21 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       const requestResponse = (await clients.http.request({
         method: 'method',
         params: [],
-        authChain: testIdentity.authChain
+        authChain: identity.authChain
       })) as RequestResponseMessage
 
       const recoverResponse = await clients.http.recover(requestResponse.requestId)
 
-      expect(recoverResponse.sender).toEqual(testIdentity.authChain[0].payload.toLowerCase())
+      expect(recoverResponse.sender).toEqual(identity.owner)
     })
 
     describe('and the payload on the signer link does not match the address of the ephemeral message signer', () => {
       let otherAccount: ReturnType<typeof createUnsafeIdentity>
-      let modifiedAuthChain: typeof testIdentity.authChain
+      let modifiedAuthChain: AuthIdentity['authChain']
 
       beforeEach(() => {
         otherAccount = createUnsafeIdentity()
-        modifiedAuthChain = [...testIdentity.authChain]
+        modifiedAuthChain = [...identity.authChain]
         modifiedAuthChain[0] = {
           ...modifiedAuthChain[0],
           payload: otherAccount.address
@@ -129,16 +217,18 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
         })) as { error: string }
 
         expect(requestResponse.error).toEqual(
-          `ERROR. Link type: ECDSA_EPHEMERAL. Invalid signer address. Expected: ${otherAccount.address.toLowerCase()}. Actual: ${testIdentity.authChain[0].payload.toLowerCase()}.`
+          `ERROR. Link type: ECDSA_EPHEMERAL. Invalid signer address. Expected: ${otherAccount.address.toLowerCase()}. Actual: ${
+            identity.owner
+          }.`
         )
       })
     })
 
     describe('and the auth chain does not have a parsable payload in the second link', () => {
-      let modifiedAuthChain: typeof testIdentity.authChain
+      let modifiedAuthChain: AuthIdentity['authChain']
 
       beforeEach(() => {
-        modifiedAuthChain = [...testIdentity.authChain]
+        modifiedAuthChain = [...identity.authChain]
         modifiedAuthChain[1] = {
           ...modifiedAuthChain[1],
           payload: 'unparsable'
@@ -158,13 +248,15 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
   })
 })
 
-testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending a recover message but the request has expired', args => {
+testWithOverrides({ requestExpirationInSeconds: -1 })('when sending a recover message but the request has expired', args => {
   const clients = usePollingClients(args)
+  const identity = useTestIdentity()
 
   it('should respond with an invalid response message', async () => {
     const requestResponse = (await clients.http.request({
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })) as RequestResponseMessage
 
     const recoverResponse = await clients.http.recover(requestResponse.requestId)
@@ -177,11 +269,13 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending a re
 
 test('when sending a recover message', args => {
   const clients = usePollingClients(args)
+  const identity = useTestIdentity()
 
   it('should respond with the recover data of the request', async () => {
     const requestResponse = (await clients.http.request({
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })) as RequestResponseMessage
 
     const recoverResponse = await clients.http.recover(requestResponse.requestId)
@@ -189,19 +283,22 @@ test('when sending a recover message', args => {
     expect(recoverResponse).toEqual({
       expiration: requestResponse.expiration,
       code: requestResponse.code,
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      sender: identity.owner
     })
   })
 })
 
 test('when sending an outcome message with an invalid schema', args => {
   const clients = usePollingClients(args)
+  const identity = useTestIdentity()
 
   it('should respond with an invalid response message', async () => {
     const requestResponse = (await clients.http.request({
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })) as RequestResponseMessage
 
     const response = await clients.http.sendSuccessfulOutcome(requestResponse.requestId, 'sender', undefined)
@@ -232,8 +329,9 @@ test('when sending an outcome message but the request does not exist', args => {
   })
 })
 
-testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending an outcome message but the request has expired', args => {
+testWithOverrides({ requestExpirationInSeconds: -1 })('when sending an outcome message but the request has expired', args => {
   const clients = usePollingClients(args)
+  const identity = useTestIdentity()
   let sender: string
 
   beforeEach(() => {
@@ -242,8 +340,9 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending an o
 
   it('should respond with an invalid response message', async () => {
     const requestResponse = (await clients.http.request({
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })) as RequestResponseMessage
 
     const outcomeResponse = await clients.http.sendSuccessfulOutcome(requestResponse.requestId, sender, 'result')
@@ -256,6 +355,7 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending an o
 
 test('when sending a valid outcome message with the HTTP endpoints', args => {
   const clients = usePollingClients(args, { withWebSocket: true })
+  const identity = useTestIdentity()
   let sender: string
 
   beforeEach(() => {
@@ -264,8 +364,9 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
 
   it('should respond with the outcome response message', async () => {
     const requestResponse = (await clients.http.request({
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })) as RequestResponseMessage
 
     await clients.http.sendSuccessfulOutcome(requestResponse.requestId, sender, 'result')
@@ -281,8 +382,9 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
 
   it('should relay the HTTP-submitted outcome to the connected websocket client', async () => {
     const requestResponse = (await clients.ws.emitWithAck('request', {
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })) as RequestResponseMessage
 
     const promiseOfAnOutcome = new Promise<OutcomeResponseMessage>((resolve, _) => {
@@ -302,8 +404,9 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
 
   it('should respond with the outcome response message with an error', async () => {
     const requestResponse = (await clients.http.request({
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })) as RequestResponseMessage
 
     await clients.http.sendFailedOutcome(requestResponse.requestId, sender, {
@@ -325,8 +428,9 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
 
   it('should respond with an invalid response message if calling the output twice', async () => {
     const requestResponse = (await clients.http.request({
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })) as RequestResponseMessage
 
     await clients.http.sendSuccessfulOutcome(requestResponse.requestId, sender, 'result')
@@ -339,25 +443,24 @@ test('when sending a valid outcome message with the HTTP endpoints', args => {
   })
 })
 
-testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })(
-  'when posting that a request needs validation but the request has expired',
-  args => {
-    const clients = usePollingClients(args)
+testWithOverrides({ requestExpirationInSeconds: -1 })('when posting that a request needs validation but the request has expired', args => {
+  const clients = usePollingClients(args)
+  const identity = useTestIdentity()
 
-    it('should respond with a 410 and an expired response message', async () => {
-      const requestResponse = (await clients.http.request({
-        method: METHOD_DCL_PERSONAL_SIGN,
-        params: []
-      })) as RequestResponseMessage
+  it('should respond with a 410 and an expired response message', async () => {
+    const requestResponse = (await clients.http.request({
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
+    })) as RequestResponseMessage
 
-      const response = await clients.http.notifyRequestValidation(requestResponse.requestId)
+    const response = await clients.http.notifyRequestValidation(requestResponse.requestId)
 
-      expect(response).toEqual({
-        error: `Request with id "${requestResponse.requestId}" has expired`
-      })
+    expect(response).toEqual({
+      error: `Request with id "${requestResponse.requestId}" has expired`
     })
-  }
-)
+  })
+})
 
 test('when posting that a request needs validation but the request does not exist', args => {
   const clients = usePollingClients(args)
@@ -378,14 +481,16 @@ test('when posting that a request needs validation but the request does not exis
 
 test('when posting that a request needs validation and the request is valid', args => {
   const clients = usePollingClients(args, { withWebSocket: true })
+  const identity = useTestIdentity()
 
   describe('and there is a client connected listening for the request validation', () => {
     let requestResponse: RequestResponseMessage
 
     beforeEach(async () => {
       requestResponse = (await clients.ws.emitWithAck('request', {
-        method: METHOD_DCL_PERSONAL_SIGN,
-        params: []
+        method: 'method',
+        params: [],
+        authChain: identity.authChain
       })) as RequestResponseMessage
     })
 
@@ -409,8 +514,9 @@ test('when posting that a request needs validation and the request is valid', ar
 
     beforeEach(async () => {
       requestResponse = (await clients.http.request({
-        method: METHOD_DCL_PERSONAL_SIGN,
-        params: []
+        method: 'method',
+        params: [],
+        authChain: identity.authChain
       })) as RequestResponseMessage
     })
 
@@ -422,12 +528,14 @@ test('when posting that a request needs validation and the request is valid', ar
 
 test('when getting the request validation status of a request that should not be validated', args => {
   const clients = usePollingClients(args)
+  const identity = useTestIdentity()
   let requestResponse: RequestResponseMessage
 
   beforeEach(async () => {
     requestResponse = (await clients.http.request({
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })) as RequestResponseMessage
   })
 
@@ -442,12 +550,14 @@ test('when getting the request validation status of a request that should not be
 
 test('when getting the request validation status of a request that should be validated', args => {
   const clients = usePollingClients(args)
+  const identity = useTestIdentity()
   let requestResponse: RequestResponseMessage
 
   beforeEach(async () => {
     requestResponse = (await clients.http.request({
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })) as RequestResponseMessage
 
     await clients.http.notifyRequestValidation(requestResponse.requestId)

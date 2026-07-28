@@ -33,7 +33,8 @@ const socket = io('https://auth-api.decentraland.org')
 ```ts
 const { requestId, expiration, code } = await socket.emitWithAck('request', {
   method: 'personal_sign',
-  params: ['message to sign', 'signer address']
+  params: ['message to sign', 'signer address'],
+  authChain: identity.authChain
 })
 ```
 
@@ -75,7 +76,8 @@ const response = await fetch(`${authServerUrl}/requests`, {
   headers: [['Content-type', 'application/json']],
   body: JSON.stringify({
     method: 'personal_sign',
-    params: ['message to sign', 'signer address']
+    params: ['message to sign', 'signer address'],
+    authChain: identity.authChain
   })
 })
 const { requestId, expiration, code } = await response.json()
@@ -100,69 +102,28 @@ const outcome = await getResponse(requestId)
 
 3. Get the `result` and the `sender` from the outcome message and do with them whatever is necessary.
 
-### Authentication Flow
+### Authentication
 
-For the sign in flow in the desktop client, we will need to use a special method called `dcl_personal_sign`.
+Every request requires an `authChain` belonging to the wallet owner. The server validates its
+signature and stores the recovered owner address as the request `sender`, which is returned on the
+recover response. Requests without an `authChain` are rejected with `Auth chain is required`.
 
-This methods works similarly to `personal_sign` but with a little difference.
+### What cannot be requested
 
-For this example we'll be using `ethers v6` and `@dcl/crypto`
+Two things are refused, both when creating a request over the socket and over `POST /requests`:
 
-1. The desktop client will need to generate and store an epheremeral wallet.
+1. **The `dcl_personal_sign` method**, in any casing — rejected with
+   `The dcl_personal_sign method is not allowed`.
+2. **Signing a Decentraland ephemeral message under any other method** — rejected with
+   `Signing a Decentraland ephemeral message is not allowed`.
 
-```ts
-const ephemeralAccount = ethers.Wallet.createRandom()
-```
+The second rule exists because blocking the method name alone would not be enough: the ephemeral
+message is what actually mints an auth identity, so passing it to `personal_sign` or `eth_sign`
+would reproduce the removed sign-in flow exactly. A request is refused when any of its string
+params parses as an ephemeral message — that is, when it carries `Ephemeral address:` and
+`Expiration:` lines — whether sent as plain text or hex-encoded. The greeting on the first line is
+irrelevant, since any greeting yields a usable ephemeral auth link.
 
-2. The desktop client has to set a date in which the identity that will be created, expires.
-
-```ts
-const expiration = new Date(Date.now() + 24 * 60 * 60 * 1000) // 1 day in the future as an example.
-```
-
-3. Generate the ephemeral message to be signed using the address of the ephemeral account and the expiration.
-
-```ts
-const ephemeralMessage = Authenticator.getEphemeralMessage(ephemeralAccount.address, expiration)
-```
-
-4. Follow the steps decribed on the [Usage](#usage) section, initializing the flow with the following message.
-
-```ts
-await socket.emitWithAck('request', {
-  method: 'dcl_personal_sign',
-  params: [ephemeralMessage]
-})
-```
-
-As you can see, there is a simple difference with the previous example. That is that personal_sign requires a second parameter that is the address that will sign the message, but we don't know it yet, so only the ephemeral message is sent. The auth dApp will fill the signing address for us.
-
-If the signer is sent as a param in the request, the auth dapp will use that instead of using the one of the connected wallet, and execute it as a normal personal_sign.
-
-5. Once the flow is complete, and the desktop client receives the outcome message. The `sender` and the `result` that come with it are necessary to create an auth identity, which will be used to authorize the user into the platform.
-
-```ts
-const signer = outcome.sender
-const signature = outcome.result
-
-const identity = {
-  expiration,
-  ephemeralIdentity: {
-    address: ephemeralAccount.address,
-    privateKey: ephemeralAccount.privateKey,
-    publicKey: ephemeralAccount.publicKey
-  },
-  authChain: [
-    {
-      type: AuthLinkType.SIGNER,
-      payload: signer,
-      signature: ''
-    },
-    {
-      type: signature.length === 132 ? AuthLinkType.ECDSA_PERSONAL_EPHEMERAL : AuthLinkType.ECDSA_EIP_1654_EPHEMERAL,
-      payload: ephemeralMessage,
-      signature: signature
-    }
-  ]
-}
-```
+**Ordinary signing still works.** `personal_sign`, `eth_sign` and the `eth_signTypedData*` family
+are all accepted for messages that are not ephemeral messages, alongside non-signing methods such
+as `eth_sendTransaction`, `eth_call` and the `wallet_*` methods.

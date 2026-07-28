@@ -2,8 +2,9 @@ import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
 import { InvalidRequestError } from '@dcl/http-commons'
 import { AuthChain } from '@dcl/schemas'
+import { isEphemeralMessage } from '../../logic/auth-chain'
 import { SimulationRequestBody } from '../../logic/simulation/types'
-import { MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from './constants'
+import { DISALLOWED_METHODS, MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from './constants'
 import {
   HttpOutcomeMessage,
   OutcomeMessage,
@@ -231,12 +232,32 @@ const checkpointRequestValidator = ajv.compile(checkpointRequestSchema)
 const accountDeletionMetadataValidator = ajv.compile(accountDeletionMetadataSchema)
 const simulationRequestValidator = ajv.compile(simulationRequestSchema)
 
+/** Whether `method` is one this service refuses to create requests for. See `DISALLOWED_METHODS`. */
+export function isDisallowedMethod(method: string): boolean {
+  return DISALLOWED_METHODS.has(method.trim().toLowerCase())
+}
+
 export function validateRequestMessage(msg: unknown) {
   if (!requestMessageValidator(msg)) {
     throw new Error(JSON.stringify(requestMessageValidator.errors))
   }
 
-  return msg as RequestMessage
+  const requestMessage = msg as RequestMessage
+
+  // Both checks live here rather than in either handler so the socket and HTTP entry points, which
+  // share this validator, cannot drift apart on what they accept.
+  if (isDisallowedMethod(requestMessage.method)) {
+    // Normalised so the message is identical whatever casing the caller used.
+    throw new Error(`The ${requestMessage.method.trim().toLowerCase()} method is not allowed`)
+  }
+
+  // Refuse any method used to sign a Decentraland ephemeral message, which would reproduce the
+  // removed dcl_personal_sign flow under a different name.
+  if (requestMessage.params.some(param => typeof param === 'string' && isEphemeralMessage(param))) {
+    throw new Error('Signing a Decentraland ephemeral message is not allowed')
+  }
+
+  return requestMessage
 }
 
 export function validateRecoverMessage(msg: unknown) {

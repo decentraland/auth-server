@@ -1,7 +1,7 @@
 import { Socket } from 'socket.io-client'
+import { Authenticator, AuthIdentity } from '@dcl/crypto'
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
 import { TestArguments } from '@dcl/test-helpers'
-import { METHOD_DCL_PERSONAL_SIGN } from '../../src/ports/server/constants'
 import { MessageType, RequestResponseMessage, RequestValidationMessage } from '../../src/ports/server/types'
 import { BaseComponents } from '../../src/types'
 import { test, testWithOverrides } from '../components'
@@ -39,6 +39,29 @@ function connectClients(args: TestArguments<BaseComponents>) {
   }
 }
 
+/**
+ * Creates a fresh auth identity for the enclosing `test()`/`describe` context. Every request
+ * requires a valid auth chain, so each test that registers one needs an identity. Registers its
+ * own `beforeEach` so the identity is scoped to the current test.
+ */
+function useTestIdentity() {
+  let identity: AuthIdentity
+
+  beforeEach(async () => {
+    identity = await createTestIdentity()
+  })
+
+  return {
+    get authChain(): AuthIdentity['authChain'] {
+      return identity.authChain
+    },
+    /** The owner address the server derives from the auth chain and stores as the request sender. */
+    get owner(): string {
+      return identity.authChain[0].payload.toLowerCase()
+    }
+  }
+}
+
 test('when sending a request message with an invalid schema', args => {
   const clients = connectClients(args)
 
@@ -55,23 +78,6 @@ test('when sending a request message with an invalid schema', args => {
 test('when sending a request message', args => {
   const clients = connectClients(args)
 
-  it('should respond with a request response message', async () => {
-    const response = await clients.desktop.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
-    })
-
-    expect(response).toEqual({
-      requestId: expect.any(String),
-      expiration: expect.any(String),
-      code: expect.any(Number)
-    })
-  })
-})
-
-test(`when sending a request message for a method that is not ${METHOD_DCL_PERSONAL_SIGN}`, args => {
-  const clients = connectClients(args)
-
   describe('and an auth chain is not provided', () => {
     it('should respond with an invalid response message indicating that the auth chain is required', async () => {
       const response = await clients.desktop.emitWithAck(MessageType.REQUEST, {
@@ -85,18 +91,84 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
     })
   })
 
-  describe('and an auth chain is provided', () => {
-    let testIdentity: Awaited<ReturnType<typeof createTestIdentity>>
+  describe('and the method is dcl_personal_sign', () => {
+    const identity = useTestIdentity()
 
-    beforeEach(async () => {
-      testIdentity = await createTestIdentity()
+    it('should respond with an invalid response message indicating that the method is not allowed', async () => {
+      const response = await clients.desktop.emitWithAck(MessageType.REQUEST, {
+        method: 'dcl_personal_sign',
+        params: [],
+        authChain: identity.authChain
+      })
+
+      expect(response).toEqual({
+        error: 'The dcl_personal_sign method is not allowed'
+      })
     })
+  })
+
+  describe('and the method signs a Decentraland ephemeral message', () => {
+    const identity = useTestIdentity()
+    let ephemeralMessage: string
+
+    beforeEach(() => {
+      ephemeralMessage = Authenticator.getEphemeralMessage(
+        '0x1234567890123456789012345678901234567890',
+        new Date(Date.now() + 24 * 60 * 60 * 1000)
+      )
+    })
+
+    it('should respond with an invalid response message indicating that signing an ephemeral message is not allowed', async () => {
+      const response = await clients.desktop.emitWithAck(MessageType.REQUEST, {
+        method: 'personal_sign',
+        params: [ephemeralMessage],
+        authChain: identity.authChain
+      })
+
+      expect(response).toEqual({
+        error: 'Signing a Decentraland ephemeral message is not allowed'
+      })
+    })
+
+    it('should respond with an invalid response message when the ephemeral message is hex encoded', async () => {
+      const response = await clients.desktop.emitWithAck(MessageType.REQUEST, {
+        method: 'personal_sign',
+        params: [`0x${Buffer.from(ephemeralMessage, 'utf8').toString('hex')}`],
+        authChain: identity.authChain
+      })
+
+      expect(response).toEqual({
+        error: 'Signing a Decentraland ephemeral message is not allowed'
+      })
+    })
+  })
+
+  describe('and the method signs an ordinary message', () => {
+    const identity = useTestIdentity()
+
+    it('should respond with a request response message', async () => {
+      const response = await clients.desktop.emitWithAck(MessageType.REQUEST, {
+        method: 'personal_sign',
+        params: ['Please sign to confirm your order', '0x1234567890123456789012345678901234567890'],
+        authChain: identity.authChain
+      })
+
+      expect(response).toEqual({
+        requestId: expect.any(String),
+        expiration: expect.any(String),
+        code: expect.any(Number)
+      })
+    })
+  })
+
+  describe('and an auth chain is provided', () => {
+    const identity = useTestIdentity()
 
     it('should respond with a request response message', async () => {
       const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
         method: 'method',
         params: [],
-        authChain: testIdentity.authChain
+        authChain: identity.authChain
       })
 
       expect(requestResponse).toEqual({
@@ -110,23 +182,23 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
       const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
         method: 'method',
         params: [],
-        authChain: testIdentity.authChain
+        authChain: identity.authChain
       })
 
       const recoverResponse = await clients.authDapp.emitWithAck(MessageType.RECOVER, {
         requestId: requestResponse.requestId
       })
 
-      expect(recoverResponse.sender).toEqual(testIdentity.authChain[0].payload.toLowerCase())
+      expect(recoverResponse.sender).toEqual(identity.owner)
     })
 
     describe('and the payload on the signer link does not match the address of the ephemeral message signer', () => {
       let otherAccount: ReturnType<typeof createUnsafeIdentity>
-      let modifiedAuthChain: typeof testIdentity.authChain
+      let modifiedAuthChain: AuthIdentity['authChain']
 
       beforeEach(() => {
         otherAccount = createUnsafeIdentity()
-        modifiedAuthChain = [...testIdentity.authChain]
+        modifiedAuthChain = [...identity.authChain]
         modifiedAuthChain[0] = {
           ...modifiedAuthChain[0],
           payload: otherAccount.address
@@ -141,16 +213,18 @@ test(`when sending a request message for a method that is not ${METHOD_DCL_PERSO
         })
 
         expect(requestResponse.error).toEqual(
-          `ERROR. Link type: ECDSA_EPHEMERAL. Invalid signer address. Expected: ${otherAccount.address.toLowerCase()}. Actual: ${testIdentity.authChain[0].payload.toLowerCase()}.`
+          `ERROR. Link type: ECDSA_EPHEMERAL. Invalid signer address. Expected: ${otherAccount.address.toLowerCase()}. Actual: ${
+            identity.owner
+          }.`
         )
       })
     })
 
     describe('and the auth chain does not have a parsable payload in the second link', () => {
-      let modifiedAuthChain: typeof testIdentity.authChain
+      let modifiedAuthChain: AuthIdentity['authChain']
 
       beforeEach(() => {
-        modifiedAuthChain = [...testIdentity.authChain]
+        modifiedAuthChain = [...identity.authChain]
         modifiedAuthChain[1] = {
           ...modifiedAuthChain[1],
           payload: 'unparsable'
@@ -200,13 +274,15 @@ test('when sending a recover message but the request does not exist', args => {
   })
 })
 
-testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending a recover message but the request has expired', args => {
+testWithOverrides({ requestExpirationInSeconds: -1 })('when sending a recover message but the request has expired', args => {
   const clients = connectClients(args)
+  const identity = useTestIdentity()
 
   it('should respond with an invalid response message', async () => {
     const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })
 
     const recoverResponse = await clients.authDapp.emitWithAck(MessageType.RECOVER, {
@@ -221,16 +297,19 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending a re
 
 test('when sending a recover message for a request that has been overridden by another one', args => {
   const clients = connectClients(args)
+  const identity = useTestIdentity()
 
   it('should respond with an invalid response message', async () => {
     const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })
 
     await clients.desktop.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })
 
     const recoverResponse = await clients.authDapp.emitWithAck(MessageType.RECOVER, {
@@ -244,13 +323,15 @@ test('when sending a recover message for a request that has been overridden by a
 
   it('should respond with a recover response message for the new request', async () => {
     await clients.desktop.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })
 
     const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })
 
     const recoverResponse = await clients.authDapp.emitWithAck(MessageType.RECOVER, {
@@ -260,20 +341,23 @@ test('when sending a recover message for a request that has been overridden by a
     expect(recoverResponse).toEqual({
       expiration: requestResponse.expiration,
       code: requestResponse.code,
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      sender: identity.owner
     })
   })
 
   it('should not override the first request if it was sent by a different socket', async () => {
     const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })
 
     await clients.authDapp.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })
 
     const recoverResponse = await clients.authDapp.emitWithAck(MessageType.RECOVER, {
@@ -283,19 +367,22 @@ test('when sending a recover message for a request that has been overridden by a
     expect(recoverResponse).toEqual({
       expiration: requestResponse.expiration,
       code: requestResponse.code,
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      sender: identity.owner
     })
   })
 })
 
 test('when sending a recover message but the socket that sent it has disconnected', args => {
   const clients = connectClients(args)
+  const identity = useTestIdentity()
 
   it('should still return the request data (requests survive socket disconnect)', async () => {
     const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })
 
     clients.desktop.disconnect()
@@ -307,19 +394,22 @@ test('when sending a recover message but the socket that sent it has disconnecte
     expect(recoverResponse).toEqual({
       expiration: requestResponse.expiration,
       code: requestResponse.code,
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      sender: identity.owner
     })
   })
 })
 
 test('when sending a recover message', args => {
   const clients = connectClients(args)
+  const identity = useTestIdentity()
 
   it('should respond with a recover response message', async () => {
     const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })
 
     const recoverResponse = await clients.authDapp.emitWithAck(MessageType.RECOVER, {
@@ -329,8 +419,9 @@ test('when sending a recover message', args => {
     expect(recoverResponse).toEqual({
       expiration: requestResponse.expiration,
       code: requestResponse.code,
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      sender: identity.owner
     })
   })
 })
@@ -371,8 +462,9 @@ test('when sending an outcome message but the request does not exist', args => {
   })
 })
 
-testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending an outcome message but the request has expired', args => {
+testWithOverrides({ requestExpirationInSeconds: -1 })('when sending an outcome message but the request has expired', args => {
   const clients = connectClients(args)
+  const identity = useTestIdentity()
   let sender: string
 
   beforeEach(() => {
@@ -381,8 +473,9 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending an o
 
   it('should respond with an invalid response message', async () => {
     const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })
 
     const outcomeResponse = await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
@@ -399,6 +492,7 @@ testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })('when sending an o
 
 test('when sending an outcome message but the socket that created the request disconnected', args => {
   const clients = connectClients(args)
+  const identity = useTestIdentity()
   let sender: string
 
   beforeEach(() => {
@@ -407,8 +501,9 @@ test('when sending an outcome message but the socket that created the request di
 
   it('should accept the outcome and store it for polling (requests survive socket disconnect)', async () => {
     const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })
 
     clients.desktop.disconnect()
@@ -425,6 +520,7 @@ test('when sending an outcome message but the socket that created the request di
 
 test('when the auth dapp sends an outcome message', args => {
   const clients = connectClients(args)
+  const identity = useTestIdentity()
   let sender: string
 
   beforeEach(() => {
@@ -433,8 +529,9 @@ test('when the auth dapp sends an outcome message', args => {
 
   it('should respond with an empty object as ack', async () => {
     const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })
 
     const outcomeResponse = await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
@@ -448,8 +545,9 @@ test('when the auth dapp sends an outcome message', args => {
 
   it('should emit to the desktop client the outcome response message', async () => {
     const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })
 
     const outcomeResponsePromise = new Promise(resolve => {
@@ -475,8 +573,9 @@ test('when the auth dapp sends an outcome message', args => {
 
   it('should emit to the desktop client the outcome response message with an error', async () => {
     const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })
 
     const outcomeResponsePromise = new Promise(resolve => {
@@ -508,8 +607,9 @@ test('when the auth dapp sends an outcome message', args => {
 
   it('should respond with an invalid response message if calling the output twice', async () => {
     const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
-      method: METHOD_DCL_PERSONAL_SIGN,
-      params: []
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })
 
     await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
@@ -530,27 +630,26 @@ test('when the auth dapp sends an outcome message', args => {
   })
 })
 
-testWithOverrides({ dclPersonalSignExpirationInSeconds: -1 })(
-  'when posting that a request needs validation but the request has expired',
-  args => {
-    const clients = connectClients(args)
+testWithOverrides({ requestExpirationInSeconds: -1 })('when posting that a request needs validation but the request has expired', args => {
+  const clients = connectClients(args)
+  const identity = useTestIdentity()
 
-    it('should respond with an error indicating that the request has expired', async () => {
-      const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
-        method: METHOD_DCL_PERSONAL_SIGN,
-        params: []
-      })
-
-      const response = await clients.authDapp.emitWithAck(MessageType.REQUEST_VALIDATION_STATUS, {
-        requestId: requestResponse.requestId
-      })
-
-      expect(response).toEqual({
-        error: `Request with id "${requestResponse.requestId}" has expired`
-      })
+  it('should respond with an error indicating that the request has expired', async () => {
+    const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
     })
-  }
-)
+
+    const response = await clients.authDapp.emitWithAck(MessageType.REQUEST_VALIDATION_STATUS, {
+      requestId: requestResponse.requestId
+    })
+
+    expect(response).toEqual({
+      error: `Request with id "${requestResponse.requestId}" has expired`
+    })
+  })
+})
 
 test('when posting that a request needs validation but the request does not exist', args => {
   const clients = connectClients(args)
@@ -571,14 +670,16 @@ test('when posting that a request needs validation but the request does not exis
 
 test('when posting that a request needs validation and the request is valid', args => {
   const clients = connectClients(args)
+  const identity = useTestIdentity()
 
   describe('and there is a client connected listening for the request validation', () => {
     let requestResponse: RequestResponseMessage
 
     beforeEach(async () => {
       requestResponse = (await clients.desktop.emitWithAck('request', {
-        method: METHOD_DCL_PERSONAL_SIGN,
-        params: []
+        method: 'method',
+        params: [],
+        authChain: identity.authChain
       })) as RequestResponseMessage
     })
 
@@ -605,8 +706,9 @@ test('when posting that a request needs validation and the request is valid', ar
 
     beforeEach(async () => {
       requestResponse = (await clients.desktop.emitWithAck(MessageType.REQUEST, {
-        method: METHOD_DCL_PERSONAL_SIGN,
-        params: []
+        method: 'method',
+        params: [],
+        authChain: identity.authChain
       })) as RequestResponseMessage
     })
 

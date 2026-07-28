@@ -31,7 +31,6 @@ export { createMockDbComponent, createMockLogs }
 
 type TestOverrides = {
   requestExpirationInSeconds?: number
-  dclPersonalSignExpirationInSeconds?: number
   didTokenMaxAgeSeconds?: number
 }
 
@@ -124,10 +123,9 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
       HTTP_SERVER_PORT: httpServerPort.toString(),
       CORS_ORIGIN: 'https://test-*.org;https://test-*.zone',
       ACCOUNT_DELETION_ALLOWED_ORIGINS: 'https://account.decentraland.org',
-      // Expiration values are read from config by both the HTTP request handlers and the
+      // The expiration value is read from config by both the HTTP request handlers and the
       // socket-server, so per-test overrides are injected here as config defaults.
-      REQUEST_EXPIRATION_IN_SECONDS: String(overrides.requestExpirationInSeconds ?? 5 * 60), // 5 Minutes
-      DCL_PERSONAL_SIGN_REQUEST_EXPIRATION_IN_SECONDS: String(overrides.dclPersonalSignExpirationInSeconds ?? 5 * 60) // 5 Minutes
+      REQUEST_EXPIRATION_IN_SECONDS: String(overrides.requestExpirationInSeconds ?? 5 * 60) // 5 Minutes
     }
   )
 
@@ -184,7 +182,6 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     { logs, storage, tracer, server },
     {
       requestExpirationInSeconds: overrides.requestExpirationInSeconds ?? 5 * 60, // 5 Minutes
-      dclPersonalSignExpirationInSeconds: overrides.dclPersonalSignExpirationInSeconds ?? 5 * 60, // 5 Minutes
       cors: { origin: cors.origin, methods: await config.requireString('CORS_METHODS') }
     }
   )
