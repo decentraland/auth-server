@@ -40,7 +40,7 @@
   "dependencies": {
     "@dcl/core-commons": "^0.10.1",
     "@dcl/crypto": "^3.7.0",
-    "@dcl/crypto-middleware": "^4.1.1",
+    "@dcl/crypto-middleware": "^5.1.0",
     "@dcl/features-component": "^1.0.2",
     "@dcl/fetch-component": "^1.1.1",
     "@dcl/http-commons": "^2.0.0",
