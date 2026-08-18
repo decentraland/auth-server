@@ -1,4 +1,4 @@
-import { wellKnownComponents } from '@dcl/crypto-middleware'
+import { rejectIfSigner, wellKnownComponents } from '@dcl/crypto-middleware'
 import { bearerTokenMiddleware, errorHandler } from '@dcl/http-commons'
 import { Router } from '@dcl/http-server'
 import { GlobalContext } from '../types'
@@ -58,7 +58,7 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
       error: err.message,
       message: 'This endpoint requires a signed fetch request. See ADR-44.'
     }),
-    metadataValidator: metadata => metadata?.signer !== 'decentraland-kernel-scene' // prevent requests from scenes
+    metadataValidator: rejectIfSigner('decentraland-kernel-scene') // prevent requests from scenes
   })
 
   router.use(errorHandler)
