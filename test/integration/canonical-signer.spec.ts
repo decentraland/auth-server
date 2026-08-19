@@ -9,10 +9,11 @@ const SIGNED_METADATA = { signer: 'decentraland-kernel-scene' }
 const DELIVERED_METADATA = JSON.stringify({ signer: 'Decentraland-Kernel-Scene' })
 
 /**
- * Delivers a metadata header that differs from the one `signedFetch` actually signed. The canonical
- * payload is lowercased before signing, so a value differing only in case shares the signature —
- * the request arrives genuinely authentic while reading differently to any case-sensitive
- * comparison downstream. This is the attack, not a mock: nothing here weakens the signature.
+ * Delivers a metadata header that differs from the one `signedFetch` actually signed. The signing
+ * format joins the metadata bytes verbatim, so a value differing only in case no longer shares the
+ * signature — but the gate must not depend on that alone: `rejectIfSigner` refuses the non-canonical
+ * spelling outright, before the signature is ever checked. This is the attack, not a mock: nothing
+ * here weakens the signature.
  */
 function createTamperingFetch(deliveredMetadata: string): typeof fetch {
   return (async (input: Request): Promise<Response> => {
@@ -55,11 +56,13 @@ test('when a request carries a scene signer', args => {
     it('should reject the request rather than let it past the scene gate', async () => {
       const responseBody = await response.json()
 
-      // Without this guard the mixed-case spelling fails the strict `!== 'decentraland-kernel-scene'`
-      // check in routes.ts, so the scene request is read as a directly user-signed one and served.
+      // `rejectIfSigner` refuses a non-canonical `signer` rather than comparing it, so the mixed-case
+      // spelling cannot read as "not a scene" and slip past the gate. It fails there first; without
+      // the guard the request would still be refused, but as a 401, because the delivered metadata
+      // bytes are no longer the ones that were signed.
       expect(response.status).toBe(400)
       // The raw metadata is echoed back truncated at 64 characters, so match the prefix.
-      expect(responseBody.error).toMatch(/^Invalid chain metadata: /)
+      expect(responseBody.error).toMatch(/^Invalid metadata content: /)
     })
   })
 
