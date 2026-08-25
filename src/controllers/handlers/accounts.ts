@@ -34,8 +34,11 @@ export function createDeleteAccountHandler(accountDeletionAllowedOrigins: Set<st
       return { status: 403, body: { error: 'Origin not allowed' } satisfies InvalidResponseMessage }
     }
 
-    // The DID token travels in the signed-fetch metadata, so it is covered by
-    // the request signature (method:path:timestamp:metadata) — no request body.
+    // The DID token travels in the signed-fetch metadata rather than the body. On a 6.x-signed
+    // request the signature covers those bytes verbatim. On the legacy payload this route still
+    // accepts — see ACCOUNT_DELETION_CANONICAL_METADATA_KEYS in routes.ts — the fold puts the value
+    // outside the signature. So the token is treated as untrusted input either way, which is what it
+    // is: Magic verifies it, and the adapter binds it to `signedFetchAddress` below.
     let metadata: AccountDeletionMetadata
     try {
       metadata = validateAccountDeletionMetadata(verification?.authMetadata)

@@ -17,6 +17,33 @@ import {
 } from './handlers/requests'
 import { createSimulationHandler } from './handlers/simulations'
 
+/**
+ * Metadata keys `DELETE /accounts` authorizes on, in their canonical spelling.
+ *
+ * Declaring them opts that one route into accepting requests still signed with the pre-6.0.0
+ * payload, which folded the whole joined string before signing while delivering the metadata header
+ * verbatim. Since 6.0.0 the metadata bytes are signed as delivered, so the two disagree for any
+ * metadata carrying uppercase. The deletion route carries `didToken` -- an uppercase key, and a
+ * mixed-case token value -- so the account-deletion flow in `sites` is a 401 on every attempt
+ * without this. `sites` still resolves `decentraland-crypto-fetch` 2.0.1 transitively, through
+ * @dcl/social-rpc-client rather than a dependency of its own, so it cannot be fixed from there
+ * either without restructuring that first.
+ *
+ *   signer    what `rejectIfSigner` gates on. Not read by a handler, but the fold leaves key casing
+ *             outside the signature, so a legacy request could otherwise deliver `Signer` and have
+ *             the gate read the field as absent.
+ *   didToken  read by `validateAccountDeletionMetadata` and handed to Magic.
+ *
+ * Keys only. The fold leaves property *values* outside the legacy signature as well, and no key list
+ * can bind them -- so a legacy-signed `didToken` value is malleable in transit. That is tolerable
+ * here precisely because the token is self-authenticating: Magic verifies its signature, and the
+ * adapter binds it to the recovered signed-fetch address, to its issue time, and to single use.
+ * Re-casing base64url corrupts the token, so a tampered one is rejected rather than honoured.
+ *
+ * Removable once `sites` signs the 6.x payload.
+ */
+const ACCOUNT_DELETION_CANONICAL_METADATA_KEYS = ['signer', 'didToken']
+
 // We return the entire router because it will be easier to test than a whole server
 export async function setupRouter(globalContext: GlobalContext): Promise<Router<GlobalContext>> {
   const router = new Router<GlobalContext>()
@@ -51,15 +78,33 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
   // upstream from a distributed flood that stays under the per-IP budget.
   const simulationRateLimitGlobalMax = (await config.getNumber('SIMULATION_RATE_LIMIT_GLOBAL_MAX')) ?? 600
 
-  // Signed-fetch middleware (ADR-44). Blocks scene-originated requests.
-  const signedFetchMiddleware = wellKnownComponents({
-    optional: false,
-    onError: err => ({
-      error: err.message,
-      message: 'This endpoint requires a signed fetch request. See ADR-44.'
-    }),
-    metadataValidator: rejectIfSigner('decentraland-kernel-scene') // prevent requests from scenes
-  })
+  /**
+   * Builds a signed-fetch middleware (ADR-44). Blocks scene-originated requests.
+   *
+   * @param canonicalMetadataKeys When present, opts the routes using this instance into accepting
+   *   the pre-6.0.0 signed payload as a fallback. Absent — the default — means current format only.
+   */
+  const createSignedFetchMiddleware = (canonicalMetadataKeys?: string[]) =>
+    wellKnownComponents({
+      optional: false,
+      onError: err => ({
+        error: err.message,
+        message: 'This endpoint requires a signed fetch request. See ADR-44.'
+      }),
+      metadataValidator: rejectIfSigner('decentraland-kernel-scene'), // prevent requests from scenes
+      canonicalMetadataKeys
+    })
+
+  // Current signed-payload format only. `POST /identities` stays here: both its callers send
+  // metadata that folds to itself — `sites` sends an all-lowercase `{ signer, intent }` and the auth
+  // app sends none at all — so neither is affected by the format change and neither needs a
+  // fallback. Keeping the relaxation off this route is what stops it becoming service-wide by
+  // default.
+  const signedFetchMiddleware = createSignedFetchMiddleware()
+
+  // `DELETE /accounts` only. See ACCOUNT_DELETION_CANONICAL_METADATA_KEYS above for why that route
+  // needs the older format accepted and what declaring those keys does and does not bind.
+  const accountDeletionSignedFetchMiddleware = createSignedFetchMiddleware(ACCOUNT_DELETION_CANONICAL_METADATA_KEYS)
 
   router.use(errorHandler)
 
@@ -84,7 +129,7 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
   router.get('/identities/:id', getIdentityHandler)
 
   // Account deletion endpoint — DCL signed-fetch + a fresh Magic DID token.
-  router.delete('/accounts', signedFetchMiddleware, createDeleteAccountHandler(accountDeletionAllowedOrigins))
+  router.delete('/accounts', accountDeletionSignedFetchMiddleware, createDeleteAccountHandler(accountDeletionAllowedOrigins))
 
   // Onboarding endpoints (bearer-token protected)
   router.post('/onboarding/checkpoint', bearerTokenMiddleware(onboardingApiKey), createCheckpointHandler)

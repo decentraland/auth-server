@@ -509,6 +509,85 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/InvalidResponseMessage'
+  /accounts:
+    delete:
+      tags:
+        - Accounts
+      summary: Delete a Magic account (Signed Fetch)
+      description: |
+        Deletes the caller's Magic-managed account.  
+        This endpoint requires a Signed Fetch request per ADR-44. Requests signed by scenes are rejected.
+
+        The request carries **no body**. A fresh Magic DID token is passed in the signed-fetch
+        metadata header (`x-identity-metadata`) instead, so it is covered by the request signature:
+
+        ```json
+        { "didToken": "<a fresh Magic DID token>" }
+        ```
+
+        The token is validated by Magic and must resolve to the same address that signed the request.
+        It must also be fresh and unused: a stale or replayed token is rejected with a `403`.
+
+        Requests are additionally restricted to the official Decentraland browser origins.
+
+        > **Temporary compatibility window.** This route also accepts signatures built with the
+        > pre-6.0.0 ADR-44 payload, which lowercased the whole joined string before signing while
+        > sending the metadata verbatim. `sites` still signs that way. The fallback is scoped to this
+        > route and will be removed once that caller signs the current payload; no other signed route
+        > accepts it.
+      operationId: deleteAccount
+      security: []
+      responses:
+        '200':
+          description: Deletion requested
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                  address:
+                    type: string
+                    description: The address recovered from the signed-fetch auth chain
+                  magic:
+                    type: object
+                    properties:
+                      processed:
+                        type: array
+                        items:
+                          type: string
+                      unprocessed:
+                        type: array
+                        items:
+                          type: string
+                required:
+                  - deleted
+                  - address
+        '400':
+          description: Invalid auth chain, or metadata missing a valid `didToken`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+        '401':
+          description: Invalid signature, or the DID token was rejected by Magic
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+        '403':
+          description: Origin not allowed, address mismatch, or a stale or already-used DID token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+        '429':
+          description: Rate limited by Magic
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
   /v2/requests/{requestId}:
     get:
       tags:
