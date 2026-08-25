@@ -7,6 +7,9 @@ import { createTestIdentity } from '../utils/test-identity'
 
 const SIGNED_METADATA = { signer: 'decentraland-kernel-scene' }
 const DELIVERED_METADATA = JSON.stringify({ signer: 'Decentraland-Kernel-Scene' })
+// The re-spelled key is the attack under test, so it has to be spelled exactly this way.
+// eslint-disable-next-line @typescript-eslint/naming-convention
+const RESPELLED_METADATA = { Signer: 'decentraland-kernel-scene' }
 
 /**
  * Delivers a metadata header that differs from the one `signedFetch` actually signed. The signing
@@ -82,6 +85,34 @@ test('when a request carries a scene signer', args => {
     it('should reject it as a scene request', async () => {
       const responseBody = await response.json()
 
+      expect(response.status).toBe(400)
+      expect(responseBody.error).toMatch(/^Invalid metadata content: /)
+    })
+  })
+
+  describe('and the signed metadata spells the signer key as Signer', () => {
+    let response: Response
+
+    beforeEach(async () => {
+      // Nothing is tampered with here: the re-spelled key is what `signedFetch` signs, so the
+      // delivered bytes are the signed bytes and the signature verifies. A scene-driven client can
+      // simply serialize its metadata this way.
+      response = await createSignedFetchRequest(baseUrl, {
+        method: 'POST',
+        path: '/identities',
+        body: { identity },
+        identity,
+        metadata: RESPELLED_METADATA
+      })
+    })
+
+    it('should refuse it instead of reading the signer as absent', async () => {
+      const responseBody = await response.json()
+
+      // `rejectIfSigner` reads the exact `signer` key, so before the `hasFoldedVariant` guard this
+      // metadata presented no signer at all and the gate answered "allowed" for a request that
+      // visibly names the signer it exists to refuse — a scene reaching a route closed to scenes on
+      // the current-format path, where no `canonicalMetadataKeys` list is declared to catch it.
       expect(response.status).toBe(400)
       expect(responseBody.error).toMatch(/^Invalid metadata content: /)
     })
