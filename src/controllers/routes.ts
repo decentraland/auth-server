@@ -17,6 +17,32 @@ import {
 } from './handlers/requests'
 import { createSimulationHandler } from './handlers/simulations'
 
+/**
+ * Metadata keys this service authorizes on, in their canonical spelling.
+ *
+ * Declaring them opts the signed routes into accepting requests still signed with the pre-6.0.0
+ * payload, which folded the whole joined string before signing while delivering the metadata header
+ * verbatim. Since 6.0.0 the metadata bytes are signed as delivered, so the two disagree for any
+ * metadata carrying uppercase. `DELETE /accounts` carries `didToken` -- an uppercase key, and a
+ * mixed-case token value -- so the account-deletion flow in `sites` is a 401 on every attempt
+ * without this. It still resolves `decentraland-crypto-fetch` 2.0.1, transitively, so it cannot be
+ * fixed from here.
+ *
+ *   signer    what `rejectIfSigner` gates on. Not read by a handler, but the fold leaves key casing
+ *             outside the signature, so a legacy request could otherwise deliver `Signer` and have
+ *             the gate read the field as absent.
+ *   didToken  read by `validateAccountDeletionMetadata` and handed to Magic.
+ *
+ * Keys only. The fold leaves property *values* outside the legacy signature as well, and no key list
+ * can bind them -- so a legacy-signed `didToken` value is malleable in transit. That is tolerable
+ * here precisely because the token is self-authenticating: Magic verifies its signature, and the
+ * adapter binds it to the recovered signed-fetch address, to its issue time, and to single use.
+ * Re-casing base64url corrupts the token, so a tampered one is rejected rather than honoured.
+ *
+ * Removable once every caller signs the 6.x payload.
+ */
+const CANONICAL_METADATA_KEYS = ['signer', 'didToken']
+
 // We return the entire router because it will be easier to test than a whole server
 export async function setupRouter(globalContext: GlobalContext): Promise<Router<GlobalContext>> {
   const router = new Router<GlobalContext>()
@@ -58,7 +84,8 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
       error: err.message,
       message: 'This endpoint requires a signed fetch request. See ADR-44.'
     }),
-    metadataValidator: rejectIfSigner('decentraland-kernel-scene') // prevent requests from scenes
+    metadataValidator: rejectIfSigner('decentraland-kernel-scene'), // prevent requests from scenes
+    canonicalMetadataKeys: CANONICAL_METADATA_KEYS
   })
 
   router.use(errorHandler)
