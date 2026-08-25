@@ -59,9 +59,13 @@ test('when a caller signs the pre-6.0.0 folded payload', args => {
   }
 
   /** Signs `metadata` folded, then delivers `delivered` (defaulting to the same) verbatim. */
-  function legacyRequest(metadata: Record<string, unknown>, delivered?: Record<string, unknown>): Promise<Response> {
+  function legacyRequest(
+    metadata: Record<string, unknown>,
+    delivered?: Record<string, unknown>,
+    route: { method: string; path: string; body?: unknown } = { method: 'DELETE', path: PATH }
+  ): Promise<Response> {
     const timestamp = Date.now()
-    const payload = ['DELETE', PATH, timestamp.toString(), JSON.stringify(metadata)].join(':').toLowerCase()
+    const payload = [route.method, route.path, timestamp.toString(), JSON.stringify(metadata)].join(':').toLowerCase()
     const chain = Authenticator.signPayload(
       {
         ephemeralIdentity: identity.ephemeralIdentity,
@@ -81,7 +85,11 @@ test('when a caller signs the pre-6.0.0 folded payload', args => {
       headers[`${AUTH_CHAIN_HEADER_PREFIX}${index}`] = JSON.stringify(link)
     })
 
-    return fetch(`${baseUrl}${PATH}`, { method: 'DELETE', headers })
+    return fetch(`${baseUrl}${route.path}`, {
+      method: route.method,
+      headers,
+      body: route.body === undefined ? undefined : JSON.stringify(route.body)
+    })
   }
 
   describe('and the metadata is delivered as signed', () => {
@@ -143,6 +151,25 @@ test('when a caller signs the pre-6.0.0 folded payload', args => {
       await expect(response.json()).resolves.toMatchObject({
         message: 'This endpoint requires a signed fetch request. See ADR-44.'
       })
+    })
+  })
+
+  describe('and the same payload targets POST /identities', () => {
+    let response: Response
+
+    beforeEach(async () => {
+      // The fallback is scoped to the deletion route. Both callers of this one send metadata that
+      // folds to itself -- `sites` an all-lowercase `{ signer, intent }`, the auth app none at all
+      // -- so nothing there needs the older format accepted, and it is not.
+      response = await legacyRequest({ didToken }, undefined, {
+        method: 'POST',
+        path: '/identities',
+        body: { identity }
+      })
+    })
+
+    it('should respond with 401, so the relaxation has not become service-wide', async () => {
+      expect(response.status).toBe(401)
     })
   })
 
