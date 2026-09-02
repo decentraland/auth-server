@@ -113,8 +113,14 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
   router.get('/health/startup', startupHandler)
   router.get('/health/live', liveHandler)
 
+  // Signed-fetch on request creation is verified when present but not yet required, so clients can adopt it one by one.
+  const optionalSignedFetchMiddleware = wellKnownComponents({
+    optional: true,
+    metadataValidator: rejectIfSigner('decentraland-kernel-scene')
+  })
+
   // Request lifecycle endpoints
-  router.post('/requests', createRequestHandler({ requestExpirationInSeconds }))
+  router.post('/requests', optionalSignedFetchMiddleware, createRequestHandler({ requestExpirationInSeconds }))
   router.get('/v2/requests/:requestId', getRequestHandler)
   router.post('/v2/requests/:requestId/validation', notifyRequestValidationHandler)
   router.get('/v2/requests/:requestId/validation', getRequestValidationStatusHandler)

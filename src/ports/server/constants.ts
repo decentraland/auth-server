@@ -18,5 +18,9 @@ export const MAX_METHOD_LENGTH = 256
 export const MAX_PARAMS_ITEMS = 10
 export const MAX_ERROR_MESSAGE_LENGTH = 10024
 export const MAX_REQUEST_ID_LENGTH = 36 // UUID length
+// How old a signed request message may be before it is refused, matching the signed-fetch window.
+export const REQUEST_SIGNATURE_MAX_AGE_MS = 60 * 1000
+// Signed-fetch metadata key carrying the keccak256 of the raw request body; all lowercase so the payload folds to itself.
+export const SIGNED_BODY_HASH_METADATA_KEY = 'bodyhash'
 // Maximum allowed size, in bytes, of an incoming request body (16 KiB).
 export const MAX_BODY_SIZE_BYTES = 16 * 1024
