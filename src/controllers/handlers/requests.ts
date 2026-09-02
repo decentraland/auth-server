@@ -1,7 +1,10 @@
 import { randomInt } from 'crypto'
 import { v4 as uuid } from 'uuid'
+import { DecentralandSignatureContext } from '@dcl/crypto-middleware'
+import { InvalidRequestError } from '@dcl/http-commons'
 import { validateAuthChain } from '../../logic/auth-chain'
 import { isErrorWithMessage } from '../../logic/error-handling'
+import { verifySignedBody } from '../../logic/request-signature'
 import { loadActiveRequest, logInboundRequestStateError, RequestStateError, requestStateErrorToHttpResponse } from '../../logic/requests'
 import {
   HttpOutcomeMessage,
@@ -24,14 +27,27 @@ export type RequestExpirationOptions = {
   requestExpirationInSeconds: number
 }
 
+const SIGNED_FETCH_CHAIN_HEADER = 'x-identity-auth-chain-0'
+
 // POST /requests — register a new request
 export function createRequestHandler({ requestExpirationInSeconds }: RequestExpirationOptions) {
-  return async function requestHandler(context: HandlerContextWithPath<RequestsHandlerComponents, '/requests'>) {
+  return async function requestHandler(
+    context: HandlerContextWithPath<RequestsHandlerComponents, '/requests'> & DecentralandSignatureContext
+  ) {
     const {
-      components: { storage }
+      components: { storage },
+      verification
     } = context
 
-    const data = await parseJsonBody(context.request)
+    // The raw text is kept because a signed request binds its metadata to these exact bytes.
+    const rawBody = await context.request.text()
+    let data: unknown
+    try {
+      data = JSON.parse(rawBody)
+    } catch {
+      throw new InvalidRequestError('Invalid JSON body')
+    }
+
     let msg: ValidatedRequestMessage
 
     try {
@@ -43,6 +59,14 @@ export function createRequestHandler({ requestExpirationInSeconds }: RequestExpi
       }
     }
 
+    // Signed-fetch headers that failed verification are refused instead of being treated as absent.
+    if (!verification && context.request.headers.get(SIGNED_FETCH_CHAIN_HEADER)) {
+      return {
+        status: 401,
+        body: { error: 'Invalid signed fetch request' } satisfies InvalidResponseMessage
+      }
+    }
+
     let sender: string
 
     try {
@@ -51,6 +75,23 @@ export function createRequestHandler({ requestExpirationInSeconds }: RequestExpi
       return {
         status: 400,
         body: { error: isErrorWithMessage(e) ? e.message : 'Unknown error' } satisfies InvalidResponseMessage
+      }
+    }
+
+    if (verification) {
+      try {
+        verifySignedBody(rawBody, verification.authMetadata)
+      } catch (e) {
+        return {
+          status: 403,
+          body: { error: isErrorWithMessage(e) ? e.message : 'Unknown error' } satisfies InvalidResponseMessage
+        }
+      }
+      if (verification.auth.toLowerCase() !== sender.toLowerCase()) {
+        return {
+          status: 403,
+          body: { error: 'Request signer does not match the auth chain owner' } satisfies InvalidResponseMessage
+        }
       }
     }
 

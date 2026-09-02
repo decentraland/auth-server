@@ -22,6 +22,8 @@ export type Request = {
  */
 export type RequestMessage = Request & {
   authChain?: AuthChain
+  // Present when the client signed `method:params:timestamp` with its ephemeral key; see `verifySignedRequestMessage`.
+  timestamp?: number
 }
 
 /**

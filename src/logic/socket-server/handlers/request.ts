@@ -4,6 +4,7 @@ import { InvalidResponseMessage, RequestResponseMessage, ValidatedRequestMessage
 import { validateRequestMessage } from '../../../ports/server/validations'
 import { validateAuthChain } from '../../auth-chain'
 import { isErrorWithMessage } from '../../error-handling'
+import { isSignedRequestMessage, verifySignedRequestMessage } from '../../request-signature'
 import { SocketHandlerContext, SocketMessageHandler } from '../types'
 
 export type SocketRequestExpirationOptions = {
@@ -31,9 +32,11 @@ export function createRequestSocketHandler(options: SocketRequestExpirationOptio
 
     let sender: string
 
-    // Same validation as the HTTP /requests handler (shared to avoid drift).
+    // A message carrying `timestamp` is signed over its own contents; the rest still use the plain auth chain.
     try {
-      sender = (await validateAuthChain(msg.authChain)).sender
+      sender = isSignedRequestMessage(msg)
+        ? (await verifySignedRequestMessage(msg)).sender
+        : (await validateAuthChain(msg.authChain)).sender
     } catch (e) {
       logger.log('Received a request with an invalid auth chain')
       return { error: isErrorWithMessage(e) ? e.message : 'Unknown error' } satisfies InvalidResponseMessage

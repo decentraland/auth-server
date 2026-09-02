@@ -50,6 +50,36 @@ describe('when validating request messages', () => {
     })
   })
 
+  describe('and the message carries an integer timestamp', () => {
+    let signedRequestMessage: ValidatedRequestMessage
+    beforeEach(() => {
+      signedRequestMessage = {
+        method: 'eth_sendTransaction',
+        params: [{ from: '0x123', to: '0x456', value: '0x1' }],
+        authChain: createStubAuthChain(),
+        timestamp: 1700000000000
+      }
+    })
+    it('should return the validated message with the timestamp', () => {
+      expect(validateRequestMessage(signedRequestMessage)).toEqual(signedRequestMessage)
+    })
+  })
+
+  describe('and the timestamp is not an integer', () => {
+    let invalidRequestMessage: unknown
+    beforeEach(() => {
+      invalidRequestMessage = {
+        method: 'eth_sendTransaction',
+        params: [],
+        authChain: createStubAuthChain(),
+        timestamp: '1700000000000'
+      }
+    })
+    it('should throw a validation error', () => {
+      expect(() => validateRequestMessage(invalidRequestMessage)).toThrow()
+    })
+  })
+
   describe('and the message is missing the method', () => {
     let invalidRequestMessage: Partial<RequestMessage>
 

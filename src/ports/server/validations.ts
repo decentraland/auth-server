@@ -31,7 +31,11 @@ const requestMessageSchema = {
       type: 'array',
       maxItems: MAX_PARAMS_ITEMS
     },
-    authChain: AuthChain.schema
+    authChain: AuthChain.schema,
+    timestamp: {
+      type: 'integer',
+      minimum: 0
+    }
   },
   // `authChain` is required on every request, but deliberately not listed here: presence is checked
   // right after this schema runs so a client gets `Auth chain is required` instead of an Ajv error
