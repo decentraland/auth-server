@@ -148,10 +148,17 @@ export async function createTenderlyAdapter({
       .filter(event => event.address !== '')
       .slice(0, MAX_EVENTS)
 
-    logger.log(`Tenderly simulation ok (to=${to}, networkId=${networkId}, status=${transaction?.status ?? 'unknown'})`)
+    // The status is what tells a successful preview from a reverting one. Without it there is no
+    // preview to show: defaulting to success would render an empty "no changes" summary for a call
+    // whose outcome is unknown, so treat it like any other unusable upstream answer.
+    if (typeof transaction?.status !== 'boolean') {
+      throw new TenderlyUnavailableError('Tenderly returned no transaction status')
+    }
+
+    logger.log(`Tenderly simulation ok (to=${to}, networkId=${networkId}, status=${transaction.status})`)
 
     return {
-      status: transaction?.status ?? true,
+      status: transaction.status,
       errorMessage: transaction?.error_info?.error_message ?? null,
       assetChanges: transactionInfo?.asset_changes ?? [],
       exposureChanges: transactionInfo?.exposure_changes ?? [],

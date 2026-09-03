@@ -187,6 +187,38 @@ describe('when using the Tenderly adapter', () => {
     })
   })
 
+  describe('and Tenderly responds with 200 but no transaction status', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            transaction_info: { asset_changes: [], exposure_changes: [], balance_changes: [], logs: [] }
+          }
+        })
+      })
+    })
+
+    it('should throw a TenderlyUnavailableError instead of reporting a successful simulation with no changes', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe('and Tenderly responds with 200 but no transaction at all', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ simulation: { id: 'abc' } })
+      })
+    })
+
+    it('should throw a TenderlyUnavailableError', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
   describe('and Tenderly responds with 401', () => {
     let bodyCancel: jest.Mock
 
