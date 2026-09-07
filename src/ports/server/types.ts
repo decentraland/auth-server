@@ -81,6 +81,10 @@ export type RequestValidationStatusMessage = {
 
 export type HttpOutcomeMessage = Outcome
 
+/** Proof submitted by the approving delegated identity; never forwarded to the requester. */
+export type SignedHttpOutcomeMessage = Outcome & { expiresAt: number; authChain: AuthChain; requestId?: string }
+export type SignedOutcomeMessage = SignedHttpOutcomeMessage & { requestId: string }
+
 export type OutcomeResponseMessage = OutcomeMessage
 
 export type InvalidResponseMessage = {
