@@ -16,14 +16,8 @@ const SUPPORTED_CHAIN_IDS = [1, 137, 11155111, 80002]
 const erc20ApprovalInterface = new Interface(['event Approval(address indexed owner, address indexed spender, uint256 value)'])
 const erc721ApprovalInterface = new Interface(['event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId)'])
 const approvalForAllInterface = new Interface(['event ApprovalForAll(address indexed owner, address indexed operator, bool approved)'])
-const transferSingleInterface = new Interface([
-  'event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)'
-])
 const erc20TransferInterface = new Interface(['event Transfer(address indexed from, address indexed to, uint256 value)'])
 const erc721TransferInterface = new Interface(['event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'])
-const transferBatchInterface = new Interface([
-  'event TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)'
-])
 
 function erc20ApprovalLog(owner: string, spender: string, value: bigint, address: string): TenderlyRawLog {
   return { address, ...erc20ApprovalInterface.encodeEventLog('Approval', [owner, spender, value]) }
@@ -35,14 +29,6 @@ function erc721ApprovalLog(owner: string, approved: string, tokenId: bigint, add
 
 function approvalForAllLog(owner: string, operator: string, approved: boolean, address: string): TenderlyRawLog {
   return { address, ...approvalForAllInterface.encodeEventLog('ApprovalForAll', [owner, operator, approved]) }
-}
-
-function transferSingleLog(operator: string, from: string, to: string, id: bigint, value: bigint, address: string): TenderlyRawLog {
-  return { address, ...transferSingleInterface.encodeEventLog('TransferSingle', [operator, from, to, id, value]) }
-}
-
-function transferBatchLog(operator: string, from: string, to: string, ids: bigint[], values: bigint[], address: string): TenderlyRawLog {
-  return { address, ...transferBatchInterface.encodeEventLog('TransferBatch', [operator, from, to, ids, values]) }
 }
 
 function erc20TransferLog(from: string, to: string, value: bigint, address: string): TenderlyRawLog {
@@ -249,7 +235,7 @@ describe('when simulating a transaction', () => {
           assetChanges: [
             { type: 'Transfer', from: FROM, to: TO, raw_amount: '1', token_info: { standard: 'ERC20', contract_address: TOKEN } }
           ],
-          rawLogs: [approvalForAllLog(FROM, SPENDER, true, TOKEN), transferSingleLog(FROM, FROM, TO, 1n, 1n, TOKEN)],
+          rawLogs: [approvalForAllLog(FROM, SPENDER, true, TOKEN), erc721TransferLog(FROM, TO, 1n, TOKEN)],
           balanceChanges: [{ address: FROM.toLowerCase(), dollarValue: '-1.00' }],
           events: [{ name: 'Transfer', address: TOKEN.toLowerCase() }]
         })
@@ -346,98 +332,6 @@ describe('when simulating a transaction', () => {
       const response = await component.simulateTransaction(body)
 
       expect(response.approvalChanges).toEqual([expect.objectContaining({ kind: 'approval', standard: 'erc20', spender: SPENDER })])
-    })
-  })
-
-  describe('and two ERC1155 transfers of the same id move between the same parties', () => {
-    let body: SimulationRequestBody
-
-    beforeEach(() => {
-      body = { chainId: 137, from: FROM, to: TOKEN }
-      tenderly.simulate.mockResolvedValue(
-        baseResult({ rawLogs: [transferSingleLog(FROM, FROM, TO, 7n, 1n, TOKEN), transferSingleLog(FROM, FROM, TO, 7n, 1499n, TOKEN)] })
-      )
-    })
-
-    it('should report both movements', async () => {
-      const response = await component.simulateTransaction(body)
-
-      expect(response.assetChanges.map(change => change.rawAmount)).toEqual(['1', '1499'])
-    })
-  })
-
-  describe('and two identical ERC1155 transfers are logged', () => {
-    let body: SimulationRequestBody
-
-    beforeEach(() => {
-      body = { chainId: 137, from: FROM, to: TOKEN }
-      tenderly.simulate.mockResolvedValue(
-        baseResult({ rawLogs: [transferSingleLog(FROM, FROM, TO, 7n, 5n, TOKEN), transferSingleLog(FROM, FROM, TO, 7n, 5n, TOKEN)] })
-      )
-    })
-
-    it('should report both, since a log is only ever compared with what Tenderly reported', async () => {
-      const response = await component.simulateTransaction(body)
-
-      expect(response.assetChanges.map(change => change.rawAmount)).toEqual(['5', '5'])
-    })
-  })
-
-  describe('and Tenderly reports one ERC1155 transfer that two identical raw logs record', () => {
-    let body: SimulationRequestBody
-
-    beforeEach(() => {
-      body = { chainId: 137, from: FROM, to: TOKEN }
-      tenderly.simulate.mockResolvedValue(
-        baseResult({
-          assetChanges: [
-            {
-              type: 'Transfer',
-              from: FROM,
-              to: TO,
-              token_id: '7',
-              raw_amount: '5',
-              token_info: { standard: 'ERC1155', contract_address: TOKEN }
-            }
-          ],
-          rawLogs: [transferSingleLog(FROM, FROM, TO, 7n, 5n, TOKEN), transferSingleLog(FROM, FROM, TO, 7n, 5n, TOKEN)]
-        })
-      )
-    })
-
-    it('should consume the reported row for one log and keep the other', async () => {
-      const response = await component.simulateTransaction(body)
-
-      expect(response.assetChanges.map(change => change.rawAmount)).toEqual(['5', '5'])
-    })
-  })
-
-  describe('and Tenderly reports an ERC1155 transfer with a hex token id that a raw log also records', () => {
-    let body: SimulationRequestBody
-
-    beforeEach(() => {
-      body = { chainId: 137, from: FROM, to: TOKEN }
-      tenderly.simulate.mockResolvedValue(
-        baseResult({
-          assetChanges: [
-            {
-              type: 'Transfer',
-              from: FROM,
-              to: TO,
-              token_id: '0x7',
-              raw_amount: '5',
-              token_info: { standard: 'ERC1155', contract_address: TOKEN }
-            }
-          ],
-          rawLogs: [transferSingleLog(FROM, FROM, TO, 7n, 5n, TOKEN)]
-        })
-      )
-    })
-
-    it('should recognize them as one movement whatever the notation', async () => {
-      const response = await component.simulateTransaction(body)
-
-      expect(response.assetChanges).toHaveLength(1)
     })
   })
 
@@ -582,55 +476,6 @@ describe('when simulating a transaction', () => {
     })
   })
 
-  describe('and an ERC1155 TransferSingle is logged', () => {
-    let body: SimulationRequestBody
-
-    beforeEach(() => {
-      body = { chainId: 137, from: FROM, to: TOKEN }
-      tenderly.simulate.mockResolvedValue(baseResult({ rawLogs: [transferSingleLog(FROM, FROM, TO, 7n, 5n, TOKEN)] }))
-    })
-
-    it('should add an erc1155 transfer asset change with the tokenId and raw amount', async () => {
-      const response = await component.simulateTransaction(body)
-
-      expect(response.assetChanges).toEqual([
-        {
-          type: 'transfer',
-          standard: 'erc1155',
-          from: FROM.toLowerCase(),
-          to: TO.toLowerCase(),
-          amount: null,
-          rawAmount: '5',
-          tokenId: '7',
-          contractAddress: TOKEN.toLowerCase(),
-          symbol: null,
-          name: null,
-          decimals: null,
-          logoUrl: null,
-          dollarValue: null
-        }
-      ])
-    })
-  })
-
-  describe('and an ERC1155 TransferBatch is logged', () => {
-    let body: SimulationRequestBody
-
-    beforeEach(() => {
-      body = { chainId: 137, from: FROM, to: TOKEN }
-      tenderly.simulate.mockResolvedValue(baseResult({ rawLogs: [transferBatchLog(FROM, FROM, TO, [1n, 2n], [10n, 20n], TOKEN)] }))
-    })
-
-    it('should add one erc1155 transfer per id/value pair', async () => {
-      const response = await component.simulateTransaction(body)
-
-      expect(response.assetChanges.map(change => ({ tokenId: change.tokenId, rawAmount: change.rawAmount }))).toEqual([
-        { tokenId: '1', rawAmount: '10' },
-        { tokenId: '2', rawAmount: '20' }
-      ])
-    })
-  })
-
   describe('and a native value is sent with no native asset change reported', () => {
     let body: SimulationRequestBody
 
@@ -749,35 +594,6 @@ describe('when simulating a transaction', () => {
       const response = await component.simulateTransaction(body)
 
       expect(response.assetChanges[0].tokenId).toBe('512')
-    })
-  })
-
-  describe('and an ERC1155 transfer is reported by both Tenderly and a raw log', () => {
-    let body: SimulationRequestBody
-
-    beforeEach(() => {
-      body = { chainId: 137, from: FROM, to: TOKEN }
-      tenderly.simulate.mockResolvedValue(
-        baseResult({
-          assetChanges: [
-            {
-              type: 'Transfer',
-              from: FROM,
-              to: TO,
-              token_id: '5',
-              token_info: { standard: 'ERC1155', contract_address: TOKEN }
-            }
-          ],
-          rawLogs: [transferSingleLog(FROM, FROM, TO, 5n, 3n, TOKEN)]
-        })
-      )
-    })
-
-    it('should deduplicate them into a single asset change carrying the amount the log records', async () => {
-      const response = await component.simulateTransaction(body)
-
-      expect(response.assetChanges).toHaveLength(1)
-      expect(response.assetChanges[0].rawAmount).toBe('3')
     })
   })
 

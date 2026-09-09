@@ -16,19 +16,11 @@ const erc721ApprovalInterface = new Interface(['event Approval(address indexed o
 const approvalForAllInterface = new Interface(['event ApprovalForAll(address indexed owner, address indexed operator, bool approved)'])
 // ERC20 and ERC721 `Transfer` share topic0 as well; only the 4-topic ERC721 form (indexed tokenId) is read here.
 const erc721TransferInterface = new Interface(['event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'])
-const transferSingleInterface = new Interface([
-  'event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)'
-])
-const transferBatchInterface = new Interface([
-  'event TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)'
-])
 
 // keccak256 topic0 signatures (lowercase 0x hex).
 const APPROVAL_TOPIC = id('Approval(address,address,uint256)').toLowerCase()
 const TRANSFER_TOPIC = id('Transfer(address,address,uint256)').toLowerCase()
 const APPROVAL_FOR_ALL_TOPIC = id('ApprovalForAll(address,address,bool)').toLowerCase()
-const TRANSFER_SINGLE_TOPIC = id('TransferSingle(address,address,address,uint256,uint256)').toLowerCase()
-const TRANSFER_BATCH_TOPIC = id('TransferBatch(address,address,address,uint256[],uint256[])').toLowerCase()
 
 /** Lowercases an address-ish string, or returns null when absent. */
 function lowerOrNull(value?: string | null): string | null {
@@ -89,11 +81,6 @@ function normalizeTokenId(tokenId: string | null): string {
   } catch {
     return tokenId
   }
-}
-
-/** Identity of a movement short of its amount: contract, token id (normalized), from and to. */
-function assetChangeKey(change: Pick<AssetChange, 'contractAddress' | 'tokenId' | 'from' | 'to'>): string {
-  return `${change.contractAddress ?? ''}:${normalizeTokenId(change.tokenId)}:${change.from ?? ''}:${change.to ?? ''}`
 }
 
 /** The ERC721 transfers a transaction's raw logs record, as `contract:tokenId:from`, the key the approval filter looks up. */
@@ -292,63 +279,6 @@ function decodeApprovals(rawLogs: TenderlySimulationResult['rawLogs'], tokenMeta
 }
 
 /**
- * Decodes ERC1155 `TransferSingle`/`TransferBatch` raw logs into asset changes.
- * Tenderly's `asset_changes` only reliably covers ERC20/721, so this is the
- * fallback source for 1155 transfers. Batches expand to one entry per (id, value).
- */
-function decodeErc1155Transfers(rawLogs: TenderlySimulationResult['rawLogs']): AssetChange[] {
-  const changes: AssetChange[] = []
-
-  const build = (contractAddress: string, from: string, to: string, tokenId: bigint, value: bigint): AssetChange => ({
-    type: 'transfer',
-    standard: 'erc1155',
-    from: from.toLowerCase(),
-    to: to.toLowerCase(),
-    amount: null,
-    rawAmount: value.toString(),
-    tokenId: tokenId.toString(),
-    contractAddress: contractAddress.toLowerCase(),
-    symbol: null,
-    name: null,
-    decimals: null,
-    logoUrl: null,
-    dollarValue: null
-  })
-
-  for (const log of rawLogs) {
-    // Defensively skip malformed logs (missing topics/address) so a single bad
-    // entry can't throw and defeat the fail-open decoding of the rest.
-    if (!log || !Array.isArray(log.topics) || typeof log.address !== 'string') continue
-    const topic0 = log.topics[0]?.toLowerCase()
-    try {
-      if (topic0 === TRANSFER_SINGLE_TOPIC) {
-        const parsed = transferSingleInterface.parseLog({ topics: log.topics, data: log.data })
-        if (!parsed) continue
-        changes.push(
-          build(log.address, parsed.args.from as string, parsed.args.to as string, parsed.args.id as bigint, parsed.args.value as bigint)
-        )
-      } else if (topic0 === TRANSFER_BATCH_TOPIC) {
-        const parsed = transferBatchInterface.parseLog({ topics: log.topics, data: log.data })
-        if (!parsed) continue
-        // Access by index: `Result` exposes an array-like `.values()` method that
-        // shadows a named `values` arg, so named access would return the method.
-        const from = parsed.args[1] as string
-        const to = parsed.args[2] as string
-        const ids = parsed.args[3] as bigint[]
-        const values = parsed.args[4] as bigint[]
-        for (let i = 0; i < ids.length; i++) {
-          changes.push(build(log.address, from, to, ids[i], values[i]))
-        }
-      }
-    } catch {
-      // Unparseable log — skip it (fail-open).
-    }
-  }
-
-  return changes
-}
-
-/**
  * Creates the simulation logic component.
  *
  * Orchestration of `simulateTransaction`:
@@ -356,7 +286,11 @@ function decodeErc1155Transfers(rawLogs: TenderlySimulationResult['rawLogs']): A
  * 2. Delegates the actual simulation to the Tenderly adapter.
  * 3. Maps Tenderly's asset changes into the normalized DTO (addresses lowercased).
  * 4. Decodes approvals from raw logs (primary source) and enriches metadata.
- * 5. Adds ERC1155 transfer and native-value fallbacks the adapter can't provide.
+ * 5. Adds the native-value fallback the adapter can't provide.
+ *
+ * ERC1155 is not supported: no Decentraland contract is one, and the auth dapp refuses to preview a call
+ * that reaches a contract Decentraland does not own, so a Tenderly row of that standard is passed through
+ * as reported and nothing is reconstructed from `TransferSingle`/`TransferBatch` logs.
  *
  * @param components - `tenderly` and `logs`.
  * @param options - `supportedChainIds`, the allowlist of chains we simulate.
@@ -416,30 +350,7 @@ export async function createSimulationComponent(
     const tokenMeta = buildTokenMetaIndex(result.assetChanges, result.exposureChanges)
     const approvalChanges = withoutTransferImpliedApprovals(decodeApprovals(result.rawLogs, tokenMeta), decodeTransfers(result.rawLogs))
 
-    // 6. ERC1155 transfer fallback. An ERC1155 id is fungible, so two logged transfers of one id between
-    //    the same parties are two movements: each logged transfer is compared with the rows Tenderly
-    //    reported, snapshotted before any log is added, and never with another log. A Tenderly row with
-    //    the same amount is consumed as the duplicate of that one log; a Tenderly row without an amount is
-    //    replaced by the log, which carries it. Every other log is appended.
-    const reportedErc1155 = assetChanges.filter(row => row.standard === 'erc1155')
-    const loggedErc1155: AssetChange[] = []
-    for (const logged of decodeErc1155Transfers(result.rawLogs)) {
-      const key = assetChangeKey(logged)
-      const duplicate = reportedErc1155.findIndex(row => assetChangeKey(row) === key && row.rawAmount === logged.rawAmount)
-      if (duplicate !== -1) {
-        reportedErc1155.splice(duplicate, 1)
-        continue
-      }
-      const unquantified = reportedErc1155.findIndex(row => assetChangeKey(row) === key && row.rawAmount === null)
-      if (unquantified !== -1) {
-        const [row] = reportedErc1155.splice(unquantified, 1)
-        assetChanges.splice(assetChanges.indexOf(row), 1)
-      }
-      loggedErc1155.push(logged)
-    }
-    assetChanges.push(...loggedErc1155)
-
-    // 7. Native-value fallback — synthesize a native transfer when the tx succeeded,
+    // 6. Native-value fallback — synthesize a native transfer when the tx succeeded,
     //    value > 0 and Tenderly did not already report one. A reverted tx moves no
     //    value, so we must not invent a transfer for it.
     if (status === 'success' && BigInt(value) > 0n && !assetChanges.some(change => change.standard === 'native')) {
