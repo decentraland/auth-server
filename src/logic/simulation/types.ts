@@ -71,8 +71,9 @@ export type SimulationResponseBody = {
   /** Revert reason, only present when `status === 'reverted'`. */
   error?: string
   /**
-   * Movements of the signer's and the counterparties' assets. ERC20 and ERC721 rows are Tenderly's; ERC1155
-   * rows are decoded from the raw logs, one per TransferSingle or TransferBatch entry, and nothing is merged.
+   * Movements of the signer's and the counterparties' assets. ERC20 and ERC721 rows are Tenderly's. ERC1155
+   * rows have one source per contract: the raw logs, one row per TransferSingle or TransferBatch entry, where
+   * they record any movement on that contract; Tenderly's own rows otherwise. Nothing is merged.
    */
   assetChanges: AssetChange[]
   approvalChanges: ApprovalChange[]

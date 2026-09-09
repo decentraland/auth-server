@@ -1,5 +1,5 @@
 import { Interface, ZeroAddress } from 'ethers'
-import { ITenderlyAdapter, TenderlyRawLog, TenderlySimulationResult } from '../../src/adapters/tenderly'
+import { ITenderlyAdapter, TenderlyAssetChange, TenderlyRawLog, TenderlySimulationResult } from '../../src/adapters/tenderly'
 import { createSimulationComponent } from '../../src/logic/simulation/component'
 import { InvalidSimulationParamsError, UnsupportedChainError } from '../../src/logic/simulation/errors'
 import { ISimulationComponent, SimulationRequestBody } from '../../src/logic/simulation/types'
@@ -640,7 +640,7 @@ describe('when simulating a transaction', () => {
       )
     })
 
-    it('should report the movement once, from the log, and leave the Tenderly row out', async () => {
+    it('should report the movement once, from the log, and leave the Tenderly row for that contract out', async () => {
       const response = await component.simulateTransaction(body)
 
       expect(response.assetChanges.filter(change => change.standard === 'erc1155')).toEqual([
@@ -659,6 +659,110 @@ describe('when simulating a transaction', () => {
     it('should reject it as invalid params before asking Tenderly', async () => {
       await expect(component.simulateTransaction(body)).rejects.toBeInstanceOf(InvalidSimulationParamsError)
       expect(tenderly.simulate).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('and Tenderly reports an ERC1155 transfer while the logs record no movement on that contract', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          assetChanges: [
+            {
+              type: 'Transfer',
+              from: FROM,
+              to: TO,
+              token_id: '7',
+              raw_amount: '5',
+              token_info: { standard: 'ERC1155', contract_address: TOKEN }
+            }
+          ],
+          rawLogs: []
+        })
+      )
+    })
+
+    it('should keep the Tenderly row, so a partial answer never hides a reported movement', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges).toEqual([
+        expect.objectContaining({ standard: 'erc1155', tokenId: '7', rawAmount: '5', contractAddress: TOKEN.toLowerCase() })
+      ])
+    })
+  })
+
+  describe('and Tenderly reports an ERC1155 transfer on one contract while the logs record a movement on another', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          assetChanges: [
+            {
+              type: 'Transfer',
+              from: FROM,
+              to: TO,
+              token_id: '7',
+              raw_amount: '5',
+              token_info: { standard: 'ERC1155', contract_address: TOKEN }
+            }
+          ],
+          rawLogs: [transferSingleLog(FROM, FROM, TO, 1n, 2n, TOKEN_TWO)]
+        })
+      )
+    })
+
+    it('should report both, each from its own source', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges.map(change => [change.contractAddress, change.rawAmount])).toEqual([
+        [TOKEN.toLowerCase(), '5'],
+        [TOKEN_TWO.toLowerCase(), '2']
+      ])
+    })
+  })
+
+  describe('and an asset change carries fields of the wrong type', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          assetChanges: [
+            {
+              type: 7,
+              from: 1,
+              to: { nested: true },
+              amount: 12,
+              raw_amount: null,
+              token_id: 3,
+              token_info: { standard: 1, contract_address: 5, decimals: 'six' }
+            } as unknown as TenderlyAssetChange
+          ]
+        })
+      )
+    })
+
+    it('should read each field for its type instead of failing, leaving what does not fit out', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges).toEqual([
+        expect.objectContaining({
+          type: 'transfer',
+          standard: 'unknown',
+          from: null,
+          to: null,
+          amount: '12',
+          rawAmount: null,
+          tokenId: '3',
+          contractAddress: null,
+          decimals: null
+        })
+      ])
     })
   })
 

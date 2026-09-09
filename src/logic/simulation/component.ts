@@ -1,5 +1,5 @@
 import { formatEther, formatUnits, id, Interface, ZeroAddress } from 'ethers'
-import { TenderlyAssetChange, TenderlySimulationResult } from '../../adapters/tenderly'
+import { TenderlySimulationResult } from '../../adapters/tenderly'
 import { AppComponents } from '../../types'
 import { InvalidSimulationParamsError, UnsupportedChainError } from './errors'
 import { ApprovalChange, AssetChange, ISimulationComponent, SimulationRequestBody, SimulationResponseBody } from './types'
@@ -44,6 +44,14 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 function asStringProp(record: Record<string, unknown> | null, key: string): string | null {
   const value = record ? record[key] : undefined
   return typeof value === 'string' ? value : null
+}
+
+/** Reads a property Tenderly may send as a string or a number (amounts, ids) as a string, or null. */
+function asStringishProp(record: Record<string, unknown> | null, key: string): string | null {
+  const value = record ? record[key] : undefined
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  return null
 }
 
 /** Reads a numeric property from an unknown value, or null. */
@@ -133,7 +141,7 @@ type TokenMeta = { symbol: string | null; name: string | null; decimals: number 
  * used to enrich approvals decoded from raw logs (including formatting finite
  * ERC20 allowances with the token's decimals).
  */
-function buildTokenMetaIndex(assetChanges: TenderlyAssetChange[], exposureChanges: unknown[]): Map<string, TokenMeta> {
+function buildTokenMetaIndex(assetChanges: unknown[], exposureChanges: unknown[]): Map<string, TokenMeta> {
   const index = new Map<string, TokenMeta>()
 
   const record = (address: string | null, symbol: string | null, name: string | null, decimals: number | null) => {
@@ -148,10 +156,13 @@ function buildTokenMetaIndex(assetChanges: TenderlyAssetChange[], exposureChange
   }
 
   for (const change of assetChanges) {
-    const tokenInfo = change.token_info
-    if (tokenInfo?.contract_address) {
-      record(tokenInfo.contract_address, tokenInfo.symbol ?? null, tokenInfo.name ?? null, tokenInfo.decimals ?? null)
-    }
+    const tokenInfo = asRecord(asRecord(change)?.token_info)
+    record(
+      asStringProp(tokenInfo, 'contract_address'),
+      asStringProp(tokenInfo, 'symbol'),
+      asStringProp(tokenInfo, 'name'),
+      asNumberProp(tokenInfo, 'decimals')
+    )
   }
 
   for (const exposure of exposureChanges) {
@@ -408,25 +419,39 @@ export async function createSimulationComponent(
       return response
     }
 
-    // 4. Map Tenderly asset changes defensively (all missing fields ⇒ null). ERC1155 rows are left out here
-    //    and rebuilt from the logs in step 6.
-    const assetChanges: AssetChange[] = result.assetChanges
-      .map(change => ({
-        type: mapType(change.type),
-        standard: mapStandard(change.token_info?.standard),
-        from: lowerOrNull(change.from),
-        to: lowerOrNull(change.to),
-        amount: change.amount ?? null,
-        rawAmount: change.raw_amount ?? null,
-        tokenId: change.token_id ?? null,
-        contractAddress: lowerOrNull(change.token_info?.contract_address),
-        symbol: change.token_info?.symbol ?? null,
-        name: change.token_info?.name ?? null,
-        decimals: change.token_info?.decimals ?? null,
-        logoUrl: change.token_info?.logo ?? null,
-        dollarValue: change.dollar_value ?? null
-      }))
-      .filter(change => change.standard !== 'erc1155')
+    // 4. Map Tenderly asset changes field by field: every field is read for its type and a field of another
+    //    type reads as absent, so a reshaped entry can never crash the normalization (an absent field is
+    //    null, an unknown standard is 'unknown').
+    const reportedChanges: AssetChange[] = result.assetChanges.map((entry: unknown) => {
+      const change = asRecord(entry)
+      const tokenInfo = asRecord(change?.token_info)
+      return {
+        type: mapType(asStringProp(change, 'type') ?? undefined),
+        standard: mapStandard(asStringProp(tokenInfo, 'standard') ?? undefined),
+        from: lowerOrNull(asStringProp(change, 'from')),
+        to: lowerOrNull(asStringProp(change, 'to')),
+        amount: asStringishProp(change, 'amount'),
+        rawAmount: asStringishProp(change, 'raw_amount'),
+        tokenId: asStringishProp(change, 'token_id'),
+        contractAddress: lowerOrNull(asStringProp(tokenInfo, 'contract_address')),
+        symbol: asStringProp(tokenInfo, 'symbol'),
+        name: asStringProp(tokenInfo, 'name'),
+        decimals: asNumberProp(tokenInfo, 'decimals'),
+        logoUrl: asStringProp(tokenInfo, 'logo'),
+        dollarValue: asStringishProp(change, 'dollar_value')
+      }
+    })
+
+    // ERC1155 movements have one source per contract. The raw logs are the authoritative one: the standard
+    // requires a TransferSingle or TransferBatch for every movement, and Tenderly's rows of that standard are
+    // unreliable, so where the logs record any movement on a contract, Tenderly's rows for that contract are
+    // dropped and each logged movement is reported once. Where the logs record none, Tenderly's rows stay:
+    // a partial answer must never turn a reported movement into a clean preview.
+    const loggedErc1155 = decodeErc1155Transfers(result.rawLogs)
+    const contractsWithLoggedMovements = new Set(loggedErc1155.map(change => change.contractAddress))
+    const assetChanges: AssetChange[] = reportedChanges.filter(
+      change => change.standard !== 'erc1155' || !contractsWithLoggedMovements.has(change.contractAddress)
+    )
 
     // 5. Approvals from raw logs (primary source), enriched with token metadata, minus the ones a
     //    transfer in the same transaction implies (see withoutTransferImpliedApprovals).
@@ -436,10 +461,8 @@ export async function createSimulationComponent(
       decodeErc721Transfers(result.rawLogs)
     )
 
-    // 6. ERC1155 movements come from the raw logs alone: the standard requires a TransferSingle or
-    //    TransferBatch for every movement, while Tenderly's rows of that standard are unreliable, so its rows
-    //    are dropped in step 4 and each logged movement is reported once, with nothing merged.
-    assetChanges.push(...decodeErc1155Transfers(result.rawLogs))
+    // 6. The ERC1155 movements the logs record (see step 4 for what they replace).
+    assetChanges.push(...loggedErc1155)
 
     // 7. Native-value fallback: synthesize a native transfer when value > 0 and Tenderly did not report one
     //    (a revert never reaches this point).
