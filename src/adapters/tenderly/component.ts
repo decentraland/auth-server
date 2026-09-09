@@ -161,14 +161,20 @@ export async function createTenderlyAdapter({
       throw new TenderlyUnavailableError('Tenderly returned no transaction status')
     }
 
-    // The effects live in `transaction_info`. A successful response without it, without the collections the
-    // preview is built from (`logs`, `asset_changes`), or whose collections or entries are not what the schema
-    // says, would read as a success with no effects or crash the normalization, so it is refused: an absent
-    // field is a partial answer, while a collection Tenderly reports as null is its empty collection and is
-    // accepted as such. The two enrichment collections (`exposure_changes`, `balance_changes`) may be absent.
-    // A revert reports no effects whatever it carries, so it needs none of this.
-    const transactionInfo = isRecord(transaction.transaction_info) ? transaction.transaction_info : null
-    if (!reverted && !transactionInfo) {
+    // A revert reports no effects whatever the trace carries, so nothing past the reason is read: a revert
+    // with unreadable trace metadata is still the "likely to fail" preview, never an outage.
+    if (reverted) {
+      logger.log(`Tenderly simulation ok (to=${to}, networkId=${networkId}, status=false)`)
+      return { status: false, errorMessage, assetChanges: [], exposureChanges: [], rawLogs: [], balanceChanges: [], events: [] }
+    }
+
+    // The effects live in `transaction_info`. A response without it, without the collections the preview is
+    // built from (`logs`, `asset_changes`), or whose collections or entries are not what the schema says,
+    // would read as a success with no effects or crash the normalization, so it is refused: an absent field
+    // is a partial answer, while a collection Tenderly reports as null is its empty collection and is accepted
+    // as such. The two enrichment collections (`exposure_changes`, `balance_changes`) may be absent.
+    const transactionInfo = transaction.transaction_info
+    if (!isRecord(transactionInfo)) {
       throw new TenderlyUnavailableError('Tenderly returned no transaction info')
     }
     const collections: Record<'logs' | 'asset_changes' | 'exposure_changes' | 'balance_changes', Record<string, unknown>[]> = {
@@ -178,9 +184,9 @@ export async function createTenderlyAdapter({
       balance_changes: []
     }
     for (const collection of Object.keys(collections) as Array<keyof typeof collections>) {
-      const value = transactionInfo?.[collection]
+      const value = transactionInfo[collection]
       if (value === undefined) {
-        if (!reverted && EFFECT_COLLECTIONS.has(collection)) {
+        if (EFFECT_COLLECTIONS.has(collection)) {
           throw new TenderlyUnavailableError(`Tenderly returned no ${collection} collection`)
         }
         continue
@@ -228,10 +234,10 @@ export async function createTenderlyAdapter({
       .filter(event => event.address !== '')
       .slice(0, MAX_EVENTS)
 
-    logger.log(`Tenderly simulation ok (to=${to}, networkId=${networkId}, status=${!reverted})`)
+    logger.log(`Tenderly simulation ok (to=${to}, networkId=${networkId}, status=true)`)
 
     return {
-      status: !reverted,
+      status: true,
       errorMessage,
       assetChanges: collections.asset_changes as unknown as TenderlyAssetChange[],
       exposureChanges: collections.exposure_changes,

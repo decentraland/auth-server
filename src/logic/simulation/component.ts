@@ -16,6 +16,7 @@ const erc721ApprovalInterface = new Interface(['event Approval(address indexed o
 const approvalForAllInterface = new Interface(['event ApprovalForAll(address indexed owner, address indexed operator, bool approved)'])
 // ERC20 and ERC721 `Transfer` share topic0 as well; only the 4-topic ERC721 form (indexed tokenId) is read here.
 const erc721TransferInterface = new Interface(['event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'])
+const erc20TransferInterface = new Interface(['event Transfer(address indexed from, address indexed to, uint256 value)'])
 const transferSingleInterface = new Interface([
   'event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)'
 ])
@@ -103,7 +104,6 @@ function mapType(type?: string): AssetChange['type'] {
   }
 }
 
-/** The ERC721 transfers a transaction's raw logs record, as `contract:tokenId:from`, the key the approval filter looks up. */
 // A log that carries the signature of an effect this service reports must decode as one; a log that does not
 // (truncated data, a wrong topic count) cannot be told from an effect that went unreported, so the simulation
 // is failed rather than read short (see UnreadableSimulationError).
@@ -120,22 +120,60 @@ function decodeOrFail<T>(name: string, decode: () => T | null): T {
   return decoded
 }
 
-function decodeErc721Transfers(rawLogs: TenderlySimulationResult['rawLogs']): Set<string> {
-  const transfers = new Set<string>()
+/** A token movement a raw `Transfer` log records: the ERC721 form indexes the token id, the ERC20 form carries the value in the data. */
+type LoggedTransfer = {
+  standard: 'erc20' | 'erc721'
+  contractAddress: string
+  from: string
+  to: string
+  /** Decimal, ERC721 only. */
+  tokenId: string | null
+  /** Decimal, ERC20 only. */
+  rawAmount: string | null
+}
+
+/**
+ * Every ERC20 and ERC721 movement the raw logs record, addresses lowercased. Both standards share the
+ * `Transfer` signature; the topic count tells them apart (four with the indexed token id, three with the
+ * value in the data). A `Transfer` of any other topic count, or one that does not decode, is an effect this
+ * service cannot report and fails the simulation (see decodeOrFail).
+ */
+function decodeTransfers(rawLogs: TenderlySimulationResult['rawLogs']): LoggedTransfer[] {
+  const transfers: LoggedTransfer[] = []
   for (const log of rawLogs) {
     if (!log || !Array.isArray(log.topics) || typeof log.address !== 'string') continue
     if (log.topics[0]?.toLowerCase() !== TRANSFER_TOPIC) continue
-    // Three topics is the ERC20 form, reported through Tenderly's asset changes rather than decoded here.
-    if (log.topics.length === 3) continue
-    if (log.topics.length !== 4) {
+    const contractAddress = log.address.toLowerCase()
+    if (log.topics.length === 4) {
+      const parsed = decodeOrFail('Transfer', () => erc721TransferInterface.parseLog({ topics: log.topics, data: log.data }))
+      transfers.push({
+        standard: 'erc721',
+        contractAddress,
+        from: (parsed.args.from as string).toLowerCase(),
+        to: (parsed.args.to as string).toLowerCase(),
+        tokenId: (parsed.args.tokenId as bigint).toString(),
+        rawAmount: null
+      })
+    } else if (log.topics.length === 3) {
+      const parsed = decodeOrFail('Transfer', () => erc20TransferInterface.parseLog({ topics: log.topics, data: log.data }))
+      transfers.push({
+        standard: 'erc20',
+        contractAddress,
+        from: (parsed.args.from as string).toLowerCase(),
+        to: (parsed.args.to as string).toLowerCase(),
+        tokenId: null,
+        rawAmount: (parsed.args.value as bigint).toString()
+      })
+    } else {
       throw new UnreadableSimulationError('a Transfer log carries neither the ERC20 nor the ERC721 topics')
     }
-    const parsed = decodeOrFail('Transfer', () => erc721TransferInterface.parseLog({ topics: log.topics, data: log.data }))
-    transfers.add(
-      `${log.address.toLowerCase()}:${(parsed.args.tokenId as bigint).toString()}:${(parsed.args.from as string).toLowerCase()}`
-    )
   }
   return transfers
+}
+
+/** The `contract:tokenId:from` keys of the ERC721 movements, which the approval filter looks up. */
+function erc721TransferKeys(transfers: LoggedTransfer[]): Set<string> {
+  return new Set(transfers.filter(t => t.standard === 'erc721').map(t => `${t.contractAddress}:${t.tokenId}:${t.from}`))
 }
 
 /**
@@ -206,6 +244,43 @@ function buildTokenMetaIndex(assetChanges: unknown[], exposureChanges: unknown[]
   }
 
   return index
+}
+
+/**
+ * A logged movement as an asset row. The token is named from what Tenderly said about it (its rows and
+ * exposure changes, indexed by contract); a decimals-applied amount is computed for an ERC20 whose decimals
+ * are known; and when Tenderly reported this very movement, its dollar value, logo and display amount are
+ * kept, since those are Tenderly's to provide. A movement to the zero address is a burn, from it a mint.
+ */
+function toAssetChange(transfer: LoggedTransfer, tokenMeta: Map<string, TokenMeta>, reported: AssetChange[]): AssetChange {
+  const meta = tokenMeta.get(transfer.contractAddress)
+  const match = reported.find(
+    change =>
+      change.contractAddress === transfer.contractAddress &&
+      change.from === transfer.from &&
+      change.to === transfer.to &&
+      (transfer.standard === 'erc721' ? change.tokenId === transfer.tokenId : change.rawAmount === transfer.rawAmount)
+  )
+  const decimals = meta?.decimals ?? match?.decimals ?? null
+  const amount =
+    transfer.standard === 'erc20' && transfer.rawAmount !== null && decimals !== null
+      ? formatUnits(BigInt(transfer.rawAmount), decimals)
+      : match?.amount ?? null
+  return {
+    type: transfer.from === ZeroAddress ? 'mint' : transfer.to === ZeroAddress ? 'burn' : 'transfer',
+    standard: transfer.standard,
+    from: transfer.from,
+    to: transfer.to,
+    amount,
+    rawAmount: transfer.rawAmount,
+    tokenId: transfer.tokenId,
+    contractAddress: transfer.contractAddress,
+    symbol: meta?.symbol ?? match?.symbol ?? null,
+    name: meta?.name ?? match?.name ?? null,
+    decimals,
+    logoUrl: match?.logoUrl ?? null,
+    dollarValue: match?.dollarValue ?? null
+  }
 }
 
 /**
@@ -464,27 +539,28 @@ export async function createSimulationComponent(
       }
     })
 
-    // ERC1155 movements have one source per contract. The raw logs are the authoritative one: the standard
-    // requires a TransferSingle or TransferBatch for every movement, and Tenderly's rows of that standard are
-    // unreliable, so where the logs record any movement on a contract, Tenderly's rows for that contract are
-    // dropped and each logged movement is reported once. Where the logs record none, Tenderly's rows stay:
-    // a partial answer must never turn a reported movement into a clean preview.
-    const loggedErc1155 = decodeErc1155Transfers(result.rawLogs)
-    const contractsWithLoggedMovements = new Set(loggedErc1155.map(change => change.contractAddress))
-    const assetChanges: AssetChange[] = reportedChanges.filter(
-      change => change.standard !== 'erc1155' || !contractsWithLoggedMovements.has(change.contractAddress)
-    )
-
-    // 5. Approvals from raw logs (primary source), enriched with token metadata, minus the ones a
-    //    transfer in the same transaction implies (see withoutTransferImpliedApprovals).
+    // 5. Token movements have one source per contract, and the raw logs are the authoritative one: every
+    //    standard requires an event per movement (Transfer for ERC20 and ERC721, TransferSingle or
+    //    TransferBatch for ERC1155), while Tenderly's rows can be partial. Where the logs record any movement
+    //    on a contract, Tenderly's rows for that contract are dropped and each logged movement is reported
+    //    once, named and priced from what Tenderly said about the token; where the logs record none,
+    //    Tenderly's rows stay. A partial answer can therefore never turn a movement into a clean preview,
+    //    and no movement is ever reported twice.
     const tokenMeta = buildTokenMetaIndex(result.assetChanges, result.exposureChanges)
-    const approvalChanges = withoutTransferImpliedApprovals(
-      decodeApprovals(result.rawLogs, tokenMeta),
-      decodeErc721Transfers(result.rawLogs)
+    const loggedTransfers = decodeTransfers(result.rawLogs)
+    const loggedErc1155 = decodeErc1155Transfers(result.rawLogs)
+    const contractsWithLoggedMovements = new Set([
+      ...loggedTransfers.map(transfer => transfer.contractAddress),
+      ...loggedErc1155.map(change => change.contractAddress)
+    ])
+    const assetChanges: AssetChange[] = reportedChanges.filter(
+      change => change.standard === 'native' || !contractsWithLoggedMovements.has(change.contractAddress ?? '')
     )
+    assetChanges.push(...loggedTransfers.map(transfer => toAssetChange(transfer, tokenMeta, reportedChanges)), ...loggedErc1155)
 
-    // 6. The ERC1155 movements the logs record (see step 4 for what they replace).
-    assetChanges.push(...loggedErc1155)
+    // 6. Approvals from raw logs (primary source), enriched with token metadata, minus the ones a
+    //    transfer in the same transaction implies (see withoutTransferImpliedApprovals).
+    const approvalChanges = withoutTransferImpliedApprovals(decodeApprovals(result.rawLogs, tokenMeta), erc721TransferKeys(loggedTransfers))
 
     // 7. Native-value fallback: synthesize a native transfer when value > 0 and Tenderly did not report one
     //    (a revert never reaches this point).

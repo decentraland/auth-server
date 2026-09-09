@@ -488,6 +488,31 @@ describe('when using the Tenderly adapter', () => {
     })
   })
 
+  describe('and Tenderly reports a revert whose trace metadata is unreadable', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: false,
+            error_info: { error_message: 'execution reverted' },
+            transaction_info: { logs: 'junk', asset_changes: [null] }
+          }
+        })
+      })
+    })
+
+    it('should still read it as a reverted simulation carrying the reason, since a revert reports no effects', async () => {
+      await expect(adapter.simulate(params)).resolves.toMatchObject({
+        status: false,
+        errorMessage: 'execution reverted',
+        assetChanges: [],
+        rawLogs: []
+      })
+    })
+  })
+
   describe('and Tenderly reports a revert without any transaction info', () => {
     beforeEach(() => {
       fetchMock.mockResolvedValue({
