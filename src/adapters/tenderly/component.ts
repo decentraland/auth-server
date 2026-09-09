@@ -9,11 +9,16 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const EFFECT_COLLECTIONS: ReadonlySet<string> = new Set(['logs', 'asset_changes'])
 
 /**
- * A quantity the preview depends on exactly (a raw amount, a token id): absent, a string, or a number a double
- * holds exactly. A larger number has already been rounded by the JSON parse, so it can only be refused.
+ * A quantity the preview depends on exactly (a raw amount, a token id): an unsigned EVM integer. Absent, a
+ * canonical decimal or `0x` hexadecimal string, or a non-negative number a double holds exactly. A larger
+ * number has already been rounded by the JSON parse, and a sign, a fraction, an exponent, spaces or an empty
+ * string are not an unsigned integer, so any of those can only be refused.
  */
+const UNSIGNED_INTEGER_STRING = /^(?:0|[1-9][0-9]*|0x[0-9a-fA-F]+)$/
 const isExactQuantity = (value: unknown): boolean =>
-  value == null || typeof value === 'string' || (typeof value === 'number' && Number.isSafeInteger(value))
+  value == null ||
+  (typeof value === 'string' && UNSIGNED_INTEGER_STRING.test(value)) ||
+  (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)
 
 /** A raw EVM log as the decoders read it: string address and data, string topics. */
 const isRawLog = (value: unknown): value is TenderlyRawLog =>

@@ -399,7 +399,16 @@ describe('when using the Tenderly adapter', () => {
     })
   })
 
-  describe('and an asset change carries its quantities as strings and safe numbers', () => {
+  describe.each([
+    ['a negative string', '-1'],
+    ['an exponent string', '1e18'],
+    ['a fractional string', '1.5'],
+    ['an empty string', ''],
+    ['a padded string', ' 12'],
+    ['a string with a leading zero', '012'],
+    ['a negative number', -1],
+    ['a fractional number', 1.5]
+  ])('and an asset change carries a raw amount that is %s', (_label, rawAmount) => {
     beforeEach(() => {
       fetchMock.mockResolvedValue({
         ok: true,
@@ -408,7 +417,7 @@ describe('when using the Tenderly adapter', () => {
           transaction: {
             status: true,
             transaction_info: {
-              asset_changes: [{ type: 'Transfer', raw_amount: '9007199254740993', token_id: 7 }],
+              asset_changes: [{ type: 'Transfer', raw_amount: rawAmount }],
               exposure_changes: [],
               balance_changes: [],
               logs: []
@@ -418,8 +427,40 @@ describe('when using the Tenderly adapter', () => {
       })
     })
 
-    it('should accept them as sent', async () => {
-      await expect(adapter.simulate(params)).resolves.toMatchObject({ assetChanges: [{ raw_amount: '9007199254740993', token_id: 7 }] })
+    it('should throw a TenderlyUnavailableError, since it is not an unsigned integer', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe('and an asset change carries its quantities as strings and safe numbers', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: true,
+            transaction_info: {
+              asset_changes: [
+                { type: 'Transfer', raw_amount: '9007199254740993', token_id: 7 },
+                { type: 'Transfer', raw_amount: '0', token_id: '0x1F' }
+              ],
+              exposure_changes: [],
+              balance_changes: [],
+              logs: []
+            }
+          }
+        })
+      })
+    })
+
+    it('should accept them as sent, hexadecimal included', async () => {
+      await expect(adapter.simulate(params)).resolves.toMatchObject({
+        assetChanges: [
+          { raw_amount: '9007199254740993', token_id: 7 },
+          { raw_amount: '0', token_id: '0x1F' }
+        ]
+      })
     })
   })
 

@@ -799,6 +799,50 @@ describe('when simulating a transaction', () => {
     })
   })
 
+  describe.each([
+    ['more ids than values', [1n, 2n], [10n]],
+    ['more values than ids', [1n], [10n, 20n]]
+  ])('and a TransferBatch log carries %s', (_label, ids, values) => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(baseResult({ rawLogs: [transferBatchLog(FROM, FROM, TO, ids, values, TOKEN)] }))
+    })
+
+    it('should fail the simulation as unreadable rather than report a partial batch', async () => {
+      await expect(component.simulateTransaction(body)).rejects.toBeInstanceOf(UnreadableSimulationError)
+    })
+  })
+
+  describe('and a Tenderly asset change carries its token id in hexadecimal', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          assetChanges: [
+            {
+              type: 'Transfer',
+              from: FROM,
+              to: TO,
+              token_id: '0x1F',
+              raw_amount: '0x1',
+              token_info: { standard: 'ERC721', contract_address: TOKEN }
+            }
+          ]
+        })
+      )
+    })
+
+    it('should report it in decimal, so one quantity has one spelling', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges).toEqual([expect.objectContaining({ tokenId: '31', rawAmount: '1' })])
+    })
+  })
+
   describe('and the logs carry an event this service does not report, with data it cannot decode', () => {
     let body: SimulationRequestBody
 

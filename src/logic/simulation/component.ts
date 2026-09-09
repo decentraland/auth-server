@@ -47,13 +47,16 @@ function asStringProp(record: Record<string, unknown> | null, key: string): stri
 }
 
 /**
- * Reads a quantity the preview depends on exactly (a raw amount, a token id) as a string, or null: a string
- * as sent, a number only when a double holds it exactly (the adapter refuses anything larger).
+ * Reads a quantity the preview depends on exactly (a raw amount, a token id) as a decimal string, or null.
+ * The adapter has already refused anything but an unsigned integer in canonical decimal or hexadecimal form,
+ * or a non-negative number a double holds exactly; a hexadecimal form is written out in decimal here so one
+ * quantity has one spelling wherever it is compared.
  */
 function asExactQuantityProp(record: Record<string, unknown> | null, key: string): string | null {
   const value = record ? record[key] : undefined
-  if (typeof value === 'string') return value
-  if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value)
+  if (typeof value === 'string' && /^(?:0|[1-9][0-9]*)$/.test(value)) return value
+  if (typeof value === 'string' && /^0x[0-9a-fA-F]+$/.test(value)) return BigInt(value).toString()
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return String(value)
   return null
 }
 
@@ -347,6 +350,11 @@ function decodeErc1155Transfers(rawLogs: TenderlySimulationResult['rawLogs']): A
       const to = parsed.args[2] as string
       const ids = parsed.args[3] as bigint[]
       const values = parsed.args[4] as bigint[]
+      // The ABI encodes the two arrays apart, so they decode whatever their lengths; the standard requires
+      // one value per id, and a batch that breaks that cannot be reported as movements.
+      if (ids.length !== values.length) {
+        throw new UnreadableSimulationError('a TransferBatch log carries a different number of ids and values')
+      }
       for (let i = 0; i < ids.length; i++) {
         changes.push(build(log.address, from, to, ids[i], values[i]))
       }
