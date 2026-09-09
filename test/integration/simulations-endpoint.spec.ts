@@ -36,6 +36,21 @@ test('when simulating a transaction via the endpoint', args => {
     tenderly = args.components.tenderly as jest.Mocked<Pick<ITenderlyAdapter, 'simulate'>>
   })
 
+  describe('and the request carries the largest calldata the auth dapp forwards (96 KiB plus the meta-transaction sender)', () => {
+    let body: Record<string, unknown>
+
+    beforeEach(() => {
+      body = { chainId: 137, from: TOKEN, to: TOKEN, data: `0xa9059cbb${'00'.repeat(96 * 1024 - 4)}${FROM.slice(2)}`, value: '0' }
+      tenderly.simulate.mockResolvedValue(successResult())
+    })
+
+    it('should accept the body instead of refusing it as too large', async () => {
+      const response = await postSimulation(baseUrl, body, '203.0.113.9')
+
+      expect(response.status).toBe(200)
+    })
+  })
+
   describe('and the request is valid and Tenderly returns a successful simulation', () => {
     let body: Record<string, unknown>
 

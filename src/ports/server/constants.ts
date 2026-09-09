@@ -18,5 +18,10 @@ export const MAX_METHOD_LENGTH = 256
 export const MAX_PARAMS_ITEMS = 10
 export const MAX_ERROR_MESSAGE_LENGTH = 10024
 export const MAX_REQUEST_ID_LENGTH = 36 // UUID length
-// Maximum allowed size, in bytes, of an incoming request body (16 KiB).
-export const MAX_BODY_SIZE_BYTES = 16 * 1024
+// Maximum allowed size, in bytes, of an incoming request body. Sized for `POST /simulations`: the auth
+// dapp accepts calldata up to 96 KiB (196,608 hex characters) plus the appended meta-transaction sender
+// and the JSON envelope, about 197 KB, and refuses to review anything larger precisely so that every
+// request it forwards here can be previewed. A cap below that turned legitimate large calls, such as a
+// batch transfer of a few hundred tokens, into a 413 the dapp read as "preview unavailable". Every other
+// route carries its own, much smaller, schema limits.
+export const MAX_BODY_SIZE_BYTES = 256 * 1024

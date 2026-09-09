@@ -14,6 +14,9 @@ const UNLIMITED_THRESHOLD = 2n ** 255n
 const erc20ApprovalInterface = new Interface(['event Approval(address indexed owner, address indexed spender, uint256 value)'])
 const erc721ApprovalInterface = new Interface(['event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId)'])
 const approvalForAllInterface = new Interface(['event ApprovalForAll(address indexed owner, address indexed operator, bool approved)'])
+// ERC20 and ERC721 `Transfer` share topic0 as well; 4 topics ⇒ ERC721 (indexed tokenId), 3 ⇒ ERC20.
+const erc20TransferInterface = new Interface(['event Transfer(address indexed from, address indexed to, uint256 value)'])
+const erc721TransferInterface = new Interface(['event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'])
 const transferSingleInterface = new Interface([
   'event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)'
 ])
@@ -23,6 +26,7 @@ const transferBatchInterface = new Interface([
 
 // keccak256 topic0 signatures (lowercase 0x hex).
 const APPROVAL_TOPIC = id('Approval(address,address,uint256)').toLowerCase()
+const TRANSFER_TOPIC = id('Transfer(address,address,uint256)').toLowerCase()
 const APPROVAL_FOR_ALL_TOPIC = id('ApprovalForAll(address,address,bool)').toLowerCase()
 const TRANSFER_SINGLE_TOPIC = id('TransferSingle(address,address,address,uint256,uint256)').toLowerCase()
 const TRANSFER_BATCH_TOPIC = id('TransferBatch(address,address,address,uint256[],uint256[])').toLowerCase()
@@ -78,9 +82,74 @@ function mapType(type?: string): AssetChange['type'] {
   }
 }
 
-/** Dedupe key for asset changes (contract + tokenId + from + to). */
+/** A token id in one notation, so a hex id from Tenderly and a decimal id from a log compare equal. */
+function normalizeTokenId(tokenId: string | null): string {
+  if (tokenId === null) return ''
+  try {
+    return BigInt(tokenId).toString()
+  } catch {
+    return tokenId
+  }
+}
+
+/** Identity of a movement short of its amount: contract, token id (normalized), from and to. */
 function assetChangeKey(change: Pick<AssetChange, 'contractAddress' | 'tokenId' | 'from' | 'to'>): string {
-  return `${change.contractAddress ?? ''}:${change.tokenId ?? ''}:${change.from ?? ''}:${change.to ?? ''}`
+  return `${change.contractAddress ?? ''}:${normalizeTokenId(change.tokenId)}:${change.from ?? ''}:${change.to ?? ''}`
+}
+
+/** The transfers a transaction's raw logs record, keyed the way the approval filters below look them up. */
+type LoggedTransfers = {
+  /** `contract:tokenId:from` of every ERC721 Transfer. */
+  erc721: Set<string>
+  /** `contract:from` of every ERC20 Transfer. */
+  erc20: Set<string>
+}
+
+function decodeTransfers(rawLogs: TenderlySimulationResult['rawLogs']): LoggedTransfers {
+  const transfers: LoggedTransfers = { erc721: new Set(), erc20: new Set() }
+  for (const log of rawLogs) {
+    if (!log || !Array.isArray(log.topics) || typeof log.address !== 'string') continue
+    if (log.topics[0]?.toLowerCase() !== TRANSFER_TOPIC) continue
+    const contractAddress = log.address.toLowerCase()
+    try {
+      if (log.topics.length === 4) {
+        const parsed = erc721TransferInterface.parseLog({ topics: log.topics, data: log.data })
+        if (!parsed) continue
+        transfers.erc721.add(
+          `${contractAddress}:${(parsed.args.tokenId as bigint).toString()}:${(parsed.args.from as string).toLowerCase()}`
+        )
+      } else if (log.topics.length === 3) {
+        const parsed = erc20TransferInterface.parseLog({ topics: log.topics, data: log.data })
+        if (!parsed) continue
+        transfers.erc20.add(`${contractAddress}:${(parsed.args.from as string).toLowerCase()}`)
+      }
+    } catch {
+      // A malformed log is skipped, like everywhere else in this decoder.
+    }
+  }
+  return transfers
+}
+
+/**
+ * Drops the `Approval` logs a transfer emits as a side effect, which are not grants: an ERC721 transfer
+ * clears the token's approval (`Approval(owner, 0x0, tokenId)`, every OpenZeppelin-derived collection
+ * emits it), and an ERC20 `transferFrom` writes the remaining allowance (`Approval(owner, spender,
+ * remaining)`, which reads as an unlimited grant when the allowance was unlimited). Either would put a
+ * permission change in front of the user for a transaction that changes no permission; the second even
+ * triggers the dapp's high-risk approval warning on every marketplace purchase. An approval is kept as a
+ * grant only when the same transaction logs no transfer of that token from that owner.
+ */
+function withoutTransferImpliedApprovals(approvals: ApprovalChange[], transfers: LoggedTransfers): ApprovalChange[] {
+  return approvals.filter(approval => {
+    if (approval.kind !== 'approval') return true
+    if (approval.standard === 'erc721') {
+      return !transfers.erc721.has(`${approval.contractAddress}:${normalizeTokenId(approval.tokenId)}:${approval.owner}`)
+    }
+    if (approval.standard === 'erc20') {
+      return !transfers.erc20.has(`${approval.contractAddress}:${approval.owner}`)
+    }
+    return true
+  })
 }
 
 /** Token symbol/name/decimals looked up by contract address (lowercased). */
@@ -355,18 +424,22 @@ export async function createSimulationComponent(
       dollarValue: change.dollar_value ?? null
     }))
 
-    // 5. Approvals from raw logs (primary source), enriched with token metadata.
+    // 5. Approvals from raw logs (primary source), enriched with token metadata, minus the ones a
+    //    transfer in the same transaction implies (see withoutTransferImpliedApprovals).
     const tokenMeta = buildTokenMetaIndex(result.assetChanges, result.exposureChanges)
-    const approvalChanges = decodeApprovals(result.rawLogs, tokenMeta)
+    const approvalChanges = withoutTransferImpliedApprovals(decodeApprovals(result.rawLogs, tokenMeta), decodeTransfers(result.rawLogs))
 
-    // 6. ERC1155 transfer fallback — only add transfers not already present.
-    const existingKeys = new Set(assetChanges.map(assetChangeKey))
-    for (const erc1155Change of decodeErc1155Transfers(result.rawLogs)) {
-      const key = assetChangeKey(erc1155Change)
-      if (!existingKeys.has(key)) {
-        existingKeys.add(key)
-        assetChanges.push(erc1155Change)
-      }
+    // 6. ERC1155 transfer fallback. An ERC1155 id is fungible, so two logged transfers of one id between
+    //    the same parties are two movements: logged transfers are compared with Tenderly's rows only,
+    //    never with each other. A logged transfer Tenderly reported with the same amount is a duplicate;
+    //    one Tenderly reported without an amount replaces that row, since the log carries the amount.
+    for (const logged of decodeErc1155Transfers(result.rawLogs)) {
+      const key = assetChangeKey(logged)
+      const isSameMovement = (row: AssetChange) => row.standard === 'erc1155' && assetChangeKey(row) === key
+      if (assetChanges.some(row => isSameMovement(row) && row.rawAmount === logged.rawAmount)) continue
+      const unquantified = assetChanges.findIndex(row => isSameMovement(row) && row.rawAmount === null)
+      if (unquantified !== -1) assetChanges.splice(unquantified, 1)
+      assetChanges.push(logged)
     }
 
     // 7. Native-value fallback — synthesize a native transfer when the tx succeeded,
@@ -394,10 +467,13 @@ export async function createSimulationComponent(
       `Simulated tx on chain ${body.chainId}: status=${status} assets=${assetChanges.length} approvals=${approvalChanges.length}`
     )
 
+    // A reverted transaction changes nothing, so it moves no asset and grants no approval whatever the
+    // simulator's traces recorded before the revert; reporting them would show effects next to "likely to
+    // fail".
     const response: SimulationResponseBody = {
       status,
-      assetChanges,
-      approvalChanges,
+      assetChanges: status === 'reverted' ? [] : assetChanges,
+      approvalChanges: status === 'reverted' ? [] : approvalChanges,
       balanceChanges: result.balanceChanges,
       events: result.events
     }
