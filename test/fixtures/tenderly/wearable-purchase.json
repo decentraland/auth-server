@@ -1,0 +1,995 @@
+{
+  "scenario": "wearable-purchase",
+  "expectation": "success with several ERC20 movements (seller, fee collector, royalties) and one ERC721 movement through OffChainMarketplaceV2.accept, plus the allowance write",
+  "recordedAt": "2026-09-09T20:51:57.438Z",
+  "networkId": "137",
+  "request": {
+    "from": "0xe339ebc7ec708bf42eed1b54a4df852312db2c5b",
+    "to": "0xa40b1d129b8906888720686f3a01921ddf37716f",
+    "input": "0x961a547e00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000062403bb5dabcc27ce52912e3b7821b2b4216366100000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000001200000000000000000000000000000000000000000000000000000000000000280000000000000000000000000000000000000000000000000000000000000038000000000000000000000000000000000000000000000000000000000000000413140fb652a9b61918df8b09bea153446c8f918e5f3ea08b69873560de4d7862137acdfbaacde63ca7387e23c02d3e381b7b9040db29b28d6acc7164447fa0a1d1b000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000007251d200000000000000000000000000000000000000000000000000000000006aa15e31000000000000000000000000000000000000000000000000000000371d81905400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001200000000000000000000000000000000000000000000000000000000000000140000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000030000000000000000000000001d0f011d0ab221c87b3047140395a0c2510e80670000000000000000000000000000000000000000000000000000000000000155000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000001000000000000000000000000a1c57f48f0deb89f569dfbe6e2b7f46d33606fd40000000000000000000000000000000000000000000000007ce66c50e284000000000000000000000000000062403bb5dabcc27ce52912e3b7821b2b4216366100000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000000000000",
+    "value": "0"
+  },
+  "httpStatus": 200,
+  "response": {
+    "presentKeys": [
+      "transaction",
+      "simulation",
+      "contracts",
+      "generated_access_list"
+    ],
+    "transaction": {
+      "presentKeys": [
+        "hash",
+        "block_hash",
+        "block_number",
+        "from",
+        "gas",
+        "gas_price",
+        "gas_fee_cap",
+        "gas_tip_cap",
+        "cumulative_gas_used",
+        "gas_used",
+        "effective_gas_price",
+        "input",
+        "nonce",
+        "to",
+        "index",
+        "value",
+        "access_list",
+        "status",
+        "addresses",
+        "contract_ids",
+        "network_id",
+        "timestamp",
+        "function_selector",
+        "l1_block_number",
+        "l1_timestamp",
+        "deposit_tx",
+        "system_tx",
+        "sig",
+        "transaction_info",
+        "method",
+        "decoded_input",
+        "call_trace",
+        "value_fee_currency",
+        "value_gateway_fee",
+        "value_gateway_fee_recipient"
+      ],
+      "status": true,
+      "transaction_info": {
+        "presentKeys": [
+          "contract_id",
+          "block_number",
+          "transaction_id",
+          "contract_address",
+          "method",
+          "parameters",
+          "intrinsic_gas",
+          "refund_gas",
+          "call_trace",
+          "stack_trace",
+          "logs",
+          "balance_diff",
+          "nonce_diff",
+          "state_diff",
+          "raw_state_diff",
+          "console_logs",
+          "asset_changes",
+          "exposure_changes",
+          "balance_changes",
+          "created_at"
+        ],
+        "logs": [
+          {
+            "name": "Approval",
+            "EmitterAddress": "",
+            "anonymous": false,
+            "inputs": [
+              {
+                "soltype": {
+                  "name": "owner",
+                  "type": "address",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": true,
+                  "simple_type": {
+                    "type": "address"
+                  }
+                },
+                "value": "0x62403bb5dabcc27ce52912e3b7821b2b42163661"
+              },
+              {
+                "soltype": {
+                  "name": "approved",
+                  "type": "address",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": true,
+                  "simple_type": {
+                    "type": "address"
+                  }
+                },
+                "value": "0x0000000000000000000000000000000000000000"
+              },
+              {
+                "soltype": {
+                  "name": "tokenId",
+                  "type": "uint256",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": true,
+                  "simple_type": {
+                    "type": "uint"
+                  }
+                },
+                "value": "341"
+              }
+            ],
+            "raw": {
+              "address": "0x1d0f011d0ab221c87b3047140395a0c2510e8067",
+              "topics": [
+                "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
+                "0x00000000000000000000000062403bb5dabcc27ce52912e3b7821b2b42163661",
+                "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "0x0000000000000000000000000000000000000000000000000000000000000155"
+              ],
+              "data": "0x"
+            },
+            "trace_index": null
+          },
+          {
+            "name": "Transfer",
+            "EmitterAddress": "",
+            "anonymous": false,
+            "inputs": [
+              {
+                "soltype": {
+                  "name": "from",
+                  "type": "address",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": true,
+                  "simple_type": {
+                    "type": "address"
+                  }
+                },
+                "value": "0x62403bb5dabcc27ce52912e3b7821b2b42163661"
+              },
+              {
+                "soltype": {
+                  "name": "to",
+                  "type": "address",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": true,
+                  "simple_type": {
+                    "type": "address"
+                  }
+                },
+                "value": "0xe339ebc7ec708bf42eed1b54a4df852312db2c5b"
+              },
+              {
+                "soltype": {
+                  "name": "tokenId",
+                  "type": "uint256",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": true,
+                  "simple_type": {
+                    "type": "uint"
+                  }
+                },
+                "value": "341"
+              }
+            ],
+            "raw": {
+              "address": "0x1d0f011d0ab221c87b3047140395a0c2510e8067",
+              "topics": [
+                "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                "0x00000000000000000000000062403bb5dabcc27ce52912e3b7821b2b42163661",
+                "0x000000000000000000000000e339ebc7ec708bf42eed1b54a4df852312db2c5b",
+                "0x0000000000000000000000000000000000000000000000000000000000000155"
+              ],
+              "data": "0x"
+            },
+            "trace_index": null
+          },
+          {
+            "name": "Transfer",
+            "EmitterAddress": "",
+            "anonymous": false,
+            "inputs": [
+              {
+                "soltype": {
+                  "name": "from",
+                  "type": "address",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": true,
+                  "simple_type": {
+                    "type": "address"
+                  }
+                },
+                "value": "0xe339ebc7ec708bf42eed1b54a4df852312db2c5b"
+              },
+              {
+                "soltype": {
+                  "name": "to",
+                  "type": "address",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": true,
+                  "simple_type": {
+                    "type": "address"
+                  }
+                },
+                "value": "0x4b50fc19c2f9cebcd459d0c384dae8db39fd05ae"
+              },
+              {
+                "soltype": {
+                  "name": "value",
+                  "type": "uint256",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": false,
+                  "simple_type": {
+                    "type": "uint"
+                  }
+                },
+                "value": "225000000000000000"
+              }
+            ],
+            "raw": {
+              "address": "0xa1c57f48f0deb89f569dfbe6e2b7f46d33606fd4",
+              "topics": [
+                "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                "0x000000000000000000000000e339ebc7ec708bf42eed1b54a4df852312db2c5b",
+                "0x0000000000000000000000004b50fc19c2f9cebcd459d0c384dae8db39fd05ae"
+              ],
+              "data": "0x000000000000000000000000000000000000000000000000031f5c4ed2768000"
+            },
+            "trace_index": null
+          },
+          {
+            "name": "Approval",
+            "EmitterAddress": "",
+            "anonymous": false,
+            "inputs": [
+              {
+                "soltype": {
+                  "name": "owner",
+                  "type": "address",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": true,
+                  "simple_type": {
+                    "type": "address"
+                  }
+                },
+                "value": "0xe339ebc7ec708bf42eed1b54a4df852312db2c5b"
+              },
+              {
+                "soltype": {
+                  "name": "spender",
+                  "type": "address",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": true,
+                  "simple_type": {
+                    "type": "address"
+                  }
+                },
+                "value": "0xa40b1d129b8906888720686f3a01921ddf37716f"
+              },
+              {
+                "soltype": {
+                  "name": "value",
+                  "type": "uint256",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": false,
+                  "simple_type": {
+                    "type": "uint"
+                  }
+                },
+                "value": "115792089237316195423570985008687907853269984665640564038774269007913129639935"
+              }
+            ],
+            "raw": {
+              "address": "0xa1c57f48f0deb89f569dfbe6e2b7f46d33606fd4",
+              "topics": [
+                "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
+                "0x000000000000000000000000e339ebc7ec708bf42eed1b54a4df852312db2c5b",
+                "0x000000000000000000000000a40b1d129b8906888720686f3a01921ddf37716f"
+              ],
+              "data": "0xffffffffffffffffffffffffffffffffffffffffffffffdaf51973dba7f47fff"
+            },
+            "trace_index": null
+          },
+          {
+            "name": "Transfer",
+            "EmitterAddress": "",
+            "anonymous": false,
+            "inputs": [
+              {
+                "soltype": {
+                  "name": "from",
+                  "type": "address",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": true,
+                  "simple_type": {
+                    "type": "address"
+                  }
+                },
+                "value": "0xe339ebc7ec708bf42eed1b54a4df852312db2c5b"
+              },
+              {
+                "soltype": {
+                  "name": "to",
+                  "type": "address",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": true,
+                  "simple_type": {
+                    "type": "address"
+                  }
+                },
+                "value": "0x62403bb5dabcc27ce52912e3b7821b2b42163661"
+              },
+              {
+                "soltype": {
+                  "name": "value",
+                  "type": "uint256",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": false,
+                  "simple_type": {
+                    "type": "uint"
+                  }
+                },
+                "value": "8775000000000000000"
+              }
+            ],
+            "raw": {
+              "address": "0xa1c57f48f0deb89f569dfbe6e2b7f46d33606fd4",
+              "topics": [
+                "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                "0x000000000000000000000000e339ebc7ec708bf42eed1b54a4df852312db2c5b",
+                "0x00000000000000000000000062403bb5dabcc27ce52912e3b7821b2b42163661"
+              ],
+              "data": "0x00000000000000000000000000000000000000000000000079c71002100d8000"
+            },
+            "trace_index": null
+          },
+          {
+            "name": "Approval",
+            "EmitterAddress": "",
+            "anonymous": false,
+            "inputs": [
+              {
+                "soltype": {
+                  "name": "owner",
+                  "type": "address",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": true,
+                  "simple_type": {
+                    "type": "address"
+                  }
+                },
+                "value": "0xe339ebc7ec708bf42eed1b54a4df852312db2c5b"
+              },
+              {
+                "soltype": {
+                  "name": "spender",
+                  "type": "address",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": true,
+                  "simple_type": {
+                    "type": "address"
+                  }
+                },
+                "value": "0xa40b1d129b8906888720686f3a01921ddf37716f"
+              },
+              {
+                "soltype": {
+                  "name": "value",
+                  "type": "uint256",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": false,
+                  "simple_type": {
+                    "type": "uint"
+                  }
+                },
+                "value": "115792089237316195423570985008687907853269984665640564038765494007913129639935"
+              }
+            ],
+            "raw": {
+              "address": "0xa1c57f48f0deb89f569dfbe6e2b7f46d33606fd4",
+              "topics": [
+                "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
+                "0x000000000000000000000000e339ebc7ec708bf42eed1b54a4df852312db2c5b",
+                "0x000000000000000000000000a40b1d129b8906888720686f3a01921ddf37716f"
+              ],
+              "data": "0xffffffffffffffffffffffffffffffffffffffffffffffda7b5263d997e6ffff"
+            },
+            "trace_index": null
+          },
+          {
+            "name": "Traded",
+            "EmitterAddress": "",
+            "anonymous": false,
+            "inputs": [
+              {
+                "soltype": {
+                  "name": "_caller",
+                  "type": "address",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": true,
+                  "simple_type": {
+                    "type": "address"
+                  }
+                },
+                "value": "0xe339ebc7ec708bf42eed1b54a4df852312db2c5b"
+              },
+              {
+                "soltype": {
+                  "name": "_signature",
+                  "type": "bytes32",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": true,
+                  "simple_type": {
+                    "type": "bytes"
+                  }
+                },
+                "value": "0x13c3a5ba52e0ea9b0e48c762cd0d9659a979297505ce1cff93527673886cd644"
+              },
+              {
+                "soltype": {
+                  "name": "_trade",
+                  "type": "tuple",
+                  "storage_location": "default",
+                  "components": [
+                    {
+                      "name": "signer",
+                      "type": "address",
+                      "storage_location": "default",
+                      "offset": 0,
+                      "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                      "indexed": false,
+                      "simple_type": {
+                        "type": "address"
+                      }
+                    },
+                    {
+                      "name": "signature",
+                      "type": "bytes",
+                      "storage_location": "default",
+                      "offset": 0,
+                      "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                      "indexed": false,
+                      "simple_type": {
+                        "type": "bytes"
+                      }
+                    },
+                    {
+                      "name": "checks",
+                      "type": "tuple",
+                      "storage_location": "default",
+                      "components": [
+                        {
+                          "name": "uses",
+                          "type": "uint256",
+                          "storage_location": "default",
+                          "offset": 0,
+                          "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                          "indexed": false,
+                          "simple_type": {
+                            "type": "uint"
+                          }
+                        },
+                        {
+                          "name": "expiration",
+                          "type": "uint256",
+                          "storage_location": "default",
+                          "offset": 0,
+                          "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                          "indexed": false,
+                          "simple_type": {
+                            "type": "uint"
+                          }
+                        },
+                        {
+                          "name": "effective",
+                          "type": "uint256",
+                          "storage_location": "default",
+                          "offset": 0,
+                          "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                          "indexed": false,
+                          "simple_type": {
+                            "type": "uint"
+                          }
+                        },
+                        {
+                          "name": "salt",
+                          "type": "bytes32",
+                          "storage_location": "default",
+                          "offset": 0,
+                          "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                          "indexed": false,
+                          "simple_type": {
+                            "type": "bytes"
+                          }
+                        },
+                        {
+                          "name": "contractSignatureIndex",
+                          "type": "uint256",
+                          "storage_location": "default",
+                          "offset": 0,
+                          "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                          "indexed": false,
+                          "simple_type": {
+                            "type": "uint"
+                          }
+                        },
+                        {
+                          "name": "signerSignatureIndex",
+                          "type": "uint256",
+                          "storage_location": "default",
+                          "offset": 0,
+                          "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                          "indexed": false,
+                          "simple_type": {
+                            "type": "uint"
+                          }
+                        },
+                        {
+                          "name": "allowedRoot",
+                          "type": "bytes32",
+                          "storage_location": "default",
+                          "offset": 0,
+                          "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                          "indexed": false,
+                          "simple_type": {
+                            "type": "bytes"
+                          }
+                        },
+                        {
+                          "name": "allowedProof",
+                          "type": "bytes32[]",
+                          "storage_location": "default",
+                          "offset": 0,
+                          "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                          "indexed": false,
+                          "simple_type": {
+                            "type": "slice",
+                            "nested_type": {
+                              "type": "bytes"
+                            }
+                          }
+                        },
+                        {
+                          "name": "externalChecks",
+                          "type": "tuple[]",
+                          "storage_location": "default",
+                          "components": [
+                            {
+                              "name": "contractAddress",
+                              "type": "address",
+                              "storage_location": "default",
+                              "offset": 0,
+                              "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                              "indexed": false,
+                              "simple_type": {
+                                "type": "address"
+                              }
+                            },
+                            {
+                              "name": "selector",
+                              "type": "bytes4",
+                              "storage_location": "default",
+                              "offset": 0,
+                              "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                              "indexed": false,
+                              "simple_type": {
+                                "type": "bytes"
+                              }
+                            },
+                            {
+                              "name": "value",
+                              "type": "bytes",
+                              "storage_location": "default",
+                              "offset": 0,
+                              "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                              "indexed": false,
+                              "simple_type": {
+                                "type": "bytes"
+                              }
+                            },
+                            {
+                              "name": "required",
+                              "type": "bool",
+                              "storage_location": "default",
+                              "offset": 0,
+                              "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                              "indexed": false,
+                              "simple_type": {
+                                "type": "bool"
+                              }
+                            }
+                          ],
+                          "offset": 0,
+                          "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                          "indexed": false,
+                          "simple_type": {
+                            "type": "slice"
+                          }
+                        }
+                      ],
+                      "offset": 0,
+                      "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                      "indexed": false
+                    },
+                    {
+                      "name": "sent",
+                      "type": "tuple[]",
+                      "storage_location": "default",
+                      "components": [
+                        {
+                          "name": "assetType",
+                          "type": "uint256",
+                          "storage_location": "default",
+                          "offset": 0,
+                          "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                          "indexed": false,
+                          "simple_type": {
+                            "type": "uint"
+                          }
+                        },
+                        {
+                          "name": "contractAddress",
+                          "type": "address",
+                          "storage_location": "default",
+                          "offset": 0,
+                          "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                          "indexed": false,
+                          "simple_type": {
+                            "type": "address"
+                          }
+                        },
+                        {
+                          "name": "value",
+                          "type": "uint256",
+                          "storage_location": "default",
+                          "offset": 0,
+                          "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                          "indexed": false,
+                          "simple_type": {
+                            "type": "uint"
+                          }
+                        },
+                        {
+                          "name": "beneficiary",
+                          "type": "address",
+                          "storage_location": "default",
+                          "offset": 0,
+                          "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                          "indexed": false,
+                          "simple_type": {
+                            "type": "address"
+                          }
+                        },
+                        {
+                          "name": "extra",
+                          "type": "bytes",
+                          "storage_location": "default",
+                          "offset": 0,
+                          "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                          "indexed": false,
+                          "simple_type": {
+                            "type": "bytes"
+                          }
+                        }
+                      ],
+                      "offset": 0,
+                      "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                      "indexed": false,
+                      "simple_type": {
+                        "type": "slice"
+                      }
+                    },
+                    {
+                      "name": "received",
+                      "type": "tuple[]",
+                      "storage_location": "default",
+                      "components": [
+                        {
+                          "name": "assetType",
+                          "type": "uint256",
+                          "storage_location": "default",
+                          "offset": 0,
+                          "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                          "indexed": false,
+                          "simple_type": {
+                            "type": "uint"
+                          }
+                        },
+                        {
+                          "name": "contractAddress",
+                          "type": "address",
+                          "storage_location": "default",
+                          "offset": 0,
+                          "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                          "indexed": false,
+                          "simple_type": {
+                            "type": "address"
+                          }
+                        },
+                        {
+                          "name": "value",
+                          "type": "uint256",
+                          "storage_location": "default",
+                          "offset": 0,
+                          "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                          "indexed": false,
+                          "simple_type": {
+                            "type": "uint"
+                          }
+                        },
+                        {
+                          "name": "beneficiary",
+                          "type": "address",
+                          "storage_location": "default",
+                          "offset": 0,
+                          "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                          "indexed": false,
+                          "simple_type": {
+                            "type": "address"
+                          }
+                        },
+                        {
+                          "name": "extra",
+                          "type": "bytes",
+                          "storage_location": "default",
+                          "offset": 0,
+                          "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                          "indexed": false,
+                          "simple_type": {
+                            "type": "bytes"
+                          }
+                        }
+                      ],
+                      "offset": 0,
+                      "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                      "indexed": false,
+                      "simple_type": {
+                        "type": "slice"
+                      }
+                    }
+                  ],
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": false
+                },
+                "value": {
+                  "checks": {
+                    "allowedProof": [],
+                    "allowedRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "contractSignatureIndex": "0",
+                    "effective": "1788960305",
+                    "expiration": "1917964800",
+                    "externalChecks": [],
+                    "salt": "0x000000000000000000000000000000000000000000000000000000371d819054",
+                    "signerSignatureIndex": "0",
+                    "uses": "1"
+                  },
+                  "received": [
+                    {
+                      "assetType": "1",
+                      "beneficiary": "0x62403bb5dabcc27ce52912e3b7821b2b42163661",
+                      "contractAddress": "0xa1c57f48f0deb89f569dfbe6e2b7f46d33606fd4",
+                      "extra": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000020000000000000000000000004b50fc19c2f9cebcd459d0c384dae8db39fd05ae0000000000000000000000000000000000000000000000000000000000000000",
+                      "value": "9000000000000000000"
+                    }
+                  ],
+                  "sent": [
+                    {
+                      "assetType": "3",
+                      "beneficiary": "0xe339ebc7ec708bf42eed1b54a4df852312db2c5b",
+                      "contractAddress": "0x1d0f011d0ab221c87b3047140395a0c2510e8067",
+                      "extra": "0x",
+                      "value": "341"
+                    }
+                  ],
+                  "signature": "0x3140fb652a9b61918df8b09bea153446c8f918e5f3ea08b69873560de4d7862137acdfbaacde63ca7387e23c02d3e381b7b9040db29b28d6acc7164447fa0a1d1b",
+                  "signer": "0x62403bb5dabcc27ce52912e3b7821b2b42163661"
+                }
+              }
+            ],
+            "raw": {
+              "address": "0xa40b1d129b8906888720686f3a01921ddf37716f",
+              "topics": [
+                "0xaaecdfa7e74e704650fcb273f630f42f68974eff42bfffc1732cf30db9e4685b",
+                "0x000000000000000000000000e339ebc7ec708bf42eed1b54a4df852312db2c5b",
+                "0x13c3a5ba52e0ea9b0e48c762cd0d9659a979297505ce1cff93527673886cd644"
+              ],
+              "data": "0x000000000000000000000000000000000000000000000000000000000000002000000000000000000000000062403bb5dabcc27ce52912e3b7821b2b4216366100000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000001200000000000000000000000000000000000000000000000000000000000000280000000000000000000000000000000000000000000000000000000000000038000000000000000000000000000000000000000000000000000000000000000413140fb652a9b61918df8b09bea153446c8f918e5f3ea08b69873560de4d7862137acdfbaacde63ca7387e23c02d3e381b7b9040db29b28d6acc7164447fa0a1d1b000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000007251d200000000000000000000000000000000000000000000000000000000006aa15e31000000000000000000000000000000000000000000000000000000371d81905400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001200000000000000000000000000000000000000000000000000000000000000140000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000030000000000000000000000001d0f011d0ab221c87b3047140395a0c2510e80670000000000000000000000000000000000000000000000000000000000000155000000000000000000000000e339ebc7ec708bf42eed1b54a4df852312db2c5b00000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000001000000000000000000000000a1c57f48f0deb89f569dfbe6e2b7f46d33606fd40000000000000000000000000000000000000000000000007ce66c50e284000000000000000000000000000062403bb5dabcc27ce52912e3b7821b2b4216366100000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000020000000000000000000000004b50fc19c2f9cebcd459d0c384dae8db39fd05ae0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "trace_index": null
+          }
+        ],
+        "asset_changes": [
+          {
+            "token_info": {
+              "standard": "ERC721",
+              "type": "NonFungible",
+              "contract_address": "0x1d0f011d0ab221c87b3047140395a0c2510e8067",
+              "symbol": "DCL-CC-CLCHRSTMSJMPR",
+              "name": "Coca-Cola Christmas  Jumper",
+              "decimals": 0,
+              "dollar_value": "0"
+            },
+            "type": "Transfer",
+            "from": "0x62403bb5dabcc27ce52912e3b7821b2b42163661",
+            "to": "0xe339ebc7ec708bf42eed1b54a4df852312db2c5b",
+            "amount": "1",
+            "raw_amount": "1",
+            "token_id": "0x0000000000000000000000000000000000000000000000000000000000000155",
+            "trace_absolute_position": 10980,
+            "dollar_value": "0",
+            "from_before_balance": "0x0",
+            "to_before_balance": "0x0"
+          },
+          {
+            "token_info": {
+              "standard": "ERC20",
+              "type": "Fungible",
+              "contract_address": "0xa1c57f48f0deb89f569dfbe6e2b7f46d33606fd4",
+              "symbol": "mana",
+              "name": "Decentraland",
+              "logo": "https://coin-images.coingecko.com/coins/images/878/large/decentraland-mana.png?1696502010",
+              "decimals": 18,
+              "dollar_value": "0.07477100193500519"
+            },
+            "type": "Transfer",
+            "from": "0xe339ebc7ec708bf42eed1b54a4df852312db2c5b",
+            "to": "0x4b50fc19c2f9cebcd459d0c384dae8db39fd05ae",
+            "amount": "0.225",
+            "raw_amount": "225000000000000000",
+            "trace_absolute_position": 13196,
+            "dollar_value": "0.016823475435376167296",
+            "from_before_balance": "0x605cf6f2bfcc774084",
+            "to_before_balance": "0x36ace8bb66470c90"
+          },
+          {
+            "token_info": {
+              "standard": "ERC20",
+              "type": "Fungible",
+              "contract_address": "0xa1c57f48f0deb89f569dfbe6e2b7f46d33606fd4",
+              "symbol": "mana",
+              "name": "Decentraland",
+              "logo": "https://coin-images.coingecko.com/coins/images/878/large/decentraland-mana.png?1696502010",
+              "decimals": 18,
+              "dollar_value": "0.07477100193500519"
+            },
+            "type": "Transfer",
+            "from": "0xe339ebc7ec708bf42eed1b54a4df852312db2c5b",
+            "to": "0x62403bb5dabcc27ce52912e3b7821b2b42163661",
+            "amount": "8.775",
+            "raw_amount": "8775000000000000000",
+            "trace_absolute_position": 14504,
+            "dollar_value": "0.6561155419796705246",
+            "from_before_balance": "0x6059d79670fa00c084",
+            "to_before_balance": "0x44777abe671d0e000"
+          }
+        ],
+        "exposure_changes": [
+          {
+            "token_info": {
+              "standard": "ERC721",
+              "type": "NonFungible",
+              "contract_address": "0x1d0f011d0ab221c87b3047140395a0c2510e8067",
+              "symbol": "DCL-CC-CLCHRSTMSJMPR",
+              "name": "Coca-Cola Christmas  Jumper",
+              "decimals": 0,
+              "dollar_value": "0"
+            },
+            "type": "Approve",
+            "owner": "0x62403bb5dabcc27ce52912e3b7821b2b42163661",
+            "amount": "1",
+            "raw_amount": "1",
+            "token_id": "0x0000000000000000000000000000000000000000000000000000000000000155",
+            "dollar_value": "0"
+          },
+          {
+            "token_info": {
+              "standard": "ERC20",
+              "type": "Fungible",
+              "contract_address": "0xa1c57f48f0deb89f569dfbe6e2b7f46d33606fd4",
+              "symbol": "mana",
+              "name": "Decentraland",
+              "logo": "https://coin-images.coingecko.com/coins/images/878/large/decentraland-mana.png?1696502010",
+              "decimals": 18,
+              "dollar_value": "0.07477100193500519"
+            },
+            "type": "Approve",
+            "owner": "0xe339ebc7ec708bf42eed1b54a4df852312db2c5b",
+            "spender": "0xa40b1d129b8906888720686f3a01921ddf37716f",
+            "amount": "115792089237316195423570985008687907853269984665640564038774.269007913129639935",
+            "raw_amount": "115792089237316195423570985008687907853269984665640564038774269007913129639935",
+            "dollar_value": "8657890528421662650224688915366517871058204311807412286282.6199934646409476978"
+          },
+          {
+            "token_info": {
+              "standard": "ERC20",
+              "type": "Fungible",
+              "contract_address": "0xa1c57f48f0deb89f569dfbe6e2b7f46d33606fd4",
+              "symbol": "mana",
+              "name": "Decentraland",
+              "logo": "https://coin-images.coingecko.com/coins/images/878/large/decentraland-mana.png?1696502010",
+              "decimals": 18,
+              "dollar_value": "0.07477100193500519"
+            },
+            "type": "Approve",
+            "owner": "0xe339ebc7ec708bf42eed1b54a4df852312db2c5b",
+            "spender": "0xa40b1d129b8906888720686f3a01921ddf37716f",
+            "amount": "115792089237316195423570985008687907853269984665640564038765.494007913129639936",
+            "raw_amount": "115792089237316195423570985008687907853269984665640564038765494007913129639935",
+            "dollar_value": "8657890528421662650224688915366517871058204311807412286281.9638779226612771731"
+          }
+        ],
+        "balance_changes": [
+          {
+            "address": "0x4b50fc19c2f9cebcd459d0c384dae8db39fd05ae",
+            "dollar_value": "0.016823475435376167296",
+            "transfers": [
+              1
+            ]
+          },
+          {
+            "address": "0x62403bb5dabcc27ce52912e3b7821b2b42163661",
+            "dollar_value": "0.6561155419796705246",
+            "transfers": [
+              0,
+              2
+            ]
+          },
+          {
+            "address": "0xe339ebc7ec708bf42eed1b54a4df852312db2c5b",
+            "dollar_value": "-0.6729390174150466919",
+            "transfers": [
+              0,
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

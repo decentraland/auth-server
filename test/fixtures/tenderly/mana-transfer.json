@@ -11,12 +11,7 @@
   },
   "httpStatus": 200,
   "response": {
-    "presentKeys": [
-      "transaction",
-      "simulation",
-      "contracts",
-      "generated_access_list"
-    ],
+    "presentKeys": ["transaction", "simulation", "contracts", "generated_access_list"],
     "transaction": {
       "presentKeys": [
         "hash",
@@ -168,16 +163,12 @@
           {
             "address": "0x000000000000000000000000000000000000dead",
             "dollar_value": "0.074449002742767333984",
-            "transfers": [
-              0
-            ]
+            "transfers": [0]
           },
           {
             "address": "0xaca5bc79b0cd51b726d2eadfc747f7ad4dfe7efb",
             "dollar_value": "-0.074449002742767333984",
-            "transfers": [
-              0
-            ]
+            "transfers": [0]
           }
         ]
       }
