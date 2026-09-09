@@ -6,8 +6,9 @@
  * does what we think a Tenderly answer looks like, not that a Tenderly answer looks like that. This script
  * asks the real project for a handful of representative simulations and saves the raw JSON under
  * `test/fixtures/tenderly/`, where `test/unit/tenderly-fixtures.spec.ts` runs the adapter and the
- * component over each file and asserts the reconciled output. Re-run it whenever Tenderly's serialization
- * is in question; commit the files it writes.
+ * component over each file and asserts the reconciled output. Only the fields the adapter reads are kept
+ * (with the list of keys that were present next to them), so a fixture stays small and names nothing of
+ * the project. Re-run it whenever Tenderly's serialization is in question; commit the files it writes.
  *
  * Two scenarios need no chain state and run with the access key alone:
  *   - `effect-free`: a call that changes nothing (`MANAToken.decimals()`), which shows how empty
@@ -146,6 +147,34 @@ function loadEnv(): Env {
   return env
 }
 
+// The fields the adapter reads (see src/adapters/tenderly/component.ts). A full answer runs to megabytes of
+// call trace and state diff and names the project; the fixture keeps the consumed fields exactly as sent
+// (a null stays null, an absent key stays absent) and records which other keys were present.
+const CONSUMED_TRANSACTION_KEYS = ['status', 'error_info', 'error_message'] as const
+const CONSUMED_INFO_KEYS = ['logs', 'asset_changes', 'exposure_changes', 'balance_changes'] as const
+
+function prune(body: unknown): unknown {
+  if (typeof body !== 'object' || body === null) return body
+  const answer = body as Record<string, unknown>
+  const transaction = answer.transaction as Record<string, unknown> | null | undefined
+  if (typeof transaction !== 'object' || transaction === null) {
+    return { presentKeys: Object.keys(answer), transaction, error: answer.error }
+  }
+  const info = transaction.transaction_info as Record<string, unknown> | null | undefined
+  const pick = (source: Record<string, unknown>, keys: readonly string[]) =>
+    Object.fromEntries(keys.filter(key => key in source).map(key => [key, source[key]]))
+  return {
+    presentKeys: Object.keys(answer),
+    transaction: {
+      presentKeys: Object.keys(transaction),
+      ...pick(transaction, CONSUMED_TRANSACTION_KEYS),
+      ...(info === undefined
+        ? {}
+        : { transaction_info: info === null ? null : { presentKeys: Object.keys(info), ...pick(info, CONSUMED_INFO_KEYS) } })
+    }
+  }
+}
+
 async function simulate(env: Env, request: ReturnType<Scenario['request']>): Promise<{ httpStatus: number; body: unknown }> {
   const apiUrl = (env.TENDERLY_API_URL || 'https://api.tenderly.co/api/v1').replace(/\/$/, '')
   const url = `${apiUrl}/account/${env.TENDERLY_ACCOUNT_SLUG}/project/${env.TENDERLY_PROJECT_SLUG}/simulate`
@@ -155,7 +184,7 @@ async function simulate(env: Env, request: ReturnType<Scenario['request']>): Pro
     // The same request the adapter sends (see src/adapters/tenderly/component.ts).
     body: JSON.stringify({ network_id: POLYGON, ...request, gas_price: '0', simulation_type: 'full', save: false, save_if_fails: false })
   })
-  return { httpStatus: response.status, body: await response.json().catch(() => null) }
+  return { httpStatus: response.status, body: prune(await response.json().catch(() => null)) }
 }
 
 async function main(): Promise<void> {

@@ -1,0 +1,91 @@
+{
+  "scenario": "revert",
+  "expectation": "a revert (MANA transfer from an address that holds none): how Tenderly serializes status and reason",
+  "recordedAt": "2026-09-09T20:25:54.614Z",
+  "networkId": "137",
+  "request": {
+    "from": "0x000000000000000000000000000000000000dead",
+    "to": "0xa1c57f48f0deb89f569dfbe6e2b7f46d33606fd4",
+    "input": "0xa9059cbb0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000c9f2c9cd04674edea40000000",
+    "value": "0"
+  },
+  "httpStatus": 200,
+  "response": {
+    "presentKeys": ["transaction", "simulation", "contracts", "generated_access_list"],
+    "transaction": {
+      "presentKeys": [
+        "hash",
+        "block_hash",
+        "block_number",
+        "from",
+        "gas",
+        "gas_price",
+        "gas_fee_cap",
+        "gas_tip_cap",
+        "cumulative_gas_used",
+        "gas_used",
+        "effective_gas_price",
+        "input",
+        "nonce",
+        "to",
+        "index",
+        "value",
+        "access_list",
+        "status",
+        "addresses",
+        "contract_ids",
+        "network_id",
+        "timestamp",
+        "function_selector",
+        "l1_block_number",
+        "l1_timestamp",
+        "deposit_tx",
+        "system_tx",
+        "sig",
+        "transaction_info",
+        "error_message",
+        "error_info",
+        "method",
+        "decoded_input",
+        "call_trace",
+        "value_fee_currency",
+        "value_gateway_fee",
+        "value_gateway_fee_recipient"
+      ],
+      "status": false,
+      "error_info": {
+        "error_message": "ERC20: transfer amount exceeds balance",
+        "address": "0x7ffb3d637014488b63fb9858e279385685afc1e2"
+      },
+      "error_message": "ERC20: transfer amount exceeds balance",
+      "transaction_info": {
+        "presentKeys": [
+          "contract_id",
+          "block_number",
+          "transaction_id",
+          "contract_address",
+          "method",
+          "parameters",
+          "intrinsic_gas",
+          "refund_gas",
+          "call_trace",
+          "stack_trace",
+          "logs",
+          "balance_diff",
+          "nonce_diff",
+          "state_diff",
+          "raw_state_diff",
+          "console_logs",
+          "asset_changes",
+          "exposure_changes",
+          "balance_changes",
+          "created_at"
+        ],
+        "logs": null,
+        "asset_changes": null,
+        "exposure_changes": null,
+        "balance_changes": []
+      }
+    }
+  }
+}
