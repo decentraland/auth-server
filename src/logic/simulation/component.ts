@@ -46,18 +46,29 @@ function asStringProp(record: Record<string, unknown> | null, key: string): stri
   return typeof value === 'string' ? value : null
 }
 
-/** Reads a property Tenderly may send as a string or a number (amounts, ids) as a string, or null. */
-function asStringishProp(record: Record<string, unknown> | null, key: string): string | null {
+/**
+ * Reads a quantity the preview depends on exactly (a raw amount, a token id) as a string, or null: a string
+ * as sent, a number only when a double holds it exactly (the adapter refuses anything larger).
+ */
+function asExactQuantityProp(record: Record<string, unknown> | null, key: string): string | null {
+  const value = record ? record[key] : undefined
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value)
+  return null
+}
+
+/** Reads a display-only figure (a decimals-applied amount, a dollar value) as a string, or null. */
+function asDisplayNumberProp(record: Record<string, unknown> | null, key: string): string | null {
   const value = record ? record[key] : undefined
   if (typeof value === 'string') return value
   if (typeof value === 'number' && Number.isFinite(value)) return String(value)
   return null
 }
 
-/** Reads a numeric property from an unknown value, or null. */
-function asNumberProp(record: Record<string, unknown> | null, key: string): number | null {
-  const value = record ? record[key] : undefined
-  return typeof value === 'number' ? value : null
+/** Reads an ERC20 `decimals` (a uint8) or null; anything else would make formatUnits throw. */
+function asDecimalsProp(record: Record<string, unknown> | null): number | null {
+  const value = record ? record.decimals : undefined
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 255 ? value : null
 }
 
 /** Maps a Tenderly token standard to our DTO enum. */
@@ -161,7 +172,7 @@ function buildTokenMetaIndex(assetChanges: unknown[], exposureChanges: unknown[]
       asStringProp(tokenInfo, 'contract_address'),
       asStringProp(tokenInfo, 'symbol'),
       asStringProp(tokenInfo, 'name'),
-      asNumberProp(tokenInfo, 'decimals')
+      asDecimalsProp(tokenInfo)
     )
   }
 
@@ -171,7 +182,7 @@ function buildTokenMetaIndex(assetChanges: unknown[], exposureChanges: unknown[]
     const contract = asStringProp(tokenInfo, 'contract_address') ?? asStringProp(exposureRecord, 'contract_address')
     const symbol = asStringProp(tokenInfo, 'symbol') ?? asStringProp(exposureRecord, 'symbol')
     const name = asStringProp(tokenInfo, 'name') ?? asStringProp(exposureRecord, 'name')
-    const decimals = asNumberProp(tokenInfo, 'decimals') ?? asNumberProp(exposureRecord, 'decimals')
+    const decimals = asDecimalsProp(tokenInfo) ?? asDecimalsProp(exposureRecord)
     record(contract, symbol, name, decimals)
   }
 
@@ -430,15 +441,15 @@ export async function createSimulationComponent(
         standard: mapStandard(asStringProp(tokenInfo, 'standard') ?? undefined),
         from: lowerOrNull(asStringProp(change, 'from')),
         to: lowerOrNull(asStringProp(change, 'to')),
-        amount: asStringishProp(change, 'amount'),
-        rawAmount: asStringishProp(change, 'raw_amount'),
-        tokenId: asStringishProp(change, 'token_id'),
+        amount: asDisplayNumberProp(change, 'amount'),
+        rawAmount: asExactQuantityProp(change, 'raw_amount'),
+        tokenId: asExactQuantityProp(change, 'token_id'),
         contractAddress: lowerOrNull(asStringProp(tokenInfo, 'contract_address')),
         symbol: asStringProp(tokenInfo, 'symbol'),
         name: asStringProp(tokenInfo, 'name'),
-        decimals: asNumberProp(tokenInfo, 'decimals'),
+        decimals: asDecimalsProp(tokenInfo),
         logoUrl: asStringProp(tokenInfo, 'logo'),
-        dollarValue: asStringishProp(change, 'dollar_value')
+        dollarValue: asDisplayNumberProp(change, 'dollar_value')
       }
     })
 

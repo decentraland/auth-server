@@ -725,6 +725,26 @@ describe('when simulating a transaction', () => {
     })
   })
 
+  describe.each([-1, 1.5, 300, Number.POSITIVE_INFINITY])('and a finite ERC20 approval has token decimals of %p', decimals => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          assetChanges: [{ type: 'Transfer', token_info: { standard: 'ERC20', contract_address: TOKEN, decimals } }],
+          rawLogs: [erc20ApprovalLog(FROM, SPENDER, 500n, TOKEN)]
+        })
+      )
+    })
+
+    it('should treat the decimals as unknown and report the approval without a formatted amount', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.approvalChanges).toEqual([expect.objectContaining({ kind: 'approval', rawAmount: '500', amount: null })])
+    })
+  })
+
   describe('and an asset change carries fields of the wrong type', () => {
     let body: SimulationRequestBody
 

@@ -358,6 +358,52 @@ describe('when using the Tenderly adapter', () => {
     })
   })
 
+  describe.each([
+    ['a raw amount', { raw_amount: Number.MAX_SAFE_INTEGER + 2 }],
+    ['a token id', { token_id: Number.MAX_SAFE_INTEGER + 2 }]
+  ])('and an asset change carries %s as a number a double cannot hold', (_label, fields) => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: true,
+            transaction_info: { asset_changes: [{ type: 'Transfer', ...fields }], exposure_changes: [], balance_changes: [], logs: [] }
+          }
+        })
+      })
+    })
+
+    it('should throw a TenderlyUnavailableError, since the parse has already rounded it', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe('and an asset change carries its quantities as strings and safe numbers', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: true,
+            transaction_info: {
+              asset_changes: [{ type: 'Transfer', raw_amount: '9007199254740993', token_id: 7 }],
+              exposure_changes: [],
+              balance_changes: [],
+              logs: []
+            }
+          }
+        })
+      })
+    })
+
+    it('should accept them as sent', async () => {
+      await expect(adapter.simulate(params)).resolves.toMatchObject({ assetChanges: [{ raw_amount: '9007199254740993', token_id: 7 }] })
+    })
+  })
+
   describe('and Tenderly responds with 200 and a body that is JSON null', () => {
     beforeEach(() => {
       fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => null })

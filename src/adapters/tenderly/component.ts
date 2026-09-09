@@ -8,6 +8,13 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 /** The collections a successful preview is built from; a success that lacks one is a partial answer. */
 const EFFECT_COLLECTIONS: ReadonlySet<string> = new Set(['logs', 'asset_changes'])
 
+/**
+ * A quantity the preview depends on exactly (a raw amount, a token id): absent, a string, or a number a double
+ * holds exactly. A larger number has already been rounded by the JSON parse, so it can only be refused.
+ */
+const isExactQuantity = (value: unknown): boolean =>
+  value == null || typeof value === 'string' || (typeof value === 'number' && Number.isSafeInteger(value))
+
 /** A raw EVM log as the decoders read it: string address and data, string topics. */
 const isRawLog = (value: unknown): value is TenderlyRawLog =>
   isRecord(value) &&
@@ -181,6 +188,11 @@ export async function createTenderlyAdapter({
       // so it is refused here as the malformed answer it is.
       if (!value.every(isRecord)) {
         throw new TenderlyUnavailableError(`Tenderly returned a malformed ${collection} entry`)
+      }
+      // An asset change's raw amount and token id are what the preview compares and gates on; one that arrived
+      // as a number beyond 2^53 has already lost digits and would preview a different quantity.
+      if (collection === 'asset_changes' && !value.every(entry => isExactQuantity(entry.raw_amount) && isExactQuantity(entry.token_id))) {
+        throw new TenderlyUnavailableError('Tenderly returned an asset change whose quantity cannot be read exactly')
       }
       collections[collection] = value
     }
