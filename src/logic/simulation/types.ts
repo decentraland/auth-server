@@ -84,6 +84,12 @@ export type SimulationResponseBody = {
 
 export type ISimulationComponent = {
   /**
+   * Checks what `simulateTransaction` would refuse before reaching the upstream provider: throws
+   * `UnsupportedChainError` for a chain this service does not simulate and `InvalidSimulationParamsError`
+   * for a `value` that is not an integer. Lets the endpoint refuse a request before spending a paid call.
+   */
+  validateRequest(body: SimulationRequestBody): void
+  /**
    * Simulates a transaction via Tenderly and returns a normalized summary of
    * asset transfers, token approvals and whether it would revert. Throws
    * `UnsupportedChainError` / `InvalidSimulationParamsError` and re-throws the

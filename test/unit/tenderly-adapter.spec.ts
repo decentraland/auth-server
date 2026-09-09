@@ -483,8 +483,8 @@ describe('when using the Tenderly adapter', () => {
       })
     })
 
-    it('should read it as a reverted simulation carrying the reason', async () => {
-      await expect(adapter.simulate(params)).resolves.toMatchObject({ status: false, errorMessage: 'execution reverted' })
+    it('should throw a TenderlyUnavailableError, since a reason is not a status', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
     })
   })
 

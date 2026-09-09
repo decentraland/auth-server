@@ -246,9 +246,14 @@ function buildTokenMetaIndex(assetChanges: unknown[], exposureChanges: unknown[]
   return index
 }
 
-/** Whether a Tenderly row describes the given logged ERC20 or ERC721 movement. A mint's `from` and a burn's `to` may be reported as the zero address or left out. */
+/**
+ * Whether a Tenderly row describes the given logged ERC20 or ERC721 movement: same standard, contract, parties
+ * and token id or amount. A mint's `from` and a burn's `to` may be reported as the zero address or left out. A
+ * row of another standard is never consumed, so a log can never make a row of an unsupported standard disappear.
+ */
 function describesTransfer(transfer: LoggedTransfer): (change: AssetChange) => boolean {
   return change =>
+    change.standard === transfer.standard &&
     change.contractAddress === transfer.contractAddress &&
     sameParty(change.from, transfer.from) &&
     sameParty(change.to, transfer.to) &&
@@ -258,6 +263,7 @@ function describesTransfer(transfer: LoggedTransfer): (change: AssetChange) => b
 /** Whether a Tenderly row describes the given logged ERC1155 movement. */
 function describesErc1155(logged: AssetChange): (change: AssetChange) => boolean {
   return change =>
+    change.standard === 'erc1155' &&
     change.contractAddress === logged.contractAddress &&
     sameParty(change.from, logged.from) &&
     sameParty(change.to, logged.to) &&
@@ -518,7 +524,10 @@ export async function createSimulationComponent(
 ): Promise<ISimulationComponent> {
   const logger = logs.getLogger('simulation')
 
-  const simulateTransaction = async (body: SimulationRequestBody): Promise<SimulationResponseBody> => {
+  // Steps 1 and 2: the chain allowlist and the normalized value. Exposed as validateRequest so the endpoint
+  // can refuse a request before it spends anything on the paid upstream, and run again by simulateTransaction
+  // so the component holds on its own.
+  const validateRequest = (body: SimulationRequestBody): { value: string; data: string } => {
     // 1. Chain allowlist.
     if (!supportedChainIds.includes(body.chainId)) {
       throw new UnsupportedChainError(body.chainId)
@@ -531,7 +540,11 @@ export async function createSimulationComponent(
     } catch {
       throw new InvalidSimulationParamsError('`value` must be a valid hex or decimal integer')
     }
-    const data = body.data ?? '0x'
+    return { value, data: body.data ?? '0x' }
+  }
+
+  const simulateTransaction = async (body: SimulationRequestBody): Promise<SimulationResponseBody> => {
+    const { value, data } = validateRequest(body)
 
     // 3. Simulate (re-throws the adapter's typed Tenderly errors).
     const result = await tenderly.simulate({
@@ -602,14 +615,20 @@ export async function createSimulationComponent(
     //    transfer in the same transaction implies (see withoutTransferImpliedApprovals).
     const approvalChanges = withoutTransferImpliedApprovals(decodeApprovals(result.rawLogs, tokenMeta), erc721TransferKeys(loggedTransfers))
 
-    // 7. Native-value fallback: synthesize a native transfer when value > 0 and Tenderly did not report one
-    //    (a revert never reaches this point).
-    if (BigInt(value) > 0n && !assetChanges.some(change => change.standard === 'native')) {
+    // 7. Native-value fallback: synthesize the submitted value transfer when value > 0 and Tenderly did not
+    //    report that very movement (sender, recipient and amount); an internal native movement it did report
+    //    says nothing about the submitted one. A revert never reaches this point.
+    const from = body.from.toLowerCase()
+    const to = body.to.toLowerCase()
+    const reportsSubmittedValue = assetChanges.some(
+      change => change.standard === 'native' && change.from === from && change.to === to && change.rawAmount === value
+    )
+    if (BigInt(value) > 0n && !reportsSubmittedValue) {
       assetChanges.push({
         type: 'transfer',
         standard: 'native',
-        from: body.from.toLowerCase(),
-        to: body.to.toLowerCase(),
+        from,
+        to,
         amount: formatEther(value),
         rawAmount: value,
         tokenId: null,
@@ -627,5 +646,5 @@ export async function createSimulationComponent(
     return { status: 'success', assetChanges, approvalChanges, balanceChanges: result.balanceChanges, events: result.events }
   }
 
-  return { simulateTransaction }
+  return { validateRequest, simulateTransaction }
 }

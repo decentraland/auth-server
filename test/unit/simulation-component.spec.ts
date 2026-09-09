@@ -970,6 +970,57 @@ describe('when simulating a transaction', () => {
     })
   })
 
+  describe('and Tenderly reports an ERC1155 movement whose parties and amount an ERC20 log on the same contract also carries', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          assetChanges: [
+            {
+              type: 'Transfer',
+              from: FROM,
+              to: TO,
+              token_id: '7',
+              raw_amount: '5',
+              token_info: { standard: 'ERC1155', contract_address: TOKEN }
+            }
+          ],
+          rawLogs: [erc20TransferLog(FROM, TO, 5n, TOKEN)]
+        })
+      )
+    })
+
+    it('should report both, never consuming a row of another standard', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges.map(change => change.standard).sort()).toEqual(['erc1155', 'erc20'])
+    })
+  })
+
+  describe('and Tenderly reports an ERC1155 movement whose parties and id an ERC721 log on the same contract also carries', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          assetChanges: [
+            { type: 'Transfer', from: FROM, to: TO, token_id: '7', token_info: { standard: 'ERC1155', contract_address: TOKEN } }
+          ],
+          rawLogs: [erc721TransferLog(FROM, TO, 7n, TOKEN)]
+        })
+      )
+    })
+
+    it('should report both', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges.map(change => change.standard).sort()).toEqual(['erc1155', 'erc721'])
+    })
+  })
+
   describe('and the logs record an ERC1155 mint and burn', () => {
     let body: SimulationRequestBody
 
@@ -1165,6 +1216,69 @@ describe('when simulating a transaction', () => {
       const response = await component.simulateTransaction(body)
 
       expect(response.approvalChanges[0]).toMatchObject({ isUnlimited: true, rawAmount: MAX_UINT256.toString() })
+    })
+  })
+
+  describe('and a native value is sent while Tenderly reports an unrelated internal native movement', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO, value: '1000000000000000000' }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({ assetChanges: [{ type: 'Transfer', from: TO, to: SPENDER, raw_amount: '1', token_info: { standard: 'native' } }] })
+      )
+    })
+
+    it('should still synthesize the submitted value transfer next to the reported one', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(
+        response.assetChanges.filter(change => change.standard === 'native').map(change => [change.from, change.to, change.rawAmount])
+      ).toEqual([
+        [TO.toLowerCase(), SPENDER.toLowerCase(), '1'],
+        [FROM.toLowerCase(), TO.toLowerCase(), '1000000000000000000']
+      ])
+    })
+  })
+
+  describe('and a native value is sent that Tenderly reports as that very movement', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO, value: '1000000000000000000' }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          assetChanges: [{ type: 'Transfer', from: FROM, to: TO, raw_amount: '1000000000000000000', token_info: { standard: 'native' } }]
+        })
+      )
+    })
+
+    it('should not add a second native row', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges.filter(change => change.standard === 'native')).toHaveLength(1)
+    })
+  })
+
+  describe('and the request is checked before any simulation', () => {
+    describe('and the chain is not supported', () => {
+      it('should throw an UnsupportedChainError without calling Tenderly', () => {
+        expect(() => component.validateRequest({ chainId: 999999, from: FROM, to: TO })).toThrow(UnsupportedChainError)
+        expect(tenderly.simulate).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('and the value is not an integer', () => {
+      it('should throw an InvalidSimulationParamsError without calling Tenderly', () => {
+        expect(() => component.validateRequest({ chainId: 137, from: FROM, to: TO, value: 'ten' })).toThrow(InvalidSimulationParamsError)
+        expect(tenderly.simulate).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('and the request is valid', () => {
+      it('should pass', () => {
+        expect(() => component.validateRequest({ chainId: 137, from: FROM, to: TO, value: '0x1' })).not.toThrow()
+      })
     })
   })
 

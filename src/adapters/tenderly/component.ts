@@ -151,15 +151,15 @@ export async function createTenderlyAdapter({
     const errorInfo = isRecord(transaction.error_info) ? transaction.error_info : null
     const errorMessage = typeof errorInfo?.error_message === 'string' ? errorInfo.error_message : null
 
-    // The status is what tells a successful preview from a reverting one. `false` is a revert, and so is
-    // a response that omits the field but carries a revert reason (a Go-style `omitempty` would drop a
-    // `false`). Anything else without a status has no preview to show: defaulting to success would render
-    // an empty "no changes" summary for a call whose outcome is unknown, so it is treated like any other
-    // unusable upstream answer.
-    const reverted = transaction.status === false || (transaction.status === undefined && errorMessage !== null)
-    if (transaction.status !== true && !reverted) {
+    // The status is what tells a successful preview from a reverting one, and it must be said outright: a
+    // response without a boolean status has no preview to show, whatever else it carries. Defaulting to
+    // success would render an empty "no changes" summary for a call whose outcome is unknown, and reading a
+    // revert reason as a status would let any error string stand in for one, so both are treated like every
+    // other unusable upstream answer.
+    if (typeof transaction.status !== 'boolean') {
       throw new TenderlyUnavailableError('Tenderly returned no transaction status')
     }
+    const reverted = transaction.status === false
 
     // A revert reports no effects whatever the trace carries, so nothing past the reason is read: a revert
     // with unreadable trace metadata is still the "likely to fail" preview, never an outage.

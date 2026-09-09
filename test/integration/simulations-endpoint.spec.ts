@@ -313,3 +313,49 @@ test('when the global simulation rate limit is exceeded across multiple IPs', ar
     })
   })
 })
+
+test('when invalid simulation requests arrive in bulk', args => {
+  let baseUrl: string
+  let tenderly: jest.Mocked<Pick<ITenderlyAdapter, 'simulate'>>
+
+  beforeEach(async () => {
+    const port = await args.components.config.requireString('HTTP_SERVER_PORT')
+    baseUrl = `http://localhost:${port}`
+    tenderly = args.components.tenderly as jest.Mocked<Pick<ITenderlyAdapter, 'simulate'>>
+  })
+
+  describe('and more requests than the global cap were refused before reaching the provider', () => {
+    let validBody: Record<string, unknown>
+
+    beforeEach(async () => {
+      validBody = { chainId: 137, from: FROM, to: TO, value: '0' }
+      tenderly.simulate.mockResolvedValue(successResult())
+
+      const globalMax = await args.components.config.requireNumber('SIMULATION_RATE_LIMIT_GLOBAL_MAX')
+      const perIpMax = await args.components.config.requireNumber('SIMULATION_RATE_LIMIT_MAX')
+      const invalidBodies = [
+        { chainId: 999999, from: FROM, to: TO, value: '0' },
+        { chainId: 137, from: 'not-an-address', to: TO, value: '0' }
+      ]
+
+      // Spread across enough IPs that none reaches the per-IP cap, so only the global cap could stop them.
+      let sent = 0
+      let ipOctet = 0
+      while (sent <= globalMax) {
+        const inThisIp = Math.min(perIpMax, globalMax + 1 - sent)
+        for (let i = 0; i < inThisIp; i++) {
+          await postSimulation(baseUrl, invalidBodies[sent % invalidBodies.length], `192.0.2.${ipOctet}`)
+          sent++
+        }
+        ipOctet++
+      }
+    })
+
+    it('should still simulate a valid request, since refused requests never spend the provider budget', async () => {
+      const response = await postSimulation(baseUrl, validBody, '192.0.2.250')
+
+      expect(response.status).toBe(200)
+      expect(tenderly.simulate).toHaveBeenCalledTimes(1)
+    })
+  })
+})

@@ -51,17 +51,6 @@ export function createSimulationHandler(allowedOrigins: Set<string>, rateLimit: 
       }
     }
 
-    // 2b. Global cap over the same window, independent of the (spoofable) client
-    //     IP, so a distributed flood cannot run up the paid Tenderly upstream.
-    const global = await rateLimiter.consume('simulations-global', 'all', { max: globalMax, windowSeconds: rateLimit.windowSeconds })
-    if (!global.allowed) {
-      return {
-        status: 429,
-        headers: { 'Retry-After': String(global.retryAfterSeconds) },
-        body: { error: 'Too many requests' } satisfies InvalidResponseMessage
-      }
-    }
-
     // 3. Parse + validate. Both throw InvalidRequestError; answered here rather than by the generic
     //    errorHandler so the 400 carries the `invalid_request` code the auth dapp keys its refusal on.
     let body: ReturnType<typeof validateSimulationRequest>
@@ -77,6 +66,29 @@ export function createSimulationHandler(allowedOrigins: Set<string>, rateLimit: 
         }
       }
       throw e
+    }
+
+    // 3b. What the simulation itself would refuse (an unsupported chain, a value that is not an integer),
+    //     answered now so a request that never reaches the provider spends nothing on it.
+    try {
+      simulation.validateRequest(body)
+    } catch (e) {
+      if (e instanceof UnsupportedChainError || e instanceof InvalidSimulationParamsError) {
+        logger.log(`Simulation rejected: ${e.message}`)
+        return { status: 400, body: { error: e.message, code: 'invalid_request' } satisfies SimulationErrorResponse }
+      }
+      throw e
+    }
+
+    // 3c. Global cap over the same window, independent of the (spoofable) client IP, so a distributed flood
+    //     cannot run up the paid Tenderly upstream. Consumed only by requests that are about to reach it.
+    const global = await rateLimiter.consume('simulations-global', 'all', { max: globalMax, windowSeconds: rateLimit.windowSeconds })
+    if (!global.allowed) {
+      return {
+        status: 429,
+        headers: { 'Retry-After': String(global.retryAfterSeconds) },
+        body: { error: 'Too many requests' } satisfies InvalidResponseMessage
+      }
     }
 
     // 4. Simulate + map typed errors to HTTP statuses.
