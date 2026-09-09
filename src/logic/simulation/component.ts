@@ -1,5 +1,5 @@
 import { formatEther, formatUnits, id, Interface, ZeroAddress } from 'ethers'
-import { TenderlySimulationResult } from '../../adapters/tenderly'
+import { TenderlyRawLog, TenderlySimulationResult } from '../../adapters/tenderly'
 import { AppComponents } from '../../types'
 import { InvalidSimulationParamsError, UnreadableSimulationError, UnsupportedChainError } from './errors'
 import { ApprovalChange, AssetChange, ISimulationComponent, SimulationRequestBody, SimulationResponseBody } from './types'
@@ -171,35 +171,6 @@ function decodeTransfers(rawLogs: TenderlySimulationResult['rawLogs']): LoggedTr
   return transfers
 }
 
-/** The `contract:tokenId:from` keys of the ERC721 movements, which the approval filter looks up. */
-function erc721TransferKeys(transfers: LoggedTransfer[]): Set<string> {
-  return new Set(transfers.filter(t => t.standard === 'erc721').map(t => `${t.contractAddress}:${t.tokenId}:${t.from}`))
-}
-
-/**
- * Drops the ERC721 `Approval` a transfer emits as a side effect. Transferring a token clears its per-token
- * approval, and every OpenZeppelin-derived collection announces the clear as `Approval(owner, 0x0, tokenId)`,
- * which would otherwise show as a permission change on every transfer. Only that clear is dropped: an
- * approval to the zero address, by an owner the same transaction logs transferring that token. An approval
- * to the zero address is never a grant, so nothing dropped is a permission the user ends up holding, and a
- * grant to a real spender is always kept, whatever transfers surround it (a token that comes back to its
- * owner and is then approved shows that approval). A revocation the owner makes without transferring the
- * token is kept too.
- *
- * ERC20 approvals are deliberately kept as reported. An ERC20 `transferFrom` also writes the remaining
- * allowance as `Approval(owner, spender, remaining)`, but logs alone cannot tell that write from a real
- * `approve` in the same transaction (a transfer followed by a grant to someone else), so hiding on that
- * evidence could hide a genuine grant. The client knows which function the user's calldata decodes to and
- * applies the precise rule there: the signer's allowance only changes by a grant when the signer's own
- * call is an allowance function.
- */
-function withoutTransferImpliedApprovals(approvals: ApprovalChange[], transfers: Set<string>): ApprovalChange[] {
-  return approvals.filter(approval => {
-    if (approval.kind !== 'approval' || approval.standard !== 'erc721' || approval.spender !== ZeroAddress) return true
-    return !transfers.has(`${approval.contractAddress}:${approval.tokenId}:${approval.owner}`)
-  })
-}
-
 /** Token symbol/name/decimals looked up by contract address (lowercased). */
 type TokenMeta = { symbol: string | null; name: string | null; decimals: number | null }
 
@@ -328,6 +299,41 @@ function movementType(from: string, to: string): AssetChange['type'] {
 }
 
 /**
+ * The indices of the ERC721 `Approval(owner, 0x0, tokenId)` logs a transfer emitted as a side effect.
+ * OpenZeppelin-derived collections clear a token's approval right before transferring it and announce the
+ * clear with that event, so it is the log immediately preceding, on the same contract, the `Transfer` of that
+ * token by that owner. Only that pairing, in log order and one to one, is a transfer side effect: a
+ * zero-address approval with no such transfer next to it is a revocation the owner made and is reported. The
+ * standard requires the clear on transfer but says nothing about any other zero-address approval
+ * (https://eips.ethereum.org/EIPS/eip-721).
+ */
+function transferImpliedClearIndices(rawLogs: TenderlySimulationResult['rawLogs']): Set<number> {
+  const implied = new Set<number>()
+  const readTopics = (log: TenderlyRawLog | undefined) =>
+    log && Array.isArray(log.topics) && typeof log.address === 'string' ? log.topics.map(topic => topic.toLowerCase()) : null
+  for (let index = 0; index < rawLogs.length; index++) {
+    const log = rawLogs[index]
+    const topics = readTopics(log)
+    if (!topics || topics[0] !== APPROVAL_TOPIC || topics.length !== 4) continue
+    // Approval(owner, approved, tokenId), all indexed: a zero approved address is a clear.
+    if (BigInt(topics[2]) !== 0n) continue
+    const next = rawLogs.slice(index + 1).find(candidate => candidate && candidate.address.toLowerCase() === log.address.toLowerCase())
+    const nextTopics = readTopics(next)
+    // Transfer(from, to, tokenId), all indexed, of the same token by the same owner.
+    if (
+      nextTopics &&
+      nextTopics[0] === TRANSFER_TOPIC &&
+      nextTopics.length === 4 &&
+      nextTopics[1] === topics[1] &&
+      nextTopics[3] === topics[3]
+    ) {
+      implied.add(index)
+    }
+  }
+  return implied
+}
+
+/**
  * Decodes token approvals from raw EVM logs — the PRIMARY approval source.
  * Routes each log by topic0 and topic count, then enriches symbol/name from the
  * token metadata index and dedupes by (kind, contract, owner, spender, tokenId).
@@ -339,6 +345,7 @@ function movementType(from: string, to: string): AssetChange['type'] {
  */
 function decodeApprovals(rawLogs: TenderlySimulationResult['rawLogs'], tokenMeta: Map<string, TokenMeta>): ApprovalChange[] {
   const approvals = new Map<string, ApprovalChange>()
+  const implied = transferImpliedClearIndices(rawLogs)
 
   const push = (approval: ApprovalChange) => {
     const meta = tokenMeta.get(approval.contractAddress.toLowerCase())
@@ -358,14 +365,20 @@ function decodeApprovals(rawLogs: TenderlySimulationResult['rawLogs'], tokenMeta
         approval.amount = formatUnits(BigInt(approval.rawAmount), meta.decimals)
       }
     }
-    // Include `kind` so an `approval` and `approvalForAll` for the same triple
-    // don't collide; `.set()` means a later occurrence overwrites an earlier one.
-    const dedupeKey = `${approval.kind}:${approval.contractAddress}:${approval.owner}:${approval.spender}:${approval.tokenId ?? ''}`
+    // Later logs overwrite earlier ones for the same permission, so the final state is what is reported.
+    // An ERC20 allowance and an operator approval are per spender; an ERC721 token has a single approved
+    // address, so its key leaves the spender out and a grant followed by a revocation reports the revocation.
+    // `kind` keeps an `approval` and an `approvalForAll` for the same parties apart.
+    const dedupeKey =
+      approval.kind === 'approval' && approval.standard === 'erc721'
+        ? `${approval.kind}:${approval.contractAddress}:${approval.owner}:${approval.tokenId}`
+        : `${approval.kind}:${approval.contractAddress}:${approval.owner}:${approval.spender}:${approval.tokenId ?? ''}`
     approvals.set(dedupeKey, approval)
   }
 
-  for (const log of rawLogs) {
+  for (const [index, log] of rawLogs.entries()) {
     if (!log || !Array.isArray(log.topics) || typeof log.address !== 'string') continue
+    if (implied.has(index)) continue
     const topic0 = log.topics[0]?.toLowerCase()
     const contractAddress = log.address.toLowerCase()
 
@@ -611,9 +624,9 @@ export async function createSimulationComponent(
     ]
     const assetChanges: AssetChange[] = [...reportedChanges.filter(change => change.standard === 'native'), ...unconsumed, ...loggedRows]
 
-    // 6. Approvals from raw logs (primary source), enriched with token metadata, minus the ones a
-    //    transfer in the same transaction implies (see withoutTransferImpliedApprovals).
-    const approvalChanges = withoutTransferImpliedApprovals(decodeApprovals(result.rawLogs, tokenMeta), erc721TransferKeys(loggedTransfers))
+    // 6. Approvals from raw logs (primary source), enriched with token metadata, minus the clears a transfer
+    //    emitted as a side effect (see transferImpliedClearIndices).
+    const approvalChanges = decodeApprovals(result.rawLogs, tokenMeta)
 
     // 7. Native-value fallback: synthesize the submitted value transfer when value > 0 and Tenderly did not
     //    report that very movement (sender, recipient and amount); an internal native movement it did report

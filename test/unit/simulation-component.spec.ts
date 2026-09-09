@@ -339,6 +339,68 @@ describe('when simulating a transaction', () => {
     })
   })
 
+  describe('and an ERC721 token comes back to its owner, is approved to a spender and then explicitly revoked', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          rawLogs: [
+            erc721ApprovalLog(FROM, ZeroAddress, 512n, TOKEN),
+            erc721TransferLog(FROM, TO, 512n, TOKEN),
+            erc721ApprovalLog(TO, ZeroAddress, 512n, TOKEN),
+            erc721TransferLog(TO, FROM, 512n, TOKEN),
+            erc721ApprovalLog(FROM, SPENDER, 512n, TOKEN),
+            erc721ApprovalLog(FROM, ZeroAddress, 512n, TOKEN)
+          ]
+        })
+      )
+    })
+
+    it('should report the revocation and not the grant it undid, since a token has one approved address', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.approvalChanges).toEqual([
+        expect.objectContaining({ kind: 'approval', standard: 'erc721', owner: FROM.toLowerCase(), spender: ZeroAddress, tokenId: '512' })
+      ])
+    })
+  })
+
+  describe('and an ERC721 zero-address approval is followed by a transfer of another token', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({ rawLogs: [erc721ApprovalLog(FROM, ZeroAddress, 512n, TOKEN), erc721TransferLog(FROM, TO, 513n, TOKEN)] })
+      )
+    })
+
+    it('should keep the revocation, since the transfer next to it is not of that token', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.approvalChanges).toEqual([expect.objectContaining({ spender: ZeroAddress, tokenId: '512' })])
+    })
+  })
+
+  describe('and an ERC721 token is approved and then revoked with no transfer', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({ rawLogs: [erc721ApprovalLog(FROM, SPENDER, 512n, TOKEN), erc721ApprovalLog(FROM, ZeroAddress, 512n, TOKEN)] })
+      )
+    })
+
+    it('should report only the revocation, the final state', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.approvalChanges).toEqual([expect.objectContaining({ spender: ZeroAddress, tokenId: '512' })])
+    })
+  })
+
   describe('and an ERC721 token approval is revoked with the zero address without transferring the token', () => {
     let body: SimulationRequestBody
 
