@@ -1,3 +1,4 @@
+import { InvalidRequestError } from '@dcl/http-commons'
 import { TenderlyBadRequestError, TenderlyRateLimitError, TenderlyUnavailableError } from '../../adapters/tenderly'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { InvalidSimulationParamsError, UnsupportedChainError } from '../../logic/simulation'
@@ -56,9 +57,17 @@ export function createSimulationHandler(allowedOrigins: Set<string>, rateLimit: 
       }
     }
 
-    // 3. Parse + validate. Both throw InvalidRequestError → errorHandler maps to 400.
-    const rawBody = await parseJsonBody(request)
-    const body = validateSimulationRequest(rawBody)
+    // 3. Parse + validate. Both throw InvalidRequestError; answered here rather than by the generic
+    //    errorHandler so the 400 carries the `invalid_request` code the auth dapp keys its refusal on.
+    let body: ReturnType<typeof validateSimulationRequest>
+    try {
+      body = validateSimulationRequest(await parseJsonBody(request))
+    } catch (e) {
+      if (e instanceof InvalidRequestError) {
+        return { status: 400, body: { error: e.message, code: 'invalid_request' } satisfies InvalidResponseMessage }
+      }
+      throw e
+    }
 
     // 4. Simulate + map typed errors to HTTP statuses.
     try {
@@ -69,14 +78,14 @@ export function createSimulationHandler(allowedOrigins: Set<string>, rateLimit: 
       // Our own client-input errors carry safe, controlled messages we can echo.
       if (e instanceof UnsupportedChainError || e instanceof InvalidSimulationParamsError) {
         logger.log(`Simulation rejected: ${message}`)
-        return { status: 400, body: { error: message } satisfies InvalidResponseMessage }
+        return { status: 400, body: { error: message, code: 'invalid_request' } satisfies InvalidResponseMessage }
       }
 
       // Tenderly's 400 detail is uncontrolled upstream text — log it, but return a
       // generic message so upstream internals are never echoed to the client.
       if (e instanceof TenderlyBadRequestError) {
         logger.log(`Simulation rejected by Tenderly: ${message}`)
-        return { status: 400, body: { error: 'Invalid simulation request' } satisfies InvalidResponseMessage }
+        return { status: 400, body: { error: 'Invalid simulation request', code: 'upstream_rejected' } satisfies InvalidResponseMessage }
       }
 
       if (e instanceof TenderlyRateLimitError) {

@@ -120,10 +120,11 @@ test('when simulating a transaction via the endpoint', args => {
       body = { chainId: 137, from: FROM, to: 'not-an-address', value: '0' }
     })
 
-    it('should respond with 400', async () => {
+    it('should respond with 400 saying the request itself was refused', async () => {
       const response = await postSimulation(baseUrl, body, '203.0.113.2')
 
       expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ code: 'invalid_request' })
     })
   })
 
@@ -162,10 +163,11 @@ test('when simulating a transaction via the endpoint', args => {
       body = { chainId: 999999, from: FROM, to: TO, value: '0' }
     })
 
-    it('should respond with 400', async () => {
+    it('should respond with 400 saying the request itself was refused', async () => {
       const response = await postSimulation(baseUrl, body, '203.0.113.5')
 
       expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ code: 'invalid_request' })
     })
   })
 
@@ -198,11 +200,12 @@ test('when simulating a transaction via the endpoint', args => {
       expect(response.status).toBe(400)
     })
 
-    it('should not echo the upstream Tenderly detail in the response body', async () => {
+    it('should say the provider refused it without echoing the upstream detail, so the dapp treats it as an outage', async () => {
       const response = await postSimulation(baseUrl, body, '203.0.113.8')
       const responseBody = await response.json()
 
       expect(JSON.stringify(responseBody)).not.toContain('some upstream detail')
+      expect(responseBody).toMatchObject({ code: 'upstream_rejected' })
     })
   })
 
