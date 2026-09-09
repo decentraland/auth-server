@@ -3,12 +3,12 @@ import * as Sentry from '@sentry/node'
 import { IBaseComponent } from '@well-known-components/interfaces'
 import { Server, Socket } from 'socket.io'
 import { getUnderlyingServer } from '@dcl/http-server'
+import { MAX_BODY_SIZE_BYTES } from '../../ports/server/constants'
 import { InvalidResponseMessage } from '../../ports/server/types'
 import { AppComponents } from '../../types'
 import { isErrorWithMessage } from '../error-handling'
 import { getSocketRoutes } from './routes'
 import { ISocketServerComponent, SocketHandlerContext } from './types'
-import { MAX_BODY_SIZE_BYTES } from '../../ports/server/constants'
 
 export type SocketServerOptions = {
   requestExpirationInSeconds: number
