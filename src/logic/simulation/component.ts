@@ -16,10 +16,19 @@ const erc721ApprovalInterface = new Interface(['event Approval(address indexed o
 const approvalForAllInterface = new Interface(['event ApprovalForAll(address indexed owner, address indexed operator, bool approved)'])
 // ERC20 and ERC721 `Transfer` share topic0 as well; only the 4-topic ERC721 form (indexed tokenId) is read here.
 const erc721TransferInterface = new Interface(['event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'])
+const transferSingleInterface = new Interface([
+  'event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)'
+])
+const transferBatchInterface = new Interface([
+  'event TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)'
+])
 
 // keccak256 topic0 signatures (lowercase 0x hex).
 const APPROVAL_TOPIC = id('Approval(address,address,uint256)').toLowerCase()
 const TRANSFER_TOPIC = id('Transfer(address,address,uint256)').toLowerCase()
+const TRANSFER_SINGLE_TOPIC = id('TransferSingle(address,address,address,uint256,uint256)').toLowerCase()
+const TRANSFER_BATCH_TOPIC = id('TransferBatch(address,address,address,uint256[],uint256[])').toLowerCase()
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
 const APPROVAL_FOR_ALL_TOPIC = id('ApprovalForAll(address,address,bool)').toLowerCase()
 
 /** Lowercases an address-ish string, or returns null when absent. */
@@ -107,10 +116,12 @@ function decodeTransfers(rawLogs: TenderlySimulationResult['rawLogs']): LoggedTr
 /**
  * Drops the ERC721 `Approval` a transfer emits as a side effect. Transferring a token clears its per-token
  * approval, and every OpenZeppelin-derived collection announces the clear as `Approval(owner, 0x0, tokenId)`,
- * which would otherwise show as a permission change on every transfer. The rule is exact in both
- * directions: once the owner has transferred the token in this transaction, no approval of that token by
- * that owner survives, whether granted before or after the transfer, so nothing that is dropped is a
- * permission the user ends up holding.
+ * which would otherwise show as a permission change on every transfer. Only that clear is dropped: an
+ * approval to the zero address, by an owner the same transaction logs transferring that token. An approval
+ * to the zero address is never a grant, so nothing dropped is a permission the user ends up holding, and a
+ * grant to a real spender is always kept, whatever transfers surround it (a token that comes back to its
+ * owner and is then approved shows that approval). A revocation the owner makes without transferring the
+ * token is kept too.
  *
  * ERC20 approvals are deliberately kept as reported. An ERC20 `transferFrom` also writes the remaining
  * allowance as `Approval(owner, spender, remaining)`, but logs alone cannot tell that write from a real
@@ -121,7 +132,7 @@ function decodeTransfers(rawLogs: TenderlySimulationResult['rawLogs']): LoggedTr
  */
 function withoutTransferImpliedApprovals(approvals: ApprovalChange[], transfers: LoggedTransfers): ApprovalChange[] {
   return approvals.filter(approval => {
-    if (approval.kind !== 'approval' || approval.standard !== 'erc721') return true
+    if (approval.kind !== 'approval' || approval.standard !== 'erc721' || approval.spender !== ZERO_ADDRESS) return true
     return !transfers.erc721.has(`${approval.contractAddress}:${normalizeTokenId(approval.tokenId)}:${approval.owner}`)
   })
 }
@@ -279,6 +290,61 @@ function decodeApprovals(rawLogs: TenderlySimulationResult['rawLogs'], tokenMeta
 }
 
 /**
+ * Decodes every ERC1155 `TransferSingle`/`TransferBatch` raw log into asset changes, one per (id, value).
+ * Tenderly's `asset_changes` only reliably covers ERC20/721, and the standard requires one of these events
+ * for every ERC1155 movement, so the logs are the complete record of them.
+ */
+function decodeErc1155Transfers(rawLogs: TenderlySimulationResult['rawLogs']): AssetChange[] {
+  const changes: AssetChange[] = []
+
+  const build = (contractAddress: string, from: string, to: string, tokenId: bigint, value: bigint): AssetChange => ({
+    type: 'transfer',
+    standard: 'erc1155',
+    from: from.toLowerCase(),
+    to: to.toLowerCase(),
+    amount: null,
+    rawAmount: value.toString(),
+    tokenId: tokenId.toString(),
+    contractAddress: contractAddress.toLowerCase(),
+    symbol: null,
+    name: null,
+    decimals: null,
+    logoUrl: null,
+    dollarValue: null
+  })
+
+  for (const log of rawLogs) {
+    if (!log || !Array.isArray(log.topics) || typeof log.address !== 'string') continue
+    const topic0 = log.topics[0]?.toLowerCase()
+    try {
+      if (topic0 === TRANSFER_SINGLE_TOPIC) {
+        const parsed = transferSingleInterface.parseLog({ topics: log.topics, data: log.data })
+        if (!parsed) continue
+        changes.push(
+          build(log.address, parsed.args.from as string, parsed.args.to as string, parsed.args.id as bigint, parsed.args.value as bigint)
+        )
+      } else if (topic0 === TRANSFER_BATCH_TOPIC) {
+        const parsed = transferBatchInterface.parseLog({ topics: log.topics, data: log.data })
+        if (!parsed) continue
+        // Access by index: `Result` exposes an array-like `.values()` method that shadows a named
+        // `values` arg, so named access would return the method.
+        const from = parsed.args[1] as string
+        const to = parsed.args[2] as string
+        const ids = parsed.args[3] as bigint[]
+        const values = parsed.args[4] as bigint[]
+        for (let i = 0; i < ids.length; i++) {
+          changes.push(build(log.address, from, to, ids[i], values[i]))
+        }
+      }
+    } catch {
+      // A malformed log is skipped, like everywhere else in this decoder.
+    }
+  }
+
+  return changes
+}
+
+/**
  * Creates the simulation logic component.
  *
  * Orchestration of `simulateTransaction`:
@@ -286,11 +352,12 @@ function decodeApprovals(rawLogs: TenderlySimulationResult['rawLogs'], tokenMeta
  * 2. Delegates the actual simulation to the Tenderly adapter.
  * 3. Maps Tenderly's asset changes into the normalized DTO (addresses lowercased).
  * 4. Decodes approvals from raw logs (primary source) and enriches metadata.
- * 5. Adds the native-value fallback the adapter can't provide.
+ * 5. Adds every ERC1155 movement the raw logs record, and the native-value fallback the adapter can't
+ *    provide.
  *
- * ERC1155 is not supported: no Decentraland contract is one, and the auth dapp refuses to preview a call
- * that reaches a contract Decentraland does not own, so a Tenderly row of that standard is passed through
- * as reported and nothing is reconstructed from `TransferSingle`/`TransferBatch` logs.
+ * ERC1155 is not supported by the auth dapp: no Decentraland contract is one, and the dapp refuses any
+ * preview that carries a row of that standard. The rows are reported so that it can: a movement left out
+ * would show a no-effect preview for a call that moves assets.
  *
  * @param components - `tenderly` and `logs`.
  * @param options - `supportedChainIds`, the allowlist of chains we simulate.
@@ -350,7 +417,13 @@ export async function createSimulationComponent(
     const tokenMeta = buildTokenMetaIndex(result.assetChanges, result.exposureChanges)
     const approvalChanges = withoutTransferImpliedApprovals(decodeApprovals(result.rawLogs, tokenMeta), decodeTransfers(result.rawLogs))
 
-    // 6. Native-value fallback — synthesize a native transfer when the tx succeeded,
+    // 6. ERC1155 movements from the raw logs, next to whatever Tenderly reported. Nothing of this standard is
+    //    merged or deduplicated: the dapp refuses a preview on any such row, so a movement reported twice
+    //    costs nothing, while a movement left out (Tenderly's rows are unreliable for ERC1155) would show a
+    //    no-effect preview for a call that moves assets.
+    assetChanges.push(...decodeErc1155Transfers(result.rawLogs))
+
+    // 7. Native-value fallback — synthesize a native transfer when the tx succeeded,
     //    value > 0 and Tenderly did not already report one. A reverted tx moves no
     //    value, so we must not invent a transfer for it.
     if (status === 'success' && BigInt(value) > 0n && !assetChanges.some(change => change.standard === 'native')) {
