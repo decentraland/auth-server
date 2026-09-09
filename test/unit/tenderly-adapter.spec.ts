@@ -299,6 +299,36 @@ describe('when using the Tenderly adapter', () => {
     })
   })
 
+  describe('and Tenderly responds with 400', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({ ok: false, status: 400, body: { cancel: jest.fn().mockResolvedValue(undefined) } })
+    })
+
+    it('should throw a TenderlyBadRequestError, so the endpoint answers 400 with the upstream code', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyBadRequestError)
+    })
+  })
+
+  describe('and Tenderly responds with a status this adapter does not expect', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({ ok: false, status: 418, body: { cancel: jest.fn().mockResolvedValue(undefined) } })
+    })
+
+    it('should throw a TenderlyUnavailableError', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe('and Tenderly responds with 200 and a body that is not JSON', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => Promise.reject(new SyntaxError('Unexpected token')) })
+    })
+
+    it('should throw a TenderlyUnavailableError', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
   describe('and Tenderly responds with 429', () => {
     beforeEach(() => {
       fetchMock.mockResolvedValue({ ok: false, status: 429, body: { cancel: jest.fn().mockResolvedValue(undefined) } })

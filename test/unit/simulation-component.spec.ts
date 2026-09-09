@@ -1,7 +1,7 @@
 import { Interface } from 'ethers'
 import { ITenderlyAdapter, TenderlyRawLog, TenderlySimulationResult } from '../../src/adapters/tenderly'
 import { createSimulationComponent } from '../../src/logic/simulation/component'
-import { UnsupportedChainError } from '../../src/logic/simulation/errors'
+import { InvalidSimulationParamsError, UnsupportedChainError } from '../../src/logic/simulation/errors'
 import { ISimulationComponent, SimulationRequestBody } from '../../src/logic/simulation/types'
 import { createMockLogs } from '../mocks'
 
@@ -624,6 +624,19 @@ describe('when simulating a transaction', () => {
       const response = await component.simulateTransaction(body)
 
       expect(response.assetChanges.filter(change => change.standard === 'erc1155')).toHaveLength(2)
+    })
+  })
+
+  describe('and the value is not a number', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO, value: 'ten' }
+    })
+
+    it('should reject it as invalid params before asking Tenderly', async () => {
+      await expect(component.simulateTransaction(body)).rejects.toBeInstanceOf(InvalidSimulationParamsError)
+      expect(tenderly.simulate).not.toHaveBeenCalled()
     })
   })
 
