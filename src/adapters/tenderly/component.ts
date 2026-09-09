@@ -142,9 +142,10 @@ export async function createTenderlyAdapter({
       throw new TenderlyUnavailableError('Tenderly returned no transaction status')
     }
 
-    // The effects live in `transaction_info`. A response without it, or whose collections are not what
-    // the schema says, would likewise read as a successful preview with no effects, so it is refused the
-    // same way. A collection Tenderly reports as null is its empty collection and is accepted as such.
+    // The effects live in `transaction_info`. A response without it, or whose collections or entries are
+    // not what the schema says, would likewise read as a successful preview with no effects or crash the
+    // normalization, so it is refused the same way. A collection Tenderly reports as null is its empty
+    // collection and is accepted as such.
     const transactionInfo = transaction.transaction_info
     if (!isRecord(transactionInfo)) {
       throw new TenderlyUnavailableError('Tenderly returned no transaction info')
@@ -153,6 +154,12 @@ export async function createTenderlyAdapter({
       const value = transactionInfo[collection]
       if (value != null && !Array.isArray(value)) {
         throw new TenderlyUnavailableError(`Tenderly returned a malformed ${collection} collection`)
+      }
+      // The entries are read as objects below (a log's `raw`, an asset change's `token_info`, a balance
+      // change's `address`); a null or primitive entry would fail there as a plain crash, so it is refused
+      // here as the malformed answer it is.
+      if (Array.isArray(value) && value.some(entry => !isRecord(entry))) {
+        throw new TenderlyUnavailableError(`Tenderly returned a malformed ${collection} entry`)
       }
     }
 

@@ -219,6 +219,30 @@ describe('when using the Tenderly adapter', () => {
     })
   })
 
+  describe.each([
+    ['logs', null],
+    ['asset_changes', 'not-an-object'],
+    ['exposure_changes', 1],
+    ['balance_changes', null]
+  ])('and Tenderly responds with 200 but the %s collection carries an entry that is not an object', (collection, entry) => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: true,
+            transaction_info: { asset_changes: [], exposure_changes: [], balance_changes: [], logs: [], [collection]: [entry] }
+          }
+        })
+      })
+    })
+
+    it('should throw a TenderlyUnavailableError rather than crash while reading it', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
   describe.each(['logs', 'asset_changes', 'exposure_changes', 'balance_changes'])(
     'and Tenderly responds with 200 but the %s collection is not an array',
     collection => {
