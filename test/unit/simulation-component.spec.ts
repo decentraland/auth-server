@@ -878,6 +878,10 @@ describe('when simulating a transaction', () => {
       { topics: [id('Transfer(address,address,uint256)'), zeroPadValue(FROM, 32)], data: '0x' }
     ],
     [
+      'a four-topic Approval whose approved-address topic is not hexadecimal',
+      { topics: [id('Approval(address,address,uint256)'), zeroPadValue(FROM, 32), 'zz', zeroPadValue('0x01', 32)], data: '0x' }
+    ],
+    [
       'an ERC20 Transfer with truncated data',
       { topics: [id('Transfer(address,address,uint256)'), zeroPadValue(FROM, 32), zeroPadValue(TO, 32)], data: '0x12' }
     ]

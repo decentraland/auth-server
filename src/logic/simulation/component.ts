@@ -315,8 +315,10 @@ function transferImpliedClearIndices(rawLogs: TenderlySimulationResult['rawLogs'
     const log = rawLogs[index]
     const topics = readTopics(log)
     if (!topics || topics[0] !== APPROVAL_TOPIC || topics.length !== 4) continue
-    // Approval(owner, approved, tokenId), all indexed: a zero approved address is a clear.
-    if (BigInt(topics[2]) !== 0n) continue
+    // Approval(owner, approved, tokenId), all indexed: a zero approved address is a clear. Decoded through the
+    // same guard as every effect log, so a malformed topic fails the simulation as unreadable rather than throw.
+    const parsed = decodeOrFail('Approval', () => erc721ApprovalInterface.parseLog({ topics: log.topics, data: log.data }))
+    if ((parsed.args.approved as string) !== ZeroAddress) continue
     const next = rawLogs.slice(index + 1).find(candidate => candidate && candidate.address.toLowerCase() === log.address.toLowerCase())
     const nextTopics = readTopics(next)
     // Transfer(from, to, tokenId), all indexed, of the same token by the same owner.
