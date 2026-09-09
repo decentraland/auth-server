@@ -1,4 +1,4 @@
-import { id, zeroPadValue } from 'ethers'
+import { MaxUint256, id, zeroPadValue } from 'ethers'
 import { ITenderlyAdapter, TenderlyBadRequestError, TenderlySimulationResult, TenderlyUnavailableError } from '../../src/adapters/tenderly'
 import { test } from '../components'
 
@@ -168,6 +168,22 @@ test('when simulating a transaction via the endpoint', args => {
       const response = await postSimulation(baseUrl, body, '203.0.113.4')
 
       expect(response.status).toBe(400)
+    })
+  })
+
+  describe('and the value is above what an EVM transaction can carry', () => {
+    let body: Record<string, unknown>
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO, value: (MaxUint256 + 1n).toString() }
+    })
+
+    it('should respond with 400 saying the request itself was refused, without reaching the provider', async () => {
+      const response = await postSimulation(baseUrl, body, '203.0.113.11')
+
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ code: 'invalid_request' })
+      expect(tenderly.simulate).not.toHaveBeenCalled()
     })
   })
 

@@ -1,4 +1,4 @@
-import { Interface, ZeroAddress, id, zeroPadValue } from 'ethers'
+import { Interface, MaxUint256, ZeroAddress, id, zeroPadValue } from 'ethers'
 import { ITenderlyAdapter, TenderlyAssetChange, TenderlyRawLog, TenderlySimulationResult } from '../../src/adapters/tenderly'
 import { createSimulationComponent } from '../../src/logic/simulation/component'
 import { InvalidSimulationParamsError, UnreadableSimulationError, UnsupportedChainError } from '../../src/logic/simulation/errors'
@@ -719,6 +719,35 @@ describe('when simulating a transaction', () => {
     })
 
     it('should reject it as invalid params before asking Tenderly', async () => {
+      await expect(component.simulateTransaction(body)).rejects.toBeInstanceOf(InvalidSimulationParamsError)
+      expect(tenderly.simulate).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('and the value is the largest an EVM transaction can carry', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO, value: MaxUint256.toString() }
+      tenderly.simulate.mockResolvedValue(baseResult())
+    })
+
+    it('should pass validation and simulate with it', async () => {
+      expect(() => component.validateRequest(body)).not.toThrow()
+      await component.simulateTransaction(body)
+      expect(tenderly.simulate).toHaveBeenCalledWith(expect.objectContaining({ value: MaxUint256.toString() }))
+    })
+  })
+
+  describe('and the value is one above what an EVM transaction can carry', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO, value: (MaxUint256 + 1n).toString() }
+    })
+
+    it('should reject it as invalid params before asking Tenderly', async () => {
+      expect(() => component.validateRequest(body)).toThrow(InvalidSimulationParamsError)
       await expect(component.simulateTransaction(body)).rejects.toBeInstanceOf(InvalidSimulationParamsError)
       expect(tenderly.simulate).not.toHaveBeenCalled()
     })

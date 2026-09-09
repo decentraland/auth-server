@@ -1,4 +1,4 @@
-import { formatEther, formatUnits, id, Interface, ZeroAddress } from 'ethers'
+import { formatEther, formatUnits, id, Interface, MaxUint256, ZeroAddress } from 'ethers'
 import { TenderlyRawLog, TenderlySimulationResult } from '../../adapters/tenderly'
 import { AppComponents } from '../../types'
 import { InvalidSimulationParamsError, UnreadableSimulationError, UnsupportedChainError } from './errors'
@@ -546,14 +546,19 @@ export async function createSimulationComponent(
       throw new UnsupportedChainError(body.chainId)
     }
 
-    // 2. Normalize inputs. BigInt accepts both `0x…` and decimal strings.
-    let value: string
+    // 2. Normalize inputs. BigInt accepts both `0x…` and decimal strings; the schema's length bound admits
+    //    numbers past what an EVM value can hold, so the range is checked here, before anything is spent on the
+    //    request.
+    let value: bigint
     try {
-      value = body.value ? BigInt(body.value).toString() : '0'
+      value = body.value ? BigInt(body.value) : 0n
     } catch {
       throw new InvalidSimulationParamsError('`value` must be a valid hex or decimal integer')
     }
-    return { value, data: body.data ?? '0x' }
+    if (value < 0n || value > MaxUint256) {
+      throw new InvalidSimulationParamsError('`value` must be between 0 and 2^256 - 1')
+    }
+    return { value: value.toString(), data: body.data ?? '0x' }
   }
 
   const simulateTransaction = async (body: SimulationRequestBody): Promise<SimulationResponseBody> => {
