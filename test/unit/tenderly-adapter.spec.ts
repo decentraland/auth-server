@@ -131,7 +131,8 @@ describe('when using the Tenderly adapter', () => {
             error_info: null,
             transaction_info: {
               balance_changes: [{ address: '0xFEED' }],
-              logs: []
+              logs: [],
+              asset_changes: null
             }
           }
         })
@@ -155,7 +156,8 @@ describe('when using the Tenderly adapter', () => {
             status: true,
             error_info: null,
             transaction_info: {
-              logs: [{ raw: { address: '0xBEEF', topics: [], data: '0x' } }]
+              logs: [{ raw: { address: '0xBEEF', topics: [], data: '0x' } }],
+              asset_changes: null
             }
           }
         })
@@ -288,6 +290,71 @@ describe('when using the Tenderly adapter', () => {
         balanceChanges: [],
         events: []
       })
+    })
+  })
+
+  describe.each(['logs', 'asset_changes'])('and a successful response omits the %s collection', collection => {
+    beforeEach(() => {
+      const info: Record<string, unknown> = { asset_changes: null, exposure_changes: null, balance_changes: null, logs: null }
+      delete info[collection]
+      fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ transaction: { status: true, transaction_info: info } }) })
+    })
+
+    it('should throw a TenderlyUnavailableError, since an absent effect collection is a partial answer', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe('and a successful response carries an empty transaction info object', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ transaction: { status: true, transaction_info: {} } }) })
+    })
+
+    it('should throw a TenderlyUnavailableError instead of reporting a success with no effects', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe('and a successful response omits only the enrichment collections', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ transaction: { status: true, transaction_info: { logs: null, asset_changes: [] } } })
+      })
+    })
+
+    it('should report a successful simulation with no effects', async () => {
+      await expect(adapter.simulate(params)).resolves.toMatchObject({
+        status: true,
+        assetChanges: [],
+        rawLogs: [],
+        balanceChanges: [],
+        exposureChanges: []
+      })
+    })
+  })
+
+  describe.each([
+    ['a numeric topic', { address: '0xdead', topics: [123], data: '0x' }],
+    ['a missing address', { topics: ['0x01'], data: '0x' }],
+    ['non-string data', { address: '0xdead', topics: ['0x01'], data: 7 }]
+  ])('and a raw log carries %s', (_label, raw) => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: true,
+            transaction_info: { asset_changes: [], exposure_changes: [], balance_changes: [], logs: [{ name: 'Transfer', raw }] }
+          }
+        })
+      })
+    })
+
+    it('should throw a TenderlyUnavailableError rather than hand the decoders a log they cannot read', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
     })
   })
 

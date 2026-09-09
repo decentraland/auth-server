@@ -5,6 +5,17 @@ import { ITenderlyAdapter, TenderlyAssetChange, TenderlyRawLog, TenderlySimulate
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 
+/** The collections a successful preview is built from; a success that lacks one is a partial answer. */
+const EFFECT_COLLECTIONS: ReadonlySet<string> = new Set(['logs', 'asset_changes'])
+
+/** A raw EVM log as the decoders read it: string address and data, string topics. */
+const isRawLog = (value: unknown): value is TenderlyRawLog =>
+  isRecord(value) &&
+  typeof value.address === 'string' &&
+  typeof value.data === 'string' &&
+  Array.isArray(value.topics) &&
+  value.topics.every(topic => typeof topic === 'string')
+
 const DEFAULT_API_URL = 'https://api.tenderly.co'
 const DEFAULT_TIMEOUT_MS = 6000
 // Upper bound on decoded event logs returned, to keep the response payload small.
@@ -138,10 +149,12 @@ export async function createTenderlyAdapter({
       throw new TenderlyUnavailableError('Tenderly returned no transaction status')
     }
 
-    // The effects live in `transaction_info`. A successful response without it, or whose collections or
-    // entries are not what the schema says, would read as a success with no effects or crash the
-    // normalization, so it is refused. A revert reports no effects whatever it carries, so it needs none.
-    // A collection Tenderly reports as null is its empty collection and is accepted as such.
+    // The effects live in `transaction_info`. A successful response without it, without the collections the
+    // preview is built from (`logs`, `asset_changes`), or whose collections or entries are not what the schema
+    // says, would read as a success with no effects or crash the normalization, so it is refused: an absent
+    // field is a partial answer, while a collection Tenderly reports as null is its empty collection and is
+    // accepted as such. The two enrichment collections (`exposure_changes`, `balance_changes`) may be absent.
+    // A revert reports no effects whatever it carries, so it needs none of this.
     const transactionInfo = isRecord(transaction.transaction_info) ? transaction.transaction_info : null
     if (!reverted && !transactionInfo) {
       throw new TenderlyUnavailableError('Tenderly returned no transaction info')
@@ -154,7 +167,13 @@ export async function createTenderlyAdapter({
     }
     for (const collection of Object.keys(collections) as Array<keyof typeof collections>) {
       const value = transactionInfo?.[collection]
-      if (value == null) continue
+      if (value === undefined) {
+        if (!reverted && EFFECT_COLLECTIONS.has(collection)) {
+          throw new TenderlyUnavailableError(`Tenderly returned no ${collection} collection`)
+        }
+        continue
+      }
+      if (value === null) continue
       if (!Array.isArray(value)) {
         throw new TenderlyUnavailableError(`Tenderly returned a malformed ${collection} collection`)
       }
@@ -166,7 +185,17 @@ export async function createTenderlyAdapter({
       collections[collection] = value
     }
 
-    const rawLogs = collections.logs.map(entry => entry.raw).filter(isRecord) as unknown as TenderlyRawLog[]
+    // A log's `raw` is what the approval and transfer decoders read; one of another shape would fail in
+    // them outside their own guards, so it is refused rather than cast. A decoded-only entry without `raw`
+    // carries nothing to decode and is skipped.
+    const rawLogs: TenderlyRawLog[] = []
+    for (const entry of collections.logs) {
+      if (entry.raw == null) continue
+      if (!isRawLog(entry.raw)) {
+        throw new TenderlyUnavailableError('Tenderly returned a malformed log')
+      }
+      rawLogs.push(entry.raw)
+    }
 
     const balanceChanges = collections.balance_changes
       .map(bc => ({
