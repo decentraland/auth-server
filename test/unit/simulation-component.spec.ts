@@ -1,7 +1,7 @@
-import { Interface, ZeroAddress } from 'ethers'
+import { Interface, ZeroAddress, id, zeroPadValue } from 'ethers'
 import { ITenderlyAdapter, TenderlyAssetChange, TenderlyRawLog, TenderlySimulationResult } from '../../src/adapters/tenderly'
 import { createSimulationComponent } from '../../src/logic/simulation/component'
-import { InvalidSimulationParamsError, UnsupportedChainError } from '../../src/logic/simulation/errors'
+import { InvalidSimulationParamsError, UnreadableSimulationError, UnsupportedChainError } from '../../src/logic/simulation/errors'
 import { ISimulationComponent, SimulationRequestBody } from '../../src/logic/simulation/types'
 import { createMockLogs } from '../mocks'
 
@@ -742,6 +742,73 @@ describe('when simulating a transaction', () => {
       const response = await component.simulateTransaction(body)
 
       expect(response.approvalChanges).toEqual([expect.objectContaining({ kind: 'approval', rawAmount: '500', amount: null })])
+    })
+  })
+
+  describe.each([
+    [
+      'an ERC20 Approval with truncated data',
+      { topics: [id('Approval(address,address,uint256)'), zeroPadValue(FROM, 32), zeroPadValue(SPENDER, 32)], data: '0x12' }
+    ],
+    [
+      'an Approval with a topic count of neither standard',
+      { topics: [id('Approval(address,address,uint256)'), zeroPadValue(FROM, 32)], data: '0x' }
+    ],
+    [
+      'an ApprovalForAll with no data',
+      { topics: [id('ApprovalForAll(address,address,bool)'), zeroPadValue(FROM, 32), zeroPadValue(SPENDER, 32)], data: '0x' }
+    ],
+    [
+      'a TransferSingle with no data',
+      {
+        topics: [
+          id('TransferSingle(address,address,address,uint256,uint256)'),
+          zeroPadValue(FROM, 32),
+          zeroPadValue(FROM, 32),
+          zeroPadValue(TO, 32)
+        ],
+        data: '0x'
+      }
+    ],
+    [
+      'a TransferBatch with truncated data',
+      {
+        topics: [
+          id('TransferBatch(address,address,address,uint256[],uint256[])'),
+          zeroPadValue(FROM, 32),
+          zeroPadValue(FROM, 32),
+          zeroPadValue(TO, 32)
+        ],
+        data: '0x1234'
+      }
+    ],
+    [
+      'a Transfer with a topic count of neither standard',
+      { topics: [id('Transfer(address,address,uint256)'), zeroPadValue(FROM, 32)], data: '0x' }
+    ]
+  ])('and the logs carry %s', (_label, log) => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(baseResult({ rawLogs: [{ address: TOKEN, ...log }] }))
+    })
+
+    it('should fail the simulation as unreadable rather than report the effects without it', async () => {
+      await expect(component.simulateTransaction(body)).rejects.toBeInstanceOf(UnreadableSimulationError)
+    })
+  })
+
+  describe('and the logs carry an event this service does not report, with data it cannot decode', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(baseResult({ rawLogs: [{ address: TOKEN, topics: [id('Something(uint256)')], data: '0x12' }] }))
+    })
+
+    it('should leave it alone', async () => {
+      await expect(component.simulateTransaction(body)).resolves.toMatchObject({ status: 'success', approvalChanges: [], assetChanges: [] })
     })
   })
 

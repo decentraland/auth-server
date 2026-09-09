@@ -1,7 +1,7 @@
 import { formatEther, formatUnits, id, Interface, ZeroAddress } from 'ethers'
 import { TenderlySimulationResult } from '../../adapters/tenderly'
 import { AppComponents } from '../../types'
-import { InvalidSimulationParamsError, UnsupportedChainError } from './errors'
+import { InvalidSimulationParamsError, UnreadableSimulationError, UnsupportedChainError } from './errors'
 import { ApprovalChange, AssetChange, ISimulationComponent, SimulationRequestBody, SimulationResponseBody } from './types'
 
 // Unlimited-allowance threshold: many tokens use 2^256-1, some use 2^255+; anything
@@ -101,20 +101,36 @@ function mapType(type?: string): AssetChange['type'] {
 }
 
 /** The ERC721 transfers a transaction's raw logs record, as `contract:tokenId:from`, the key the approval filter looks up. */
+// A log that carries the signature of an effect this service reports must decode as one; a log that does not
+// (truncated data, a wrong topic count) cannot be told from an effect that went unreported, so the simulation
+// is failed rather than read short (see UnreadableSimulationError).
+function decodeOrFail<T>(name: string, decode: () => T | null): T {
+  let decoded: T | null
+  try {
+    decoded = decode()
+  } catch {
+    decoded = null
+  }
+  if (decoded === null) {
+    throw new UnreadableSimulationError(`a ${name} log could not be decoded`)
+  }
+  return decoded
+}
+
 function decodeErc721Transfers(rawLogs: TenderlySimulationResult['rawLogs']): Set<string> {
   const transfers = new Set<string>()
   for (const log of rawLogs) {
     if (!log || !Array.isArray(log.topics) || typeof log.address !== 'string') continue
-    if (log.topics[0]?.toLowerCase() !== TRANSFER_TOPIC || log.topics.length !== 4) continue
-    try {
-      const parsed = erc721TransferInterface.parseLog({ topics: log.topics, data: log.data })
-      if (!parsed) continue
-      transfers.add(
-        `${log.address.toLowerCase()}:${(parsed.args.tokenId as bigint).toString()}:${(parsed.args.from as string).toLowerCase()}`
-      )
-    } catch {
-      // A malformed log is skipped, like everywhere else in this decoder.
+    if (log.topics[0]?.toLowerCase() !== TRANSFER_TOPIC) continue
+    // Three topics is the ERC20 form, reported through Tenderly's asset changes rather than decoded here.
+    if (log.topics.length === 3) continue
+    if (log.topics.length !== 4) {
+      throw new UnreadableSimulationError('a Transfer log carries neither the ERC20 nor the ERC721 topics')
     }
+    const parsed = decodeOrFail('Transfer', () => erc721TransferInterface.parseLog({ topics: log.topics, data: log.data }))
+    transfers.add(
+      `${log.address.toLowerCase()}:${(parsed.args.tokenId as bigint).toString()}:${(parsed.args.from as string).toLowerCase()}`
+    )
   }
   return transfers
 }
@@ -227,71 +243,64 @@ function decodeApprovals(rawLogs: TenderlySimulationResult['rawLogs'], tokenMeta
   }
 
   for (const log of rawLogs) {
-    // Defensively skip malformed logs (missing topics/address) so a single bad
-    // entry can't throw and defeat the fail-open decoding of the rest.
     if (!log || !Array.isArray(log.topics) || typeof log.address !== 'string') continue
     const topic0 = log.topics[0]?.toLowerCase()
     const contractAddress = log.address.toLowerCase()
 
-    try {
-      if (topic0 === APPROVAL_TOPIC && log.topics.length === 4) {
-        const parsed = erc721ApprovalInterface.parseLog({ topics: log.topics, data: log.data })
-        if (!parsed) continue
-        push({
-          kind: 'approval',
-          standard: 'erc721',
-          owner: (parsed.args.owner as string).toLowerCase(),
-          spender: (parsed.args.approved as string).toLowerCase(),
-          amount: null,
-          rawAmount: null,
-          isUnlimited: false,
-          tokenId: (parsed.args.tokenId as bigint).toString(),
-          approved: null,
-          contractAddress,
-          symbol: null,
-          name: null
-        })
-      } else if (topic0 === APPROVAL_TOPIC && log.topics.length === 3) {
-        const parsed = erc20ApprovalInterface.parseLog({ topics: log.topics, data: log.data })
-        if (!parsed) continue
-        const value = parsed.args.value as bigint
-        push({
-          kind: 'approval',
-          standard: 'erc20',
-          owner: (parsed.args.owner as string).toLowerCase(),
-          spender: (parsed.args.spender as string).toLowerCase(),
-          amount: null,
-          rawAmount: value.toString(),
-          isUnlimited: value >= UNLIMITED_THRESHOLD,
-          tokenId: null,
-          approved: null,
-          contractAddress,
-          symbol: null,
-          name: null
-        })
-      } else if (topic0 === APPROVAL_FOR_ALL_TOPIC) {
-        const parsed = approvalForAllInterface.parseLog({ topics: log.topics, data: log.data })
-        if (!parsed) continue
-        const approved = parsed.args.approved as boolean
-        push({
-          kind: 'approvalForAll',
-          // ApprovalForAll(address,address,bool) always has exactly 3 topics, so
-          // erc721 vs erc1155 can't be told apart from an ApprovalForAll's topics.
-          standard: 'unknown',
-          owner: (parsed.args.owner as string).toLowerCase(),
-          spender: (parsed.args.operator as string).toLowerCase(),
-          amount: null,
-          rawAmount: null,
-          isUnlimited: approved === true,
-          tokenId: null,
-          approved,
-          contractAddress,
-          symbol: null,
-          name: null
-        })
-      }
-    } catch {
-      // Unparseable log for this fragment — skip it (fail-open).
+    if (topic0 === APPROVAL_TOPIC && log.topics.length === 4) {
+      const parsed = decodeOrFail('Approval', () => erc721ApprovalInterface.parseLog({ topics: log.topics, data: log.data }))
+      push({
+        kind: 'approval',
+        standard: 'erc721',
+        owner: (parsed.args.owner as string).toLowerCase(),
+        spender: (parsed.args.approved as string).toLowerCase(),
+        amount: null,
+        rawAmount: null,
+        isUnlimited: false,
+        tokenId: (parsed.args.tokenId as bigint).toString(),
+        approved: null,
+        contractAddress,
+        symbol: null,
+        name: null
+      })
+    } else if (topic0 === APPROVAL_TOPIC && log.topics.length === 3) {
+      const parsed = decodeOrFail('Approval', () => erc20ApprovalInterface.parseLog({ topics: log.topics, data: log.data }))
+      const value = parsed.args.value as bigint
+      push({
+        kind: 'approval',
+        standard: 'erc20',
+        owner: (parsed.args.owner as string).toLowerCase(),
+        spender: (parsed.args.spender as string).toLowerCase(),
+        amount: null,
+        rawAmount: value.toString(),
+        isUnlimited: value >= UNLIMITED_THRESHOLD,
+        tokenId: null,
+        approved: null,
+        contractAddress,
+        symbol: null,
+        name: null
+      })
+    } else if (topic0 === APPROVAL_TOPIC) {
+      throw new UnreadableSimulationError('an Approval log carries neither the ERC20 nor the ERC721 topics')
+    } else if (topic0 === APPROVAL_FOR_ALL_TOPIC) {
+      const parsed = decodeOrFail('ApprovalForAll', () => approvalForAllInterface.parseLog({ topics: log.topics, data: log.data }))
+      const approved = parsed.args.approved as boolean
+      push({
+        kind: 'approvalForAll',
+        // ApprovalForAll(address,address,bool) always has exactly 3 topics, so
+        // erc721 vs erc1155 can't be told apart from an ApprovalForAll's topics.
+        standard: 'unknown',
+        owner: (parsed.args.owner as string).toLowerCase(),
+        spender: (parsed.args.operator as string).toLowerCase(),
+        amount: null,
+        rawAmount: null,
+        isUnlimited: approved === true,
+        tokenId: null,
+        approved,
+        contractAddress,
+        symbol: null,
+        name: null
+      })
     }
   }
 
@@ -325,28 +334,22 @@ function decodeErc1155Transfers(rawLogs: TenderlySimulationResult['rawLogs']): A
   for (const log of rawLogs) {
     if (!log || !Array.isArray(log.topics) || typeof log.address !== 'string') continue
     const topic0 = log.topics[0]?.toLowerCase()
-    try {
-      if (topic0 === TRANSFER_SINGLE_TOPIC) {
-        const parsed = transferSingleInterface.parseLog({ topics: log.topics, data: log.data })
-        if (!parsed) continue
-        changes.push(
-          build(log.address, parsed.args.from as string, parsed.args.to as string, parsed.args.id as bigint, parsed.args.value as bigint)
-        )
-      } else if (topic0 === TRANSFER_BATCH_TOPIC) {
-        const parsed = transferBatchInterface.parseLog({ topics: log.topics, data: log.data })
-        if (!parsed) continue
-        // Access by index: `Result` exposes an array-like `.values()` method that shadows a named
-        // `values` arg, so named access would return the method.
-        const from = parsed.args[1] as string
-        const to = parsed.args[2] as string
-        const ids = parsed.args[3] as bigint[]
-        const values = parsed.args[4] as bigint[]
-        for (let i = 0; i < ids.length; i++) {
-          changes.push(build(log.address, from, to, ids[i], values[i]))
-        }
+    if (topic0 === TRANSFER_SINGLE_TOPIC) {
+      const parsed = decodeOrFail('TransferSingle', () => transferSingleInterface.parseLog({ topics: log.topics, data: log.data }))
+      changes.push(
+        build(log.address, parsed.args.from as string, parsed.args.to as string, parsed.args.id as bigint, parsed.args.value as bigint)
+      )
+    } else if (topic0 === TRANSFER_BATCH_TOPIC) {
+      const parsed = decodeOrFail('TransferBatch', () => transferBatchInterface.parseLog({ topics: log.topics, data: log.data }))
+      // Access by index: `Result` exposes an array-like `.values()` method that shadows a named
+      // `values` arg, so named access would return the method.
+      const from = parsed.args[1] as string
+      const to = parsed.args[2] as string
+      const ids = parsed.args[3] as bigint[]
+      const values = parsed.args[4] as bigint[]
+      for (let i = 0; i < ids.length; i++) {
+        changes.push(build(log.address, from, to, ids[i], values[i]))
       }
-    } catch {
-      // A malformed log is skipped, like everywhere else in this decoder.
     }
   }
 

@@ -1,7 +1,12 @@
 import { InvalidRequestError } from '@dcl/http-commons'
 import { TenderlyBadRequestError, TenderlyRateLimitError, TenderlyUnavailableError } from '../../adapters/tenderly'
 import { isErrorWithMessage } from '../../logic/error-handling'
-import { InvalidSimulationParamsError, SimulationErrorResponse, UnsupportedChainError } from '../../logic/simulation'
+import {
+  InvalidSimulationParamsError,
+  SimulationErrorResponse,
+  UnreadableSimulationError,
+  UnsupportedChainError
+} from '../../logic/simulation'
 import { InvalidResponseMessage } from '../../ports/server/types'
 import { validateSimulationRequest } from '../../ports/server/validations'
 import { HandlerContextWithPath } from '../../types'
@@ -96,6 +101,11 @@ export function createSimulationHandler(allowedOrigins: Set<string>, rateLimit: 
       if (e instanceof TenderlyRateLimitError) {
         logger.log(`Simulation rate limited by Tenderly: ${message}`)
         return { status: 429, body: { error: 'Too many requests' } satisfies InvalidResponseMessage }
+      }
+
+      if (e instanceof UnreadableSimulationError) {
+        logger.warn(`Simulation effects unreadable: ${message}`)
+        return { status: 502, body: { error: 'Simulation provider returned an unreadable answer' } satisfies InvalidResponseMessage }
       }
 
       if (e instanceof TenderlyUnavailableError) {

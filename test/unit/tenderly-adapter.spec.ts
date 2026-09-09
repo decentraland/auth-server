@@ -61,7 +61,7 @@ describe('when using the Tenderly adapter', () => {
               asset_changes: [{ type: 'Transfer', token_info: { standard: 'ERC20' } }],
               exposure_changes: [{ contract_address: '0xabc' }],
               balance_changes: [{ address: '0xAbCdEf0000000000000000000000000000000001', dollar_value: '12.34' }],
-              logs: [{ name: 'Transfer', raw: { address: '0xDEAD', topics: ['0x01'], data: '0x' } }, { other: true }]
+              logs: [{ name: 'Transfer', raw: { address: '0xDEAD', topics: ['0x01'], data: '0x' } }]
             }
           }
         })
@@ -332,6 +332,25 @@ describe('when using the Tenderly adapter', () => {
         balanceChanges: [],
         exposureChanges: []
       })
+    })
+  })
+
+  describe('and a log entry carries no raw form', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: true,
+            transaction_info: { asset_changes: [], exposure_changes: [], balance_changes: [], logs: [{ name: 'Approval' }] }
+          }
+        })
+      })
+    })
+
+    it('should throw a TenderlyUnavailableError, since an approval it may carry cannot be read', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
     })
   })
 

@@ -1,3 +1,4 @@
+import { id, zeroPadValue } from 'ethers'
 import { ITenderlyAdapter, TenderlyBadRequestError, TenderlySimulationResult, TenderlyUnavailableError } from '../../src/adapters/tenderly'
 import { test } from '../components'
 
@@ -182,6 +183,31 @@ test('when simulating a transaction via the endpoint', args => {
 
       expect(response.status).toBe(400)
       expect(await response.json()).toMatchObject({ code: 'invalid_request' })
+    })
+  })
+
+  describe('and Tenderly returns an Approval log that cannot be decoded', () => {
+    let body: Record<string, unknown>
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO, value: '0' }
+      tenderly.simulate.mockResolvedValue(
+        successResult({
+          rawLogs: [
+            {
+              address: TOKEN,
+              topics: [id('Approval(address,address,uint256)'), zeroPadValue(FROM, 32), zeroPadValue(TO, 32)],
+              data: '0x12'
+            }
+          ]
+        })
+      )
+    })
+
+    it('should respond with 502, since the effects cannot be reported completely', async () => {
+      const response = await postSimulation(baseUrl, body, '203.0.113.10')
+
+      expect(response.status).toBe(502)
     })
   })
 

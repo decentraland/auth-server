@@ -197,14 +197,13 @@ export async function createTenderlyAdapter({
       collections[collection] = value
     }
 
-    // A log's `raw` is what the approval and transfer decoders read; one of another shape would fail in
-    // them outside their own guards, so it is refused rather than cast. A decoded-only entry without `raw`
-    // carries nothing to decode and is skipped.
+    // A log's `raw` is what the approval and transfer decoders read, and the only source of approvals and
+    // ERC1155 movements. An entry without it, or with one of another shape, cannot be told from an effect
+    // that went unreported, so the response is refused rather than read short.
     const rawLogs: TenderlyRawLog[] = []
     for (const entry of collections.logs) {
-      if (entry.raw == null) continue
       if (!isRawLog(entry.raw)) {
-        throw new TenderlyUnavailableError('Tenderly returned a malformed log')
+        throw new TenderlyUnavailableError('Tenderly returned a log without a readable raw form')
       }
       rawLogs.push(entry.raw)
     }
