@@ -1,4 +1,4 @@
-import { formatEther, formatUnits, id, Interface } from 'ethers'
+import { formatEther, formatUnits, id, Interface, ZeroAddress } from 'ethers'
 import { TenderlyAssetChange, TenderlySimulationResult } from '../../adapters/tenderly'
 import { AppComponents } from '../../types'
 import { InvalidSimulationParamsError, UnsupportedChainError } from './errors'
@@ -28,7 +28,6 @@ const APPROVAL_TOPIC = id('Approval(address,address,uint256)').toLowerCase()
 const TRANSFER_TOPIC = id('Transfer(address,address,uint256)').toLowerCase()
 const TRANSFER_SINGLE_TOPIC = id('TransferSingle(address,address,address,uint256,uint256)').toLowerCase()
 const TRANSFER_BATCH_TOPIC = id('TransferBatch(address,address,address,uint256[],uint256[])').toLowerCase()
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
 const APPROVAL_FOR_ALL_TOPIC = id('ApprovalForAll(address,address,bool)').toLowerCase()
 
 /** Lowercases an address-ish string, or returns null when absent. */
@@ -82,28 +81,16 @@ function mapType(type?: string): AssetChange['type'] {
   }
 }
 
-/** A token id in one notation, so a hex id from Tenderly and a decimal id from a log compare equal. */
-function normalizeTokenId(tokenId: string | null): string {
-  if (tokenId === null) return ''
-  try {
-    return BigInt(tokenId).toString()
-  } catch {
-    return tokenId
-  }
-}
-
 /** The ERC721 transfers a transaction's raw logs record, as `contract:tokenId:from`, the key the approval filter looks up. */
-type LoggedTransfers = { erc721: Set<string> }
-
-function decodeTransfers(rawLogs: TenderlySimulationResult['rawLogs']): LoggedTransfers {
-  const transfers: LoggedTransfers = { erc721: new Set() }
+function decodeErc721Transfers(rawLogs: TenderlySimulationResult['rawLogs']): Set<string> {
+  const transfers = new Set<string>()
   for (const log of rawLogs) {
     if (!log || !Array.isArray(log.topics) || typeof log.address !== 'string') continue
     if (log.topics[0]?.toLowerCase() !== TRANSFER_TOPIC || log.topics.length !== 4) continue
     try {
       const parsed = erc721TransferInterface.parseLog({ topics: log.topics, data: log.data })
       if (!parsed) continue
-      transfers.erc721.add(
+      transfers.add(
         `${log.address.toLowerCase()}:${(parsed.args.tokenId as bigint).toString()}:${(parsed.args.from as string).toLowerCase()}`
       )
     } catch {
@@ -130,10 +117,10 @@ function decodeTransfers(rawLogs: TenderlySimulationResult['rawLogs']): LoggedTr
  * applies the precise rule there: the signer's allowance only changes by a grant when the signer's own
  * call is an allowance function.
  */
-function withoutTransferImpliedApprovals(approvals: ApprovalChange[], transfers: LoggedTransfers): ApprovalChange[] {
+function withoutTransferImpliedApprovals(approvals: ApprovalChange[], transfers: Set<string>): ApprovalChange[] {
   return approvals.filter(approval => {
-    if (approval.kind !== 'approval' || approval.standard !== 'erc721' || approval.spender !== ZERO_ADDRESS) return true
-    return !transfers.erc721.has(`${approval.contractAddress}:${normalizeTokenId(approval.tokenId)}:${approval.owner}`)
+    if (approval.kind !== 'approval' || approval.standard !== 'erc721' || approval.spender !== ZeroAddress) return true
+    return !transfers.has(`${approval.contractAddress}:${approval.tokenId}:${approval.owner}`)
   })
 }
 
@@ -344,6 +331,22 @@ function decodeErc1155Transfers(rawLogs: TenderlySimulationResult['rawLogs']): A
   return changes
 }
 
+const MAX_REVERT_REASON_LENGTH = 200
+
+/**
+ * A revert reason fit for display: control and format characters removed, length bounded. The text comes from
+ * the contract that reverted, and on a revert it is the only content of the preview.
+ */
+function sanitizeRevertReason(message: string | null): string | null {
+  if (!message) return null
+  const cleaned = message
+    .replace(/\p{C}+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!cleaned) return null
+  return cleaned.length > MAX_REVERT_REASON_LENGTH ? `${cleaned.slice(0, MAX_REVERT_REASON_LENGTH - 1)}…` : cleaned
+}
+
 /**
  * Creates the simulation logic component.
  *
@@ -393,40 +396,54 @@ export async function createSimulationComponent(
       value
     })
 
-    const status: SimulationResponseBody['status'] = result.status === false ? 'reverted' : 'success'
+    // A reverted transaction changes nothing: no asset moves, no approval is granted, no balance changes and
+    // no event is emitted, whatever the simulator traced before the revert. Only the status and the reason
+    // are reported, and the reason, text the called contract wrote and the whole preview in this case, is
+    // stripped of control characters and bounded.
+    if (result.status === false) {
+      logger.debug(`Simulated tx on chain ${body.chainId}: status=reverted`)
+      const response: SimulationResponseBody = { status: 'reverted', assetChanges: [], approvalChanges: [], balanceChanges: [], events: [] }
+      const reason = sanitizeRevertReason(result.errorMessage)
+      if (reason) response.error = reason
+      return response
+    }
 
-    // 4. Map Tenderly asset changes defensively (all missing fields ⇒ null).
-    const assetChanges: AssetChange[] = result.assetChanges.map(change => ({
-      type: mapType(change.type),
-      standard: mapStandard(change.token_info?.standard),
-      from: lowerOrNull(change.from),
-      to: lowerOrNull(change.to),
-      amount: change.amount ?? null,
-      rawAmount: change.raw_amount ?? null,
-      tokenId: change.token_id ?? null,
-      contractAddress: lowerOrNull(change.token_info?.contract_address),
-      symbol: change.token_info?.symbol ?? null,
-      name: change.token_info?.name ?? null,
-      decimals: change.token_info?.decimals ?? null,
-      logoUrl: change.token_info?.logo ?? null,
-      dollarValue: change.dollar_value ?? null
-    }))
+    // 4. Map Tenderly asset changes defensively (all missing fields ⇒ null). ERC1155 rows are left out here
+    //    and rebuilt from the logs in step 6.
+    const assetChanges: AssetChange[] = result.assetChanges
+      .map(change => ({
+        type: mapType(change.type),
+        standard: mapStandard(change.token_info?.standard),
+        from: lowerOrNull(change.from),
+        to: lowerOrNull(change.to),
+        amount: change.amount ?? null,
+        rawAmount: change.raw_amount ?? null,
+        tokenId: change.token_id ?? null,
+        contractAddress: lowerOrNull(change.token_info?.contract_address),
+        symbol: change.token_info?.symbol ?? null,
+        name: change.token_info?.name ?? null,
+        decimals: change.token_info?.decimals ?? null,
+        logoUrl: change.token_info?.logo ?? null,
+        dollarValue: change.dollar_value ?? null
+      }))
+      .filter(change => change.standard !== 'erc1155')
 
     // 5. Approvals from raw logs (primary source), enriched with token metadata, minus the ones a
     //    transfer in the same transaction implies (see withoutTransferImpliedApprovals).
     const tokenMeta = buildTokenMetaIndex(result.assetChanges, result.exposureChanges)
-    const approvalChanges = withoutTransferImpliedApprovals(decodeApprovals(result.rawLogs, tokenMeta), decodeTransfers(result.rawLogs))
+    const approvalChanges = withoutTransferImpliedApprovals(
+      decodeApprovals(result.rawLogs, tokenMeta),
+      decodeErc721Transfers(result.rawLogs)
+    )
 
-    // 6. ERC1155 movements from the raw logs, next to whatever Tenderly reported. Nothing of this standard is
-    //    merged or deduplicated: the dapp refuses a preview on any such row, so a movement reported twice
-    //    costs nothing, while a movement left out (Tenderly's rows are unreliable for ERC1155) would show a
-    //    no-effect preview for a call that moves assets.
+    // 6. ERC1155 movements come from the raw logs alone: the standard requires a TransferSingle or
+    //    TransferBatch for every movement, while Tenderly's rows of that standard are unreliable, so its rows
+    //    are dropped in step 4 and each logged movement is reported once, with nothing merged.
     assetChanges.push(...decodeErc1155Transfers(result.rawLogs))
 
-    // 7. Native-value fallback — synthesize a native transfer when the tx succeeded,
-    //    value > 0 and Tenderly did not already report one. A reverted tx moves no
-    //    value, so we must not invent a transfer for it.
-    if (status === 'success' && BigInt(value) > 0n && !assetChanges.some(change => change.standard === 'native')) {
+    // 7. Native-value fallback: synthesize a native transfer when value > 0 and Tenderly did not report one
+    //    (a revert never reaches this point).
+    if (BigInt(value) > 0n && !assetChanges.some(change => change.standard === 'native')) {
       assetChanges.push({
         type: 'transfer',
         standard: 'native',
@@ -444,25 +461,9 @@ export async function createSimulationComponent(
       })
     }
 
-    logger.debug(
-      `Simulated tx on chain ${body.chainId}: status=${status} assets=${assetChanges.length} approvals=${approvalChanges.length}`
-    )
+    logger.debug(`Simulated tx on chain ${body.chainId}: status=success assets=${assetChanges.length} approvals=${approvalChanges.length}`)
 
-    // A reverted transaction changes nothing: no asset moves, no approval is granted, no balance changes
-    // and no event is emitted, whatever the simulator's traces recorded before the revert. Reporting any
-    // of them would show effects next to "likely to fail".
-    const reverted = status === 'reverted'
-    const response: SimulationResponseBody = {
-      status,
-      assetChanges: reverted ? [] : assetChanges,
-      approvalChanges: reverted ? [] : approvalChanges,
-      balanceChanges: reverted ? [] : result.balanceChanges,
-      events: reverted ? [] : result.events
-    }
-    if (status === 'reverted' && result.errorMessage) {
-      response.error = result.errorMessage
-    }
-    return response
+    return { status: 'success', assetChanges, approvalChanges, balanceChanges: result.balanceChanges, events: result.events }
   }
 
   return { simulateTransaction }

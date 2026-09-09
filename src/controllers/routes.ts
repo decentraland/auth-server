@@ -1,6 +1,7 @@
 import { rejectIfSigner, wellKnownComponents } from '@dcl/crypto-middleware'
 import { bearerTokenMiddleware, errorHandler } from '@dcl/http-commons'
-import { Router } from '@dcl/http-server'
+import { Router, createBodySizeLimitMiddleware } from '@dcl/http-server'
+import { DEFAULT_BODY_SIZE_BYTES } from '../ports/server/constants'
 import { GlobalContext } from '../types'
 import { createDeleteAccountHandler } from './handlers/accounts'
 import { getPendingNudgesForSequenceHandler, runEvaluatorHandler, sendTestEmailHandler } from './handlers/admin'
@@ -107,6 +108,11 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
   const accountDeletionSignedFetchMiddleware = createSignedFetchMiddleware(ACCOUNT_DELETION_CANONICAL_METADATA_KEYS)
 
   router.use(errorHandler)
+
+  // Every route keeps the service's historical body cap. Only `/simulations` needs the larger transport
+  // cap the server is configured with (see MAX_BODY_SIZE_BYTES), since it carries calldata.
+  const defaultBodyLimit = createBodySizeLimitMiddleware(DEFAULT_BODY_SIZE_BYTES)
+  router.use((context, next) => (context.url.pathname === '/simulations' ? next() : defaultBodyLimit(context, next)))
 
   // Health probes
   router.get('/health/ready', readyHandler)

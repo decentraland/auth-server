@@ -70,6 +70,10 @@ export type SimulationResponseBody = {
   status: 'success' | 'reverted'
   /** Revert reason, only present when `status === 'reverted'`. */
   error?: string
+  /**
+   * Movements of the signer's and the counterparties' assets. ERC20 and ERC721 rows are Tenderly's; ERC1155
+   * rows are decoded from the raw logs, one per TransferSingle or TransferBatch entry, and nothing is merged.
+   */
   assetChanges: AssetChange[]
   approvalChanges: ApprovalChange[]
   balanceChanges: BalanceChange[]
@@ -84,4 +88,17 @@ export type ISimulationComponent = {
    * adapter's typed Tenderly errors.
    */
   simulateTransaction(body: SimulationRequestBody): Promise<SimulationResponseBody>
+}
+
+/**
+ * Why `POST /simulations` answered 400: `invalid_request` when this server refused the request itself (JSON,
+ * schema, chain, parameters), `upstream_rejected` when the simulation provider did. The auth dapp refuses the
+ * reviewed request on the first and treats the second as an outage.
+ */
+export type SimulationRejectionCode = 'invalid_request' | 'upstream_rejected'
+
+/** The body of a 400 from `POST /simulations`. */
+export type SimulationErrorResponse = {
+  error: string
+  code: SimulationRejectionCode
 }

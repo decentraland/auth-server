@@ -1,4 +1,4 @@
-import { Interface } from 'ethers'
+import { Interface, ZeroAddress } from 'ethers'
 import { ITenderlyAdapter, TenderlyRawLog, TenderlySimulationResult } from '../../src/adapters/tenderly'
 import { createSimulationComponent } from '../../src/logic/simulation/component'
 import { InvalidSimulationParamsError, UnsupportedChainError } from '../../src/logic/simulation/errors'
@@ -24,7 +24,6 @@ const transferSingleInterface = new Interface([
 const transferBatchInterface = new Interface([
   'event TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)'
 ])
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
 
 function erc20ApprovalLog(owner: string, spender: string, value: bigint, address: string): TenderlyRawLog {
   return { address, ...erc20ApprovalInterface.encodeEventLog('Approval', [owner, spender, value]) }
@@ -257,7 +256,7 @@ describe('when simulating a transaction', () => {
       )
     })
 
-    it('should report no asset changes and no approvals, since a reverted transaction changes nothing', async () => {
+    it('should report no asset changes and no approvals', async () => {
       const response = await component.simulateTransaction(body)
 
       expect(response.status).toBe('reverted')
@@ -265,11 +264,32 @@ describe('when simulating a transaction', () => {
       expect(response.approvalChanges).toEqual([])
     })
 
-    it('should report no balance changes and no events either, since nothing of a reverted transaction persists', async () => {
+    it('should carry the revert reason', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.error).toBe('execution reverted')
+    })
+
+    it('should report no balance changes and no events', async () => {
       const response = await component.simulateTransaction(body)
 
       expect(response.balanceChanges).toEqual([])
       expect(response.events).toEqual([])
+    })
+  })
+
+  describe('and the transaction would revert with a reason carrying control characters and running long', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(baseResult({ status: false, errorMessage: `Safe\u202E\u0000 to sign ${'x'.repeat(300)}` }))
+    })
+
+    it('should strip the control characters and bound the length', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.error).toBe(`Safe to sign ${'x'.repeat(199 - 'Safe to sign '.length)}…`)
     })
   })
 
@@ -280,7 +300,7 @@ describe('when simulating a transaction', () => {
       body = { chainId: 137, from: FROM, to: TOKEN }
       tenderly.simulate.mockResolvedValue(
         baseResult({
-          rawLogs: [erc721ApprovalLog(FROM, ZERO_ADDRESS, 512n, TOKEN), erc721TransferLog(FROM, TO, 512n, TOKEN)]
+          rawLogs: [erc721ApprovalLog(FROM, ZeroAddress, 512n, TOKEN), erc721TransferLog(FROM, TO, 512n, TOKEN)]
         })
       )
     })
@@ -300,9 +320,9 @@ describe('when simulating a transaction', () => {
       tenderly.simulate.mockResolvedValue(
         baseResult({
           rawLogs: [
-            erc721ApprovalLog(FROM, ZERO_ADDRESS, 512n, TOKEN),
+            erc721ApprovalLog(FROM, ZeroAddress, 512n, TOKEN),
             erc721TransferLog(FROM, TO, 512n, TOKEN),
-            erc721ApprovalLog(TO, ZERO_ADDRESS, 512n, TOKEN),
+            erc721ApprovalLog(TO, ZeroAddress, 512n, TOKEN),
             erc721TransferLog(TO, FROM, 512n, TOKEN),
             erc721ApprovalLog(FROM, SPENDER, 512n, TOKEN)
           ]
@@ -310,7 +330,7 @@ describe('when simulating a transaction', () => {
       )
     })
 
-    it('should keep the grant and drop only the two clears, since a grant to a real spender is never a transfer side effect', async () => {
+    it('should keep the grant and drop only the two clears', async () => {
       const response = await component.simulateTransaction(body)
 
       expect(response.approvalChanges).toEqual([
@@ -324,14 +344,14 @@ describe('when simulating a transaction', () => {
 
     beforeEach(() => {
       body = { chainId: 137, from: FROM, to: TOKEN }
-      tenderly.simulate.mockResolvedValue(baseResult({ rawLogs: [erc721ApprovalLog(FROM, ZERO_ADDRESS, 512n, TOKEN)] }))
+      tenderly.simulate.mockResolvedValue(baseResult({ rawLogs: [erc721ApprovalLog(FROM, ZeroAddress, 512n, TOKEN)] }))
     })
 
-    it('should keep the revocation, since no transfer implies it', async () => {
+    it('should keep the revocation', async () => {
       const response = await component.simulateTransaction(body)
 
       expect(response.approvalChanges).toEqual([
-        expect.objectContaining({ kind: 'approval', standard: 'erc721', owner: FROM.toLowerCase(), spender: ZERO_ADDRESS, tokenId: '512' })
+        expect.objectContaining({ kind: 'approval', standard: 'erc721', owner: FROM.toLowerCase(), spender: ZeroAddress, tokenId: '512' })
       ])
     })
   })
@@ -365,7 +385,7 @@ describe('when simulating a transaction', () => {
       )
     })
 
-    it('should keep the grant, since logs alone cannot tell a grant from an allowance write', async () => {
+    it('should keep the grant', async () => {
       const response = await component.simulateTransaction(body)
 
       expect(response.approvalChanges).toEqual([
@@ -591,7 +611,7 @@ describe('when simulating a transaction', () => {
       )
     })
 
-    it('should report both movements, since nothing of this standard is deduplicated', async () => {
+    it('should report both movements', async () => {
       const response = await component.simulateTransaction(body)
 
       expect(response.assetChanges.map(change => change.rawAmount)).toEqual(['5', '5'])
@@ -620,10 +640,12 @@ describe('when simulating a transaction', () => {
       )
     })
 
-    it('should report both rows rather than merge them, since the dapp refuses on any of them', async () => {
+    it('should report the movement once, from the log, and leave the Tenderly row out', async () => {
       const response = await component.simulateTransaction(body)
 
-      expect(response.assetChanges.filter(change => change.standard === 'erc1155')).toHaveLength(2)
+      expect(response.assetChanges.filter(change => change.standard === 'erc1155')).toEqual([
+        expect.objectContaining({ rawAmount: '5', tokenId: '7' })
+      ])
     })
   })
 

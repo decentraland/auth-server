@@ -1,7 +1,7 @@
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
 import { TenderlyAuthError, TenderlyBadRequestError, TenderlyRateLimitError, TenderlyUnavailableError } from './errors'
-import { ITenderlyAdapter, TenderlyRawLog, TenderlySimulateParams, TenderlySimulationResult } from './types'
+import { ITenderlyAdapter, TenderlyAssetChange, TenderlyRawLog, TenderlySimulateParams, TenderlySimulationResult } from './types'
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 
@@ -9,21 +9,6 @@ const DEFAULT_API_URL = 'https://api.tenderly.co'
 const DEFAULT_TIMEOUT_MS = 6000
 // Upper bound on decoded event logs returned, to keep the response payload small.
 const MAX_EVENTS = 50
-
-/** Shape of the Tenderly `/simulate` JSON response we consume (all fields best-effort). */
-type TenderlyRawResponse = {
-  error?: { slug?: string; message?: string } | null
-  transaction?: {
-    status?: boolean
-    error_info?: { error_message?: string } | null
-    transaction_info?: {
-      asset_changes?: TenderlySimulationResult['assetChanges'] | null
-      exposure_changes?: unknown[] | null
-      balance_changes?: Array<{ address?: string; dollar_value?: string | number | null }> | null
-      logs?: Array<{ name?: string | null; raw?: TenderlyRawLog }> | null
-    } | null
-  } | null
-}
 
 /**
  * Creates the Tenderly adapter — a thin, typed wrapper around Tenderly's
@@ -120,70 +105,91 @@ export async function createTenderlyAdapter({
       throw new TenderlyUnavailableError(`Tenderly returned an unexpected status (${response.status})`)
     }
 
-    let json: TenderlyRawResponse
+    let parsed: unknown
     try {
-      json = (await response.json()) as TenderlyRawResponse
+      parsed = await response.json()
     } catch {
+      throw new TenderlyUnavailableError('Tenderly returned a malformed response body')
+    }
+    if (!isRecord(parsed)) {
       throw new TenderlyUnavailableError('Tenderly returned a malformed response body')
     }
 
     // Tenderly returns 200 + a top-level `error` object for some invalid sims.
-    if (json && typeof json === 'object' && json.error) {
-      const message = json.error.message || json.error.slug || 'Tenderly rejected the simulation request'
+    if (isRecord(parsed.error)) {
+      const message = String(parsed.error.message || parsed.error.slug || 'Tenderly rejected the simulation request')
       throw new TenderlyBadRequestError(message)
     }
 
-    const transaction = json.transaction
+    const transaction = parsed.transaction
+    if (!isRecord(transaction)) {
+      throw new TenderlyUnavailableError('Tenderly returned no transaction')
+    }
+    const errorInfo = isRecord(transaction.error_info) ? transaction.error_info : null
+    const errorMessage = typeof errorInfo?.error_message === 'string' ? errorInfo.error_message : null
 
-    // The status is what tells a successful preview from a reverting one. Without it there is no
-    // preview to show: defaulting to success would render an empty "no changes" summary for a call
-    // whose outcome is unknown, so treat it like any other unusable upstream answer.
-    if (typeof transaction?.status !== 'boolean') {
+    // The status is what tells a successful preview from a reverting one. `false` is a revert, and so is
+    // a response that omits the field but carries a revert reason (a Go-style `omitempty` would drop a
+    // `false`). Anything else without a status has no preview to show: defaulting to success would render
+    // an empty "no changes" summary for a call whose outcome is unknown, so it is treated like any other
+    // unusable upstream answer.
+    const reverted = transaction.status === false || (transaction.status === undefined && errorMessage !== null)
+    if (transaction.status !== true && !reverted) {
       throw new TenderlyUnavailableError('Tenderly returned no transaction status')
     }
 
-    // The effects live in `transaction_info`. A response without it, or whose collections or entries are
-    // not what the schema says, would likewise read as a successful preview with no effects or crash the
-    // normalization, so it is refused the same way. A collection Tenderly reports as null is its empty
-    // collection and is accepted as such.
-    const transactionInfo = transaction.transaction_info
-    if (!isRecord(transactionInfo)) {
+    // The effects live in `transaction_info`. A successful response without it, or whose collections or
+    // entries are not what the schema says, would read as a success with no effects or crash the
+    // normalization, so it is refused. A revert reports no effects whatever it carries, so it needs none.
+    // A collection Tenderly reports as null is its empty collection and is accepted as such.
+    const transactionInfo = isRecord(transaction.transaction_info) ? transaction.transaction_info : null
+    if (!reverted && !transactionInfo) {
       throw new TenderlyUnavailableError('Tenderly returned no transaction info')
     }
-    for (const collection of ['logs', 'asset_changes', 'exposure_changes', 'balance_changes'] as const) {
-      const value = transactionInfo[collection]
-      if (value != null && !Array.isArray(value)) {
+    const collections: Record<'logs' | 'asset_changes' | 'exposure_changes' | 'balance_changes', Record<string, unknown>[]> = {
+      logs: [],
+      asset_changes: [],
+      exposure_changes: [],
+      balance_changes: []
+    }
+    for (const collection of Object.keys(collections) as Array<keyof typeof collections>) {
+      const value = transactionInfo?.[collection]
+      if (value == null) continue
+      if (!Array.isArray(value)) {
         throw new TenderlyUnavailableError(`Tenderly returned a malformed ${collection} collection`)
       }
-      // The entries are read as objects below (a log's `raw`, an asset change's `token_info`, a balance
-      // change's `address`); a null or primitive entry would fail there as a plain crash, so it is refused
-      // here as the malformed answer it is.
-      if (Array.isArray(value) && value.some(entry => !isRecord(entry))) {
+      // The entries are read as objects below; a null or primitive entry would fail there as a plain crash,
+      // so it is refused here as the malformed answer it is.
+      if (!value.every(isRecord)) {
         throw new TenderlyUnavailableError(`Tenderly returned a malformed ${collection} entry`)
       }
+      collections[collection] = value
     }
 
-    const rawLogs = (transactionInfo.logs ?? []).map(entry => entry.raw).filter((raw): raw is TenderlyRawLog => Boolean(raw))
+    const rawLogs = collections.logs.map(entry => entry.raw).filter(isRecord) as unknown as TenderlyRawLog[]
 
-    const balanceChanges = (transactionInfo.balance_changes ?? [])
+    const balanceChanges = collections.balance_changes
       .map(bc => ({
         address: String(bc.address ?? '').toLowerCase(),
         dollarValue: bc.dollar_value != null ? String(bc.dollar_value) : null
       }))
       .filter(bc => bc.address !== '')
 
-    const events = (transactionInfo.logs ?? [])
-      .map(log => ({ name: log.name ?? null, address: String(log.raw?.address ?? '').toLowerCase() }))
+    const events = collections.logs
+      .map(log => ({
+        name: typeof log.name === 'string' ? log.name : null,
+        address: String((isRecord(log.raw) ? log.raw.address : '') ?? '').toLowerCase()
+      }))
       .filter(event => event.address !== '')
       .slice(0, MAX_EVENTS)
 
-    logger.log(`Tenderly simulation ok (to=${to}, networkId=${networkId}, status=${transaction.status})`)
+    logger.log(`Tenderly simulation ok (to=${to}, networkId=${networkId}, status=${!reverted})`)
 
     return {
-      status: transaction.status,
-      errorMessage: transaction?.error_info?.error_message ?? null,
-      assetChanges: transactionInfo.asset_changes ?? [],
-      exposureChanges: transactionInfo.exposure_changes ?? [],
+      status: !reverted,
+      errorMessage,
+      assetChanges: collections.asset_changes as unknown as TenderlyAssetChange[],
+      exposureChanges: collections.exposure_changes,
       rawLogs,
       balanceChanges,
       events

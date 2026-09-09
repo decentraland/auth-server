@@ -8,6 +8,7 @@ import { AppComponents } from '../../types'
 import { isErrorWithMessage } from '../error-handling'
 import { getSocketRoutes } from './routes'
 import { ISocketServerComponent, SocketHandlerContext } from './types'
+import { MAX_BODY_SIZE_BYTES } from '../../ports/server/constants'
 
 export type SocketServerOptions = {
   requestExpirationInSeconds: number
@@ -123,7 +124,8 @@ export async function createSocketServerComponent(
     // http-server keeps handling every other request.
     const httpServer = await getUnderlyingServer<HttpServer>(server)
 
-    io = new Server(httpServer, { cors })
+    // The same bound as the HTTP transport: a socket message is a request like any other.
+    io = new Server(httpServer, { cors, maxHttpBufferSize: MAX_BODY_SIZE_BYTES })
     io.on('connection', onConnection)
 
     logger.log('Socket server attached to the HTTP server')

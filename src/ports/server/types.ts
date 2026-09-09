@@ -85,15 +85,7 @@ export type OutcomeResponseMessage = OutcomeMessage
 
 export type InvalidResponseMessage = {
   error: string
-  /**
-   * Why a simulation was rejected, for the auth dapp to act on: `invalid_request` when this server refused
-   * the request itself (schema, chain, parameters), `upstream_rejected` when the simulation provider did.
-   * The dapp refuses the reviewed request on the first and treats the second as an outage.
-   */
-  code?: SimulationRejectionCode
 }
-
-export type SimulationRejectionCode = 'invalid_request' | 'upstream_rejected'
 
 export type IdentityRequest = {
   identity: AuthIdentity

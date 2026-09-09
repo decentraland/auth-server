@@ -1,7 +1,7 @@
 import { InvalidRequestError } from '@dcl/http-commons'
 import { TenderlyBadRequestError, TenderlyRateLimitError, TenderlyUnavailableError } from '../../adapters/tenderly'
 import { isErrorWithMessage } from '../../logic/error-handling'
-import { InvalidSimulationParamsError, UnsupportedChainError } from '../../logic/simulation'
+import { InvalidSimulationParamsError, SimulationErrorResponse, UnsupportedChainError } from '../../logic/simulation'
 import { InvalidResponseMessage } from '../../ports/server/types'
 import { validateSimulationRequest } from '../../ports/server/validations'
 import { HandlerContextWithPath } from '../../types'
@@ -64,7 +64,12 @@ export function createSimulationHandler(allowedOrigins: Set<string>, rateLimit: 
       body = validateSimulationRequest(await parseJsonBody(request))
     } catch (e) {
       if (e instanceof InvalidRequestError) {
-        return { status: 400, body: { error: e.message, code: 'invalid_request' } satisfies InvalidResponseMessage }
+        // The Ajv detail is for the log, not the client.
+        logger.log(`Simulation request rejected: ${e.message}`)
+        return {
+          status: 400,
+          body: { error: 'Invalid simulation request body', code: 'invalid_request' } satisfies SimulationErrorResponse
+        }
       }
       throw e
     }
@@ -78,14 +83,14 @@ export function createSimulationHandler(allowedOrigins: Set<string>, rateLimit: 
       // Our own client-input errors carry safe, controlled messages we can echo.
       if (e instanceof UnsupportedChainError || e instanceof InvalidSimulationParamsError) {
         logger.log(`Simulation rejected: ${message}`)
-        return { status: 400, body: { error: message, code: 'invalid_request' } satisfies InvalidResponseMessage }
+        return { status: 400, body: { error: message, code: 'invalid_request' } satisfies SimulationErrorResponse }
       }
 
       // Tenderly's 400 detail is uncontrolled upstream text — log it, but return a
       // generic message so upstream internals are never echoed to the client.
       if (e instanceof TenderlyBadRequestError) {
         logger.log(`Simulation rejected by Tenderly: ${message}`)
-        return { status: 400, body: { error: 'Invalid simulation request', code: 'upstream_rejected' } satisfies InvalidResponseMessage }
+        return { status: 400, body: { error: 'Invalid simulation request', code: 'upstream_rejected' } satisfies SimulationErrorResponse }
       }
 
       if (e instanceof TenderlyRateLimitError) {

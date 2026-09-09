@@ -51,6 +51,20 @@ test('when simulating a transaction via the endpoint', args => {
     })
   })
 
+  describe('and a body of the same size is posted to another route', () => {
+    let body: string
+
+    beforeEach(() => {
+      body = JSON.stringify({ method: 'personal_sign', params: ['a'.repeat(20 * 1024)] })
+    })
+
+    it('should refuse it as too large, since only the simulations route carries the larger cap', async () => {
+      const response = await fetch(`${baseUrl}/requests`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+
+      expect(response.status).toBe(413)
+    })
+  })
+
   describe('and the request is valid and Tenderly returns a successful simulation', () => {
     let body: Record<string, unknown>
 

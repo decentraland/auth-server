@@ -291,6 +291,49 @@ describe('when using the Tenderly adapter', () => {
     })
   })
 
+  describe('and Tenderly responds with 200 and a body that is JSON null', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => null })
+    })
+
+    it('should throw a TenderlyUnavailableError', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe('and Tenderly reports a revert with a reason but omits the status field', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ transaction: { error_info: { error_message: 'execution reverted' }, transaction_info: { logs: null } } })
+      })
+    })
+
+    it('should read it as a reverted simulation carrying the reason', async () => {
+      await expect(adapter.simulate(params)).resolves.toMatchObject({ status: false, errorMessage: 'execution reverted' })
+    })
+  })
+
+  describe('and Tenderly reports a revert without any transaction info', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ transaction: { status: false, error_info: { error_message: 'execution reverted' } } })
+      })
+    })
+
+    it('should read it as a reverted simulation with no effects', async () => {
+      await expect(adapter.simulate(params)).resolves.toMatchObject({
+        status: false,
+        errorMessage: 'execution reverted',
+        assetChanges: [],
+        rawLogs: []
+      })
+    })
+  })
+
   describe('and Tenderly responds with 200 but no transaction at all', () => {
     beforeEach(() => {
       fetchMock.mockResolvedValue({
@@ -328,7 +371,7 @@ describe('when using the Tenderly adapter', () => {
       fetchMock.mockResolvedValue({ ok: false, status: 400, body: { cancel: jest.fn().mockResolvedValue(undefined) } })
     })
 
-    it('should throw a TenderlyBadRequestError, so the endpoint answers 400 with the upstream code', async () => {
+    it('should throw a TenderlyBadRequestError', async () => {
       await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyBadRequestError)
     })
   })
