@@ -3,6 +3,8 @@ import { AppComponents } from '../../types'
 import { TenderlyAuthError, TenderlyBadRequestError, TenderlyRateLimitError, TenderlyUnavailableError } from './errors'
 import { ITenderlyAdapter, TenderlyRawLog, TenderlySimulateParams, TenderlySimulationResult } from './types'
 
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
+
 const DEFAULT_API_URL = 'https://api.tenderly.co'
 const DEFAULT_TIMEOUT_MS = 6000
 // Upper bound on decoded event logs returned, to keep the response payload small.
@@ -132,21 +134,6 @@ export async function createTenderlyAdapter({
     }
 
     const transaction = json.transaction
-    const transactionInfo = transaction?.transaction_info
-
-    const rawLogs = (transactionInfo?.logs ?? []).map(entry => entry.raw).filter((raw): raw is TenderlyRawLog => Boolean(raw))
-
-    const balanceChanges = (transactionInfo?.balance_changes ?? [])
-      .map(bc => ({
-        address: String(bc.address ?? '').toLowerCase(),
-        dollarValue: bc.dollar_value != null ? String(bc.dollar_value) : null
-      }))
-      .filter(bc => bc.address !== '')
-
-    const events = (transactionInfo?.logs ?? [])
-      .map(log => ({ name: log.name ?? null, address: String(log.raw?.address ?? '').toLowerCase() }))
-      .filter(event => event.address !== '')
-      .slice(0, MAX_EVENTS)
 
     // The status is what tells a successful preview from a reverting one. Without it there is no
     // preview to show: defaulting to success would render an empty "no changes" summary for a call
@@ -155,13 +142,41 @@ export async function createTenderlyAdapter({
       throw new TenderlyUnavailableError('Tenderly returned no transaction status')
     }
 
+    // The effects live in `transaction_info`. A response without it, or whose collections are not what
+    // the schema says, would likewise read as a successful preview with no effects, so it is refused the
+    // same way. A collection Tenderly reports as null is its empty collection and is accepted as such.
+    const transactionInfo = transaction.transaction_info
+    if (!isRecord(transactionInfo)) {
+      throw new TenderlyUnavailableError('Tenderly returned no transaction info')
+    }
+    for (const collection of ['logs', 'asset_changes', 'exposure_changes', 'balance_changes'] as const) {
+      const value = transactionInfo[collection]
+      if (value != null && !Array.isArray(value)) {
+        throw new TenderlyUnavailableError(`Tenderly returned a malformed ${collection} collection`)
+      }
+    }
+
+    const rawLogs = (transactionInfo.logs ?? []).map(entry => entry.raw).filter((raw): raw is TenderlyRawLog => Boolean(raw))
+
+    const balanceChanges = (transactionInfo.balance_changes ?? [])
+      .map(bc => ({
+        address: String(bc.address ?? '').toLowerCase(),
+        dollarValue: bc.dollar_value != null ? String(bc.dollar_value) : null
+      }))
+      .filter(bc => bc.address !== '')
+
+    const events = (transactionInfo.logs ?? [])
+      .map(log => ({ name: log.name ?? null, address: String(log.raw?.address ?? '').toLowerCase() }))
+      .filter(event => event.address !== '')
+      .slice(0, MAX_EVENTS)
+
     logger.log(`Tenderly simulation ok (to=${to}, networkId=${networkId}, status=${transaction.status})`)
 
     return {
       status: transaction.status,
       errorMessage: transaction?.error_info?.error_message ?? null,
-      assetChanges: transactionInfo?.asset_changes ?? [],
-      exposureChanges: transactionInfo?.exposure_changes ?? [],
+      assetChanges: transactionInfo.asset_changes ?? [],
+      exposureChanges: transactionInfo.exposure_changes ?? [],
       rawLogs,
       balanceChanges,
       events

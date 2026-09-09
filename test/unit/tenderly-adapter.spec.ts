@@ -205,6 +205,68 @@ describe('when using the Tenderly adapter', () => {
     })
   })
 
+  describe('and Tenderly responds with 200 and a status but no transaction info', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ transaction: { status: true } })
+      })
+    })
+
+    it('should throw a TenderlyUnavailableError instead of reporting a successful simulation with no effects', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe.each(['logs', 'asset_changes', 'exposure_changes', 'balance_changes'])(
+    'and Tenderly responds with 200 but the %s collection is not an array',
+    collection => {
+      beforeEach(() => {
+        fetchMock.mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            transaction: {
+              status: true,
+              transaction_info: { asset_changes: [], exposure_changes: [], balance_changes: [], logs: [], [collection]: 'not-a-list' }
+            }
+          })
+        })
+      })
+
+      it('should throw a TenderlyUnavailableError rather than read it as empty', async () => {
+        await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+      })
+    }
+  )
+
+  describe('and Tenderly reports its collections as null, its shape for none', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: true,
+            transaction_info: { asset_changes: null, exposure_changes: null, balance_changes: null, logs: null }
+          }
+        })
+      })
+    })
+
+    it('should report a successful simulation with no effects', async () => {
+      await expect(adapter.simulate(params)).resolves.toMatchObject({
+        status: true,
+        assetChanges: [],
+        exposureChanges: [],
+        rawLogs: [],
+        balanceChanges: [],
+        events: []
+      })
+    })
+  })
+
   describe('and Tenderly responds with 200 but no transaction at all', () => {
     beforeEach(() => {
       fetchMock.mockResolvedValue({
