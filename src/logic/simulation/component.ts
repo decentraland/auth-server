@@ -246,41 +246,79 @@ function buildTokenMetaIndex(assetChanges: unknown[], exposureChanges: unknown[]
   return index
 }
 
+/** Whether a Tenderly row describes the given logged ERC20 or ERC721 movement. A mint's `from` and a burn's `to` may be reported as the zero address or left out. */
+function describesTransfer(transfer: LoggedTransfer): (change: AssetChange) => boolean {
+  return change =>
+    change.contractAddress === transfer.contractAddress &&
+    sameParty(change.from, transfer.from) &&
+    sameParty(change.to, transfer.to) &&
+    (transfer.standard === 'erc721' ? change.tokenId === transfer.tokenId : change.rawAmount === transfer.rawAmount)
+}
+
+/** Whether a Tenderly row describes the given logged ERC1155 movement. */
+function describesErc1155(logged: AssetChange): (change: AssetChange) => boolean {
+  return change =>
+    change.contractAddress === logged.contractAddress &&
+    sameParty(change.from, logged.from) &&
+    sameParty(change.to, logged.to) &&
+    change.tokenId === logged.tokenId &&
+    (change.rawAmount === null || change.rawAmount === logged.rawAmount)
+}
+
+function sameParty(reported: string | null, logged: string | null): boolean {
+  return reported === logged || (reported === null && logged === ZeroAddress)
+}
+
+/** What a consumed Tenderly row lends a logged movement: Tenderly's pricing and naming, never its identity. */
+function enrich(logged: AssetChange, match: AssetChange | undefined): AssetChange {
+  if (!match) return logged
+  return {
+    ...logged,
+    amount: logged.amount ?? match.amount,
+    symbol: logged.symbol ?? match.symbol,
+    name: logged.name ?? match.name,
+    decimals: logged.decimals ?? match.decimals,
+    logoUrl: match.logoUrl,
+    dollarValue: match.dollarValue
+  }
+}
+
 /**
  * A logged movement as an asset row. The token is named from what Tenderly said about it (its rows and
  * exposure changes, indexed by contract); a decimals-applied amount is computed for an ERC20 whose decimals
- * are known; and when Tenderly reported this very movement, its dollar value, logo and display amount are
- * kept, since those are Tenderly's to provide. A movement to the zero address is a burn, from it a mint.
+ * are known; and the Tenderly row consumed for this very movement, if any, lends its dollar value, logo and
+ * display amount (see enrich). A movement to the zero address is a burn, from it a mint.
  */
-function toAssetChange(transfer: LoggedTransfer, tokenMeta: Map<string, TokenMeta>, reported: AssetChange[]): AssetChange {
+function toAssetChange(transfer: LoggedTransfer, tokenMeta: Map<string, TokenMeta>, match: AssetChange | undefined): AssetChange {
   const meta = tokenMeta.get(transfer.contractAddress)
-  const match = reported.find(
-    change =>
-      change.contractAddress === transfer.contractAddress &&
-      change.from === transfer.from &&
-      change.to === transfer.to &&
-      (transfer.standard === 'erc721' ? change.tokenId === transfer.tokenId : change.rawAmount === transfer.rawAmount)
-  )
   const decimals = meta?.decimals ?? match?.decimals ?? null
   const amount =
     transfer.standard === 'erc20' && transfer.rawAmount !== null && decimals !== null
       ? formatUnits(BigInt(transfer.rawAmount), decimals)
-      : match?.amount ?? null
-  return {
-    type: transfer.from === ZeroAddress ? 'mint' : transfer.to === ZeroAddress ? 'burn' : 'transfer',
-    standard: transfer.standard,
-    from: transfer.from,
-    to: transfer.to,
-    amount,
-    rawAmount: transfer.rawAmount,
-    tokenId: transfer.tokenId,
-    contractAddress: transfer.contractAddress,
-    symbol: meta?.symbol ?? match?.symbol ?? null,
-    name: meta?.name ?? match?.name ?? null,
-    decimals,
-    logoUrl: match?.logoUrl ?? null,
-    dollarValue: match?.dollarValue ?? null
-  }
+      : null
+  return enrich(
+    {
+      type: movementType(transfer.from, transfer.to),
+      standard: transfer.standard,
+      from: transfer.from,
+      to: transfer.to,
+      amount,
+      rawAmount: transfer.rawAmount,
+      tokenId: transfer.tokenId,
+      contractAddress: transfer.contractAddress,
+      symbol: meta?.symbol ?? null,
+      name: meta?.name ?? null,
+      decimals,
+      logoUrl: null,
+      dollarValue: null
+    },
+    match
+  )
+}
+
+/** A movement from the zero address is a mint, to it a burn. */
+function movementType(from: string, to: string): AssetChange['type'] {
+  return from === ZeroAddress ? 'mint' : to === ZeroAddress ? 'burn' : 'transfer'
 }
 
 /**
@@ -394,7 +432,7 @@ function decodeErc1155Transfers(rawLogs: TenderlySimulationResult['rawLogs']): A
   const changes: AssetChange[] = []
 
   const build = (contractAddress: string, from: string, to: string, tokenId: bigint, value: bigint): AssetChange => ({
-    type: 'transfer',
+    type: movementType(from.toLowerCase(), to.toLowerCase()),
     standard: 'erc1155',
     from: from.toLowerCase(),
     to: to.toLowerCase(),
@@ -539,24 +577,26 @@ export async function createSimulationComponent(
       }
     })
 
-    // 5. Token movements have one source per contract, and the raw logs are the authoritative one: every
-    //    standard requires an event per movement (Transfer for ERC20 and ERC721, TransferSingle or
-    //    TransferBatch for ERC1155), while Tenderly's rows can be partial. Where the logs record any movement
-    //    on a contract, Tenderly's rows for that contract are dropped and each logged movement is reported
-    //    once, named and priced from what Tenderly said about the token; where the logs record none,
-    //    Tenderly's rows stay. A partial answer can therefore never turn a movement into a clean preview,
-    //    and no movement is ever reported twice.
+    // 5. Token movements are the union of what the raw logs record and what Tenderly reported, reconciled
+    //    per movement, and nothing is ever dropped: every standard requires an event per movement, so every
+    //    logged Transfer, TransferSingle or TransferBatch entry is a row; a Tenderly row that describes the
+    //    same movement (contract, parties, and token id or amount) is consumed into it and lends it the
+    //    dollar value, logo and display amount Tenderly computed; a Tenderly row no log accounts for stays as
+    //    reported, since the logs may be partial too. A partial answer from either side can therefore never
+    //    hide a movement; where the two disagree on how to describe one, both descriptions are shown rather
+    //    than one guessed.
     const tokenMeta = buildTokenMetaIndex(result.assetChanges, result.exposureChanges)
+    const unconsumed = reportedChanges.filter(change => change.standard !== 'native')
+    const consume = (predicate: (change: AssetChange) => boolean): AssetChange | undefined => {
+      const index = unconsumed.findIndex(predicate)
+      return index === -1 ? undefined : unconsumed.splice(index, 1)[0]
+    }
     const loggedTransfers = decodeTransfers(result.rawLogs)
-    const loggedErc1155 = decodeErc1155Transfers(result.rawLogs)
-    const contractsWithLoggedMovements = new Set([
-      ...loggedTransfers.map(transfer => transfer.contractAddress),
-      ...loggedErc1155.map(change => change.contractAddress)
-    ])
-    const assetChanges: AssetChange[] = reportedChanges.filter(
-      change => change.standard === 'native' || !contractsWithLoggedMovements.has(change.contractAddress ?? '')
-    )
-    assetChanges.push(...loggedTransfers.map(transfer => toAssetChange(transfer, tokenMeta, reportedChanges)), ...loggedErc1155)
+    const loggedRows = [
+      ...loggedTransfers.map(transfer => toAssetChange(transfer, tokenMeta, consume(describesTransfer(transfer)))),
+      ...decodeErc1155Transfers(result.rawLogs).map(logged => enrich(logged, consume(describesErc1155(logged))))
+    ]
+    const assetChanges: AssetChange[] = [...reportedChanges.filter(change => change.standard === 'native'), ...unconsumed, ...loggedRows]
 
     // 6. Approvals from raw logs (primary source), enriched with token metadata, minus the ones a
     //    transfer in the same transaction implies (see withoutTransferImpliedApprovals).

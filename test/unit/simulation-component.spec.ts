@@ -925,6 +925,70 @@ describe('when simulating a transaction', () => {
     })
   })
 
+  describe('and Tenderly reports a second movement on the same contract that the logs do not record', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          assetChanges: [
+            { type: 'Transfer', from: FROM, to: TO, token_id: '1', token_info: { standard: 'ERC721', contract_address: TOKEN } },
+            { type: 'Transfer', from: FROM, to: TO, token_id: '2', token_info: { standard: 'ERC721', contract_address: TOKEN } }
+          ],
+          rawLogs: [erc721TransferLog(FROM, TO, 1n, TOKEN)]
+        })
+      )
+    })
+
+    it('should report both, the logged one from the log and the other as Tenderly reported it', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges.map(change => change.tokenId).sort()).toEqual(['1', '2'])
+    })
+  })
+
+  describe('and Tenderly reports a mint with no sender that the logs record from the zero address', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          assetChanges: [
+            { type: 'Mint', to: TO, token_id: '1', dollar_value: '3.00', token_info: { standard: 'ERC721', contract_address: TOKEN } }
+          ],
+          rawLogs: [erc721TransferLog(ZeroAddress, TO, 1n, TOKEN)]
+        })
+      )
+    })
+
+    it('should recognize them as one movement and report it once as a mint with the dollar value', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges).toEqual([expect.objectContaining({ type: 'mint', tokenId: '1', dollarValue: '3.00' })])
+    })
+  })
+
+  describe('and the logs record an ERC1155 mint and burn', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TOKEN }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          rawLogs: [transferSingleLog(FROM, ZeroAddress, TO, 7n, 5n, TOKEN), transferSingleLog(FROM, FROM, ZeroAddress, 8n, 1n, TOKEN)]
+        })
+      )
+    })
+
+    it('should report them as a mint and a burn, like the other standards', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges.map(change => change.type)).toEqual(['mint', 'burn'])
+    })
+  })
+
   describe('and Tenderly reports an ERC20 transfer on a contract the logs say nothing about', () => {
     let body: SimulationRequestBody
 

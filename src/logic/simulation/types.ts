@@ -71,10 +71,10 @@ export type SimulationResponseBody = {
   /** Revert reason, only present when `status === 'reverted'`. */
   error?: string
   /**
-   * Movements of the signer's and the counterparties' assets, one source per contract: the raw logs (one row
-   * per Transfer, TransferSingle or TransferBatch entry, named and priced from what Tenderly said about the
-   * token) where they record any movement on that contract; Tenderly's own rows otherwise. Nothing is merged
-   * and no movement is reported twice.
+   * Movements of the signer's and the counterparties' assets: every movement the raw logs record (one row per
+   * Transfer, TransferSingle or TransferBatch entry, named and priced from what Tenderly said about it) plus
+   * every Tenderly row no log accounts for. A Tenderly row describing a logged movement is folded into that
+   * row; nothing is dropped, so a movement can appear twice only where the two sources describe it differently.
    */
   assetChanges: AssetChange[]
   approvalChanges: ApprovalChange[]
