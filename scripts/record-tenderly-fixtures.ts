@@ -19,25 +19,32 @@
  * Three scenarios move assets and need an account that holds them on Polygon, given as environment
  * variables; each is skipped with a note when its variables are absent:
  *   - `mana-transfer`: FIXTURE_SENDER (holds at least 1 MANA), FIXTURE_RECIPIENT (optional).
- *   - `wearable-purchase`: FIXTURE_SENDER (holds the price in MANA and has approved MarketplaceV2),
- *     FIXTURE_ORDER_NFT, FIXTURE_ORDER_ASSET_ID, FIXTURE_ORDER_PRICE (wei), from a live listing.
+ *   - `wearable-purchase`: FIXTURE_SENDER (holds the price in MANA and has approved OffChainMarketplaceV2)
+ *     and FIXTURE_TRADE_ID, the id of an open `public_nft_order` trade on Polygon from the marketplace API
+ *     (`GET https://marketplace-api.decentraland.org/v1/orders?status=open` lists them with their tradeId; the
+ *     sender must not be its signer). Listings on Polygon are off-chain trades accepted through
+ *     OffChainMarketplaceV2.accept, so this is the purchase path the dapp previews.
  *   - `collection-mint`: FIXTURE_SENDER (holds the price in MANA and has approved CollectionStore),
  *     FIXTURE_ITEM_COLLECTION, FIXTURE_ITEM_ID, FIXTURE_ITEM_PRICE (wei), from a collection on sale.
  *
  * Usage (the Tenderly variables are the ones the server itself reads; `.env` is read when present):
  *   TENDERLY_ACCESS_KEY=… TENDERLY_ACCOUNT_SLUG=… TENDERLY_PROJECT_SLUG=… \
- *   FIXTURE_SENDER=0x… npx ts-node scripts/record-tenderly-fixtures.ts [scenario…]
+ *   FIXTURE_SENDER=0x… npx ts-node scripts/record-tenderly-fixtures.ts [--dry-run] [scenario…]
+ *
+ * `--dry-run` builds each request (fetching the trade for the purchase) and prints it without calling Tenderly
+ * or writing anything, so the inputs can be checked before spending a simulation.
  *
  * The access key is sent in a header and never written to disk.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { Interface, ZeroAddress } from 'ethers'
+import { Interface, ZeroAddress, zeroPadValue } from 'ethers'
 
 const POLYGON = '137'
 // Registry addresses on Polygon (decentraland-transactions), lowercased.
 const MANA = '0xa1c57f48f0deb89f569dfbe6e2b7f46d33606fd4'
-const MARKETPLACE_V2 = '0x480a0f4e360e8964e68858dd231c2922f1df45ef'
+const OFFCHAIN_MARKETPLACE_V2 = '0xa40b1d129b8906888720686f3a01921ddf37716f'
+const MARKETPLACE_API = 'https://marketplace-api.decentraland.org/v1'
 const COLLECTION_STORE = '0x214ffc0f0103735728dc66b61a22e4f163e275ae'
 // An address that holds nothing: the sender of the stateless scenarios.
 const NOBODY = '0x000000000000000000000000000000000000dead'
@@ -47,7 +54,101 @@ const mana = new Interface([
   'function decimals() view returns (uint8)',
   'function transfer(address recipient, uint256 amount) returns (bool)'
 ])
-const marketplace = new Interface(['function executeOrder(address nftAddress, uint256 assetId, uint256 price)'])
+const offchainMarketplace = new Interface([
+  'function accept((address signer, bytes signature, (uint256 uses, uint256 expiration, uint256 effective, bytes32 salt, uint256 contractSignatureIndex, uint256 signerSignatureIndex, bytes32 allowedRoot, bytes32[] allowedProof, (address contractAddress, bytes4 selector, bytes value, bool required)[] externalChecks) checks, (uint256 assetType, address contractAddress, uint256 value, address beneficiary, bytes extra)[] sent, (uint256 assetType, address contractAddress, uint256 value, address beneficiary, bytes extra)[] received)[] _trades)'
+])
+
+/** A trade as the marketplace API returns it (the fields `accept` needs). */
+type ApiTrade = {
+  id: string
+  signer: string
+  signature: string
+  type: string
+  network: string
+  checks: {
+    uses: number
+    expiration: number
+    effective: number
+    salt: string
+    allowedRoot: string
+    contractSignatureIndex: number
+    signerSignatureIndex: number
+    externalChecks?: Array<{ contractAddress: string; selector: string; value?: string; required: boolean }>
+  }
+  sent: Array<{ assetType: number; contractAddress: string; tokenId?: string; amount?: string; itemId?: string; extra?: string }>
+  received: Array<{
+    assetType: number
+    contractAddress: string
+    tokenId?: string
+    amount?: string
+    itemId?: string
+    extra?: string
+    beneficiary: string
+  }>
+}
+
+/** The `value` the struct carries for an asset: the token id, the amount or the item id (marketplace-server's getValueFromTradeAsset). */
+function assetValue(asset: ApiTrade['sent'][number]): bigint {
+  const value = asset.tokenId ?? asset.amount ?? asset.itemId
+  if (value === undefined) throw new Error(`asset of type ${asset.assetType} carries no value`)
+  return BigInt(value)
+}
+
+/**
+ * The `accept` calldata for a trade, built the way marketplace-server rebuilds the signed struct to verify it:
+ * salt and allowed root zero-padded to 32 bytes, timestamps in seconds, empty `extra` as `0x`. The sent side
+ * carries no beneficiary in the signature; the contract fills a zero one with the caller.
+ */
+function acceptCalldata(trade: ApiTrade): string {
+  const seconds = (milliseconds: number) => BigInt(Math.floor(milliseconds / 1000))
+  const bytes32 = (value: string) => zeroPadValue(value === '0x' || !value ? '0x00' : value, 32)
+  return offchainMarketplace.encodeFunctionData('accept', [
+    [
+      {
+        signer: trade.signer,
+        signature: trade.signature,
+        checks: {
+          uses: BigInt(trade.checks.uses),
+          expiration: seconds(trade.checks.expiration),
+          effective: seconds(trade.checks.effective),
+          salt: bytes32(trade.checks.salt),
+          contractSignatureIndex: BigInt(trade.checks.contractSignatureIndex),
+          signerSignatureIndex: BigInt(trade.checks.signerSignatureIndex),
+          allowedRoot: bytes32(trade.checks.allowedRoot),
+          allowedProof: [],
+          externalChecks: (trade.checks.externalChecks ?? []).map(check => ({
+            contractAddress: check.contractAddress,
+            selector: check.selector,
+            value: check.value || '0x',
+            required: check.required
+          }))
+        },
+        sent: trade.sent.map(asset => ({
+          assetType: BigInt(asset.assetType),
+          contractAddress: asset.contractAddress,
+          value: assetValue(asset),
+          beneficiary: ZeroAddress,
+          extra: asset.extra || '0x'
+        })),
+        received: trade.received.map(asset => ({
+          assetType: BigInt(asset.assetType),
+          contractAddress: asset.contractAddress,
+          value: assetValue(asset),
+          beneficiary: asset.beneficiary,
+          extra: asset.extra || '0x'
+        }))
+      }
+    ]
+  ])
+}
+
+async function fetchTrade(id: string): Promise<ApiTrade> {
+  const response = await fetch(`${MARKETPLACE_API}/trades/${id}`)
+  if (!response.ok) throw new Error(`the marketplace API answered ${response.status} for trade ${id}`)
+  const body = (await response.json()) as { ok?: boolean; data?: ApiTrade }
+  if (!body.data) throw new Error(`the marketplace API returned no trade for ${id}`)
+  return body.data
+}
 const store = new Interface(['function buy((address collection, uint256[] ids, uint256[] prices, address[] beneficiaries)[] _itemsToBuy)'])
 
 type Scenario = {
@@ -56,8 +157,10 @@ type Scenario = {
   expectation: string
   /** The variables the scenario needs; missing ones skip it. */
   needs: string[]
-  request: (env: Env) => { from: string; to: string; input: string; value: string }
+  request: (env: Env) => Promise<SimulationRequest> | SimulationRequest
 }
+
+type SimulationRequest = { from: string; to: string; input: string; value: string }
 
 type Env = Record<string, string | undefined>
 
@@ -100,18 +203,18 @@ const scenarios: Scenario[] = [
   {
     name: 'wearable-purchase',
     expectation:
-      'success with several ERC20 movements (seller, fee collector, royalties) and one ERC721 movement, plus the allowance write',
-    needs: ['FIXTURE_SENDER', 'FIXTURE_ORDER_NFT', 'FIXTURE_ORDER_ASSET_ID', 'FIXTURE_ORDER_PRICE'],
-    request: env => ({
-      from: required(env, 'FIXTURE_SENDER'),
-      to: MARKETPLACE_V2,
-      input: marketplace.encodeFunctionData('executeOrder', [
-        required(env, 'FIXTURE_ORDER_NFT'),
-        BigInt(required(env, 'FIXTURE_ORDER_ASSET_ID')),
-        BigInt(required(env, 'FIXTURE_ORDER_PRICE'))
-      ]),
-      value: '0'
-    })
+      'success with several ERC20 movements (seller, fee collector, royalties) and one ERC721 movement through OffChainMarketplaceV2.accept, plus the allowance write',
+    needs: ['FIXTURE_SENDER', 'FIXTURE_TRADE_ID'],
+    request: async env => {
+      const trade = await fetchTrade(required(env, 'FIXTURE_TRADE_ID'))
+      if (trade.network !== 'MATIC' || trade.type !== 'public_nft_order') {
+        throw new Error(`trade ${trade.id} is a ${trade.type} on ${trade.network}; a public_nft_order on MATIC is needed`)
+      }
+      if (trade.signer.toLowerCase() === required(env, 'FIXTURE_SENDER').toLowerCase()) {
+        throw new Error('the sender cannot accept a trade it signed')
+      }
+      return { from: required(env, 'FIXTURE_SENDER'), to: OFFCHAIN_MARKETPLACE_V2, input: acceptCalldata(trade), value: '0' }
+    }
   },
   {
     name: 'collection-mint',
@@ -175,7 +278,7 @@ function prune(body: unknown): unknown {
   }
 }
 
-async function simulate(env: Env, request: ReturnType<Scenario['request']>): Promise<{ httpStatus: number; body: unknown }> {
+async function simulate(env: Env, request: SimulationRequest): Promise<{ httpStatus: number; body: unknown }> {
   const apiUrl = (env.TENDERLY_API_URL || 'https://api.tenderly.co/api/v1').replace(/\/$/, '')
   const url = `${apiUrl}/account/${env.TENDERLY_ACCOUNT_SLUG}/project/${env.TENDERLY_PROJECT_SLUG}/simulate`
   const response = await fetch(url, {
@@ -190,11 +293,12 @@ async function simulate(env: Env, request: ReturnType<Scenario['request']>): Pro
 async function main(): Promise<void> {
   const env = loadEnv()
   const missing = ['TENDERLY_ACCESS_KEY', 'TENDERLY_ACCOUNT_SLUG', 'TENDERLY_PROJECT_SLUG'].filter(name => !env[name])
-  if (missing.length) {
+  if (missing.length && !process.argv.includes('--dry-run')) {
     console.error(`Missing ${missing.join(', ')}. Set them in the environment or in .env; the key is never written to disk.`)
     process.exit(1)
   }
-  const requested = process.argv.slice(2)
+  const dryRun = process.argv.includes('--dry-run')
+  const requested = process.argv.slice(2).filter(argument => argument !== '--dry-run')
   const selected = requested.length ? scenarios.filter(scenario => requested.includes(scenario.name)) : scenarios
   if (requested.length && selected.length !== requested.length) {
     console.error(`Unknown scenario. Known: ${scenarios.map(scenario => scenario.name).join(', ')}`)
@@ -209,7 +313,22 @@ async function main(): Promise<void> {
       console.log(`skip  ${scenario.name}: needs ${absent.join(', ')}`)
       continue
     }
-    const request = scenario.request(env)
+    let request: SimulationRequest
+    try {
+      request = await scenario.request(env)
+    } catch (error) {
+      failures++
+      console.log(`FAIL  ${scenario.name}: ${error instanceof Error ? error.message : String(error)}`)
+      continue
+    }
+    if (dryRun) {
+      console.log(
+        `ready ${scenario.name}: from=${request.from} to=${request.to} selector=${request.input.slice(0, 10)} calldata=${
+          (request.input.length - 2) / 2
+        } bytes value=${request.value}`
+      )
+      continue
+    }
     const { httpStatus, body } = await simulate(env, request)
     const file = join(FIXTURES_DIR, `${scenario.name}.json`)
     writeFileSync(

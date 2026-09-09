@@ -1,0 +1,186 @@
+{
+  "scenario": "mana-transfer",
+  "expectation": "success with one ERC20 movement: the asset row and the Transfer log for the same movement",
+  "recordedAt": "2026-09-09T20:30:19.543Z",
+  "networkId": "137",
+  "request": {
+    "from": "0xACA5bC79b0cD51b726D2EAdfC747F7AD4dfe7EfB",
+    "to": "0xa1c57f48f0deb89f569dfbe6e2b7f46d33606fd4",
+    "input": "0xa9059cbb000000000000000000000000000000000000000000000000000000000000dead0000000000000000000000000000000000000000000000000de0b6b3a7640000",
+    "value": "0"
+  },
+  "httpStatus": 200,
+  "response": {
+    "presentKeys": [
+      "transaction",
+      "simulation",
+      "contracts",
+      "generated_access_list"
+    ],
+    "transaction": {
+      "presentKeys": [
+        "hash",
+        "block_hash",
+        "block_number",
+        "from",
+        "gas",
+        "gas_price",
+        "gas_fee_cap",
+        "gas_tip_cap",
+        "cumulative_gas_used",
+        "gas_used",
+        "effective_gas_price",
+        "input",
+        "nonce",
+        "to",
+        "index",
+        "value",
+        "access_list",
+        "status",
+        "addresses",
+        "contract_ids",
+        "network_id",
+        "timestamp",
+        "function_selector",
+        "l1_block_number",
+        "l1_timestamp",
+        "deposit_tx",
+        "system_tx",
+        "sig",
+        "transaction_info",
+        "method",
+        "decoded_input",
+        "call_trace",
+        "value_fee_currency",
+        "value_gateway_fee",
+        "value_gateway_fee_recipient"
+      ],
+      "status": true,
+      "transaction_info": {
+        "presentKeys": [
+          "contract_id",
+          "block_number",
+          "transaction_id",
+          "contract_address",
+          "method",
+          "parameters",
+          "intrinsic_gas",
+          "refund_gas",
+          "call_trace",
+          "stack_trace",
+          "logs",
+          "balance_diff",
+          "nonce_diff",
+          "state_diff",
+          "raw_state_diff",
+          "console_logs",
+          "asset_changes",
+          "exposure_changes",
+          "balance_changes",
+          "created_at"
+        ],
+        "logs": [
+          {
+            "name": "Transfer",
+            "EmitterAddress": "",
+            "anonymous": false,
+            "inputs": [
+              {
+                "soltype": {
+                  "name": "from",
+                  "type": "address",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": true,
+                  "simple_type": {
+                    "type": "address"
+                  }
+                },
+                "value": "0xaca5bc79b0cd51b726d2eadfc747f7ad4dfe7efb"
+              },
+              {
+                "soltype": {
+                  "name": "to",
+                  "type": "address",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": true,
+                  "simple_type": {
+                    "type": "address"
+                  }
+                },
+                "value": "0x000000000000000000000000000000000000dead"
+              },
+              {
+                "soltype": {
+                  "name": "value",
+                  "type": "uint256",
+                  "storage_location": "default",
+                  "offset": 0,
+                  "index": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  "indexed": false,
+                  "simple_type": {
+                    "type": "uint"
+                  }
+                },
+                "value": "1000000000000000000"
+              }
+            ],
+            "raw": {
+              "address": "0xa1c57f48f0deb89f569dfbe6e2b7f46d33606fd4",
+              "topics": [
+                "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                "0x000000000000000000000000aca5bc79b0cd51b726d2eadfc747f7ad4dfe7efb",
+                "0x000000000000000000000000000000000000000000000000000000000000dead"
+              ],
+              "data": "0x0000000000000000000000000000000000000000000000000de0b6b3a7640000"
+            },
+            "trace_index": null
+          }
+        ],
+        "asset_changes": [
+          {
+            "token_info": {
+              "standard": "ERC20",
+              "type": "Fungible",
+              "contract_address": "0xa1c57f48f0deb89f569dfbe6e2b7f46d33606fd4",
+              "symbol": "mana",
+              "name": "Decentraland",
+              "logo": "https://coin-images.coingecko.com/coins/images/878/large/decentraland-mana.png?1696502010",
+              "decimals": 18,
+              "dollar_value": "0.07444900274276733"
+            },
+            "type": "Transfer",
+            "from": "0xaca5bc79b0cd51b726d2eadfc747f7ad4dfe7efb",
+            "to": "0x000000000000000000000000000000000000dead",
+            "amount": "1",
+            "raw_amount": "1000000000000000000",
+            "trace_absolute_position": 534,
+            "dollar_value": "0.074449002742767333984",
+            "from_before_balance": "0x1b6048686534440000",
+            "to_before_balance": "0x10d96f18e66bb55"
+          }
+        ],
+        "exposure_changes": null,
+        "balance_changes": [
+          {
+            "address": "0x000000000000000000000000000000000000dead",
+            "dollar_value": "0.074449002742767333984",
+            "transfers": [
+              0
+            ]
+          },
+          {
+            "address": "0xaca5bc79b0cd51b726d2eadfc747f7ad4dfe7efb",
+            "dollar_value": "-0.074449002742767333984",
+            "transfers": [
+              0
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
