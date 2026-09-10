@@ -91,7 +91,7 @@ test('when simulating a transaction via the endpoint', args => {
               }
             }
           ],
-          balanceChanges: [{ address: FROM, dollarValue: '-2.00' }],
+          balanceChanges: [{ address: FROM, dollar_value: '-2.00' }],
           events: [{ name: 'Transfer', address: TOKEN }]
         })
       )

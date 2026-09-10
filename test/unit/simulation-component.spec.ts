@@ -197,7 +197,7 @@ describe('when simulating a transaction', () => {
       body = { chainId: 137, from: FROM, to: TO }
       tenderly.simulate.mockResolvedValue(
         baseResult({
-          balanceChanges: [{ address: FROM.toLowerCase(), dollarValue: '-12.34' }],
+          balanceChanges: [{ address: FROM.toLowerCase(), dollar_value: '-12.34' }],
           events: [{ name: 'Transfer', address: TOKEN.toLowerCase() }]
         })
       )
@@ -250,7 +250,7 @@ describe('when simulating a transaction', () => {
             { type: 'Transfer', from: FROM, to: TO, raw_amount: '1', token_info: { standard: 'ERC20', contract_address: TOKEN } }
           ],
           rawLogs: [approvalForAllLog(FROM, SPENDER, true, TOKEN), erc721TransferLog(FROM, TO, 1n, TOKEN)],
-          balanceChanges: [{ address: FROM.toLowerCase(), dollarValue: '-1.00' }],
+          balanceChanges: [{ address: FROM.toLowerCase(), dollar_value: '-1.00' }],
           events: [{ name: 'Transfer', address: TOKEN.toLowerCase() }]
         })
       )
@@ -1640,6 +1640,49 @@ describe('when simulating a transaction', () => {
     it('should refuse it before the decode allocates the arrays', async () => {
       await expect(component.simulateTransaction(body)).rejects.toThrow(UnreadableSimulationError)
       await expect(component.simulateTransaction(body)).rejects.toThrow('more than a preview can report')
+    })
+  })
+  describe('and Tenderly reports a net balance change whose dollar value is not a number', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          balanceChanges: [
+            { address: FROM.toLowerCase(), dollar_value: { usd: 12 } },
+            { address: TO.toLowerCase(), dollar_value: 'a lot' },
+            { address: TOKEN.toLowerCase(), dollar_value: '-12.34' }
+          ]
+        })
+      )
+    })
+
+    it('should read it as absent rather than pass the value through as a figure', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.balanceChanges).toEqual([
+        { address: FROM.toLowerCase(), dollarValue: null },
+        { address: TO.toLowerCase(), dollarValue: null },
+        { address: TOKEN.toLowerCase(), dollarValue: '-12.34' }
+      ])
+    })
+  })
+
+  describe('and Tenderly reports a net balance change without a readable address', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({ balanceChanges: [{ dollar_value: '-1.00' }, { address: 42, dollar_value: '-2.00' }] })
+      )
+    })
+
+    it('should drop the row, since a net change belongs to an address or to nobody', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.balanceChanges).toEqual([])
     })
   })
 })

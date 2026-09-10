@@ -50,6 +50,20 @@ const DEFAULT_TIMEOUT_MS = 6000
 const MAX_COLLECTION_ENTRIES = 512
 
 /**
+ * Upper bound on the response body read from Tenderly. The collection caps bound the work of
+ * *normalizing* an answer; they cannot bound the work of *receiving* one, because the body is parsed
+ * before there are any collections to count. A caller picks the transaction, so a caller picks how large
+ * a trace comes back, and buffering and parsing an unbounded body is synchronous work on the event loop
+ * whatever is decided about it afterwards.
+ *
+ * 8 MB against what a reportable answer weighs: the heaviest recorded fixture costs ~2.7 KB per log, so
+ * both effect collections at their 512-entry cap project to ~1.7 MB, and the rest of the response is a
+ * fraction of that again. Anything past this could not have been reported in full anyway, so refusing it
+ * unread costs nothing a caller was going to be shown.
+ */
+const MAX_RESPONSE_BODY_BYTES = 8 * 1024 * 1024
+
+/**
  * Creates the Tenderly adapter — a thin, typed wrapper around Tenderly's
  * transaction simulation API.
  *
@@ -79,6 +93,43 @@ export async function createTenderlyAdapter({
 
   const baseUrl = apiUrl.replace(/\/+$/, '')
   const simulateUrl = `${baseUrl}/api/v1/account/${accountSlug}/project/${projectSlug}/simulate`
+
+  /**
+   * The body as text, without ever buffering more than the bound. A declared length past it is refused
+   * without reading a byte; otherwise the stream is cancelled the moment the bound is passed, so an
+   * upstream that streams without announcing a length cannot make this process hold the whole thing.
+   */
+  const readBoundedBody = async (response: Response): Promise<string> => {
+    const refuse = async () => {
+      await response.body?.cancel().catch(() => undefined)
+      throw new TenderlyUnavailableError(`Tenderly returned a body larger than ${MAX_RESPONSE_BODY_BYTES} bytes`)
+    }
+    const declared = Number(response.headers?.get('content-length') ?? '')
+    if (Number.isFinite(declared) && declared > MAX_RESPONSE_BODY_BYTES) {
+      return refuse()
+    }
+    const reader = response.body?.getReader?.()
+    if (!reader) {
+      // Every real response has a readable body; one without it cannot be read short, so it is refused
+      // rather than read by some other route that the bound would not cover.
+      throw new TenderlyUnavailableError('Tenderly returned a body that cannot be read')
+    }
+    const decoder = new TextDecoder()
+    const chunks: string[] = []
+    let received = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      received += value.byteLength
+      if (received > MAX_RESPONSE_BODY_BYTES) {
+        await reader.cancel().catch(() => undefined)
+        throw new TenderlyUnavailableError(`Tenderly returned a body larger than ${MAX_RESPONSE_BODY_BYTES} bytes`)
+      }
+      chunks.push(decoder.decode(value, { stream: true }))
+    }
+    chunks.push(decoder.decode())
+    return chunks.join('')
+  }
 
   const simulate = async (params: TenderlySimulateParams): Promise<TenderlySimulationResult> => {
     const { networkId, from, to, input, value } = params
@@ -144,9 +195,12 @@ export async function createTenderlyAdapter({
       throw new TenderlyUnavailableError(`Tenderly returned an unexpected status (${response.status})`)
     }
 
+    // Read under the bound first, then parse: `response.json()` would buffer and parse the whole body
+    // before anything could refuse it (see MAX_RESPONSE_BODY_BYTES).
+    const body = await readBoundedBody(response)
     let parsed: unknown
     try {
-      parsed = await response.json()
+      parsed = JSON.parse(body)
     } catch {
       throw new TenderlyUnavailableError('Tenderly returned a malformed response body')
     }
@@ -251,12 +305,9 @@ export async function createTenderlyAdapter({
       rawLogs.push(entry.raw)
     }
 
+    // Passed through as reported, not normalized here: what counts as a display figure is the preview's
+    // rule, and applying it in two places is how `dollar_value` came to be the one figure that escaped it.
     const balanceChanges = collections.balance_changes
-      .map(bc => ({
-        address: String(bc.address ?? '').toLowerCase(),
-        dollarValue: bc.dollar_value != null ? String(bc.dollar_value) : null
-      }))
-      .filter(bc => bc.address !== '')
 
     const events = collections.logs
       .map(log => ({

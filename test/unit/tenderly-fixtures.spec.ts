@@ -6,7 +6,7 @@ import { createTenderlyAdapter } from '../../src/adapters/tenderly/component'
 import { ITenderlyAdapter } from '../../src/adapters/tenderly/types'
 import { createSimulationComponent } from '../../src/logic/simulation/component'
 import { AssetChange, ISimulationComponent, SimulationResponseBody } from '../../src/logic/simulation/types'
-import { createMockLogs } from '../mocks'
+import { createJsonResponse, createMockLogs } from '../mocks'
 
 /**
  * Runs the real adapter and the real simulation component over Tenderly responses recorded from the real
@@ -80,9 +80,7 @@ if (fixtures.length === 0) {
 
     beforeEach(async () => {
       const fetch = {
-        fetch: jest
-          .fn()
-          .mockResolvedValue({ ok: fixture.httpStatus === 200, status: fixture.httpStatus, json: async () => fixture.response })
+        fetch: jest.fn().mockResolvedValue(createJsonResponse(fixture.response))
       }
       adapter = await createTenderlyAdapter({ config: createConfig(), logs: createMockLogs(), fetch: fetch as unknown as IFetchComponent })
       simulation = await createSimulationComponent({ tenderly: adapter, logs: createMockLogs() }, { supportedChainIds: [137] })
@@ -144,7 +142,7 @@ if (fixtures.length === 0) {
 
   describeEach(revertScenarios, 'and the recorded %s scenario', (_scenario, fixture) => {
     it('should be a reverted preview carrying a reason and no effects', async () => {
-      const fetch = { fetch: jest.fn().mockResolvedValue({ ok: true, status: 200, json: async () => fixture.response }) }
+      const fetch = { fetch: jest.fn().mockResolvedValue(createJsonResponse(fixture.response, { status: 200 })) }
       const adapter = await createTenderlyAdapter({
         config: createConfig(),
         logs: createMockLogs(),
@@ -165,7 +163,7 @@ if (fixtures.length === 0) {
 
   describeEach(effectFreeScenarios, 'and the recorded %s scenario', (_scenario, fixture) => {
     it('should be a successful preview with nothing in it', async () => {
-      const fetch = { fetch: jest.fn().mockResolvedValue({ ok: true, status: 200, json: async () => fixture.response }) }
+      const fetch = { fetch: jest.fn().mockResolvedValue(createJsonResponse(fixture.response, { status: 200 })) }
       const adapter = await createTenderlyAdapter({
         config: createConfig(),
         logs: createMockLogs(),

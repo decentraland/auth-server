@@ -23,3 +23,35 @@ export function createMockDbComponent(): jest.Mocked<Pick<IPgComponent, 'query'>
     stop: jest.fn().mockResolvedValue(undefined)
   } as unknown as jest.Mocked<Pick<IPgComponent, 'query'>> & IPgComponent
 }
+
+/**
+ * A `Response` whose `body` is the given JSON, so a spec exercises the same bounded streaming read the
+ * adapter performs in production rather than a hand-rolled object with only a `json()` method.
+ *
+ * `body` is a getter that returns a fresh stream on every access: a real response body may be read once,
+ * but a spec that sets one mocked response for a whole case reads it as many times as it calls the
+ * adapter, and failing on the second call would be an artefact of the mock rather than of the code.
+ *
+ * Pass `text` to send a body that is not valid JSON, or `contentLength` to declare a length that differs
+ * from what is sent — which is what an upstream announcing an oversized body looks like.
+ */
+export function createJsonResponse(
+  body: unknown,
+  { status = 200, text, contentLength }: { status?: number; text?: string; contentLength?: number } = {}
+): Response {
+  const payload = text ?? JSON.stringify(body)
+  const headers = new Headers({ 'content-type': 'application/json' })
+  if (contentLength !== undefined) {
+    headers.set('content-length', String(contentLength))
+  }
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers,
+    get body() {
+      return new Response(payload).body
+    },
+    text: async () => payload,
+    json: async () => JSON.parse(payload)
+  } as unknown as Response
+}

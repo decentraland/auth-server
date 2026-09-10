@@ -2,7 +2,7 @@ import { formatEther, formatUnits, id, Interface, MaxUint256, ZeroAddress } from
 import { TenderlyRawLog, TenderlySimulationResult } from '../../adapters/tenderly'
 import { AppComponents } from '../../types'
 import { InvalidSimulationParamsError, UnreadableSimulationError, UnsupportedChainError } from './errors'
-import { ApprovalChange, AssetChange, ISimulationComponent, SimulationRequestBody, SimulationResponseBody } from './types'
+import { ApprovalChange, AssetChange, BalanceChange, ISimulationComponent, SimulationRequestBody, SimulationResponseBody } from './types'
 
 // Unlimited-allowance threshold: many tokens use 2^256-1, some use 2^255+; anything
 // at or above 2^255 is treated as effectively unlimited for the UI warning.
@@ -577,6 +577,20 @@ function decodeErc1155Transfers(rawLogs: TenderlySimulationResult['rawLogs']): A
   return changes
 }
 
+/**
+ * Net dollar changes per address, read the same way every other figure in a preview is: an address that is
+ * not one drops the row, and a dollar value that is not a number reads as absent. The summary renders this
+ * as the user's own net change, so a value it cannot read must not reach that line.
+ */
+function normalizeBalanceChanges(balanceChanges: unknown[]): BalanceChange[] {
+  return balanceChanges
+    .map(entry => {
+      const change = asRecord(entry)
+      return { address: lowerOrNull(asStringProp(change, 'address')) ?? '', dollarValue: asDisplayNumberProp(change, 'dollar_value') }
+    })
+    .filter(change => change.address !== '')
+}
+
 const MAX_REVERT_REASON_LENGTH = 200
 
 /**
@@ -757,7 +771,7 @@ export async function createSimulationComponent(
       status: 'success',
       assetChanges,
       approvalChanges,
-      balanceChanges: result.balanceChanges,
+      balanceChanges: normalizeBalanceChanges(result.balanceChanges),
       events: result.events
     }
   }
