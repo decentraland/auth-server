@@ -144,6 +144,31 @@ function decodeOrFail<T>(name: string, decode: () => T | null): T {
   return decoded
 }
 
+/**
+ * Upper bound on the movements or permissions one preview reports. The collections it is built from are
+ * bounded already (see MAX_COLLECTION_ENTRIES), but that does not bound this: a single `TransferBatch`
+ * carries as many `(id, value)` pairs as it likes, and each is a movement. Past this the preview is
+ * refused for the same reason a collection past its bound is — a prefix of the effects is not a preview —
+ * and it keeps the response, and the work of building it, bounded whatever one log expands into.
+ */
+const MAX_REPORTED_EFFECTS = 1024
+
+/** Refuses a preview that would report more than it can (see MAX_REPORTED_EFFECTS). */
+function assertReportableCount(count: number, what: string): void {
+  if (count > MAX_REPORTED_EFFECTS) {
+    throw new UnreadableSimulationError(`the transaction has more than ${MAX_REPORTED_EFFECTS} ${what}, more than a preview can report`)
+  }
+}
+
+/**
+ * The longest `data` a `TransferBatch` can carry and still be reportable. Its non-indexed payload encodes
+ * two offsets, two lengths and the two arrays — 4 + 2n words for n pairs — so the length alone bounds n.
+ * It is a string length, read before the decode allocates anything, which is the point: ethers decodes both
+ * arrays in full before any count of ours could reject them, so a single log encoding millions of pairs
+ * would otherwise do all that work to be thrown away.
+ */
+const MAX_TRANSFER_BATCH_DATA_LENGTH = 2 + 64 * (4 + 2 * MAX_REPORTED_EFFECTS)
+
 /** A token movement a raw `Transfer` log records: the ERC721 form indexes the token id, the ERC20 form carries the value in the data. */
 type LoggedTransfer = {
   standard: 'erc20' | 'erc721'
@@ -522,6 +547,13 @@ function decodeErc1155Transfers(rawLogs: TenderlySimulationResult['rawLogs']): A
         build(log.address, parsed.args.from as string, parsed.args.to as string, parsed.args.id as bigint, parsed.args.value as bigint)
       )
     } else if (topic0 === TRANSFER_BATCH_TOPIC) {
+      // Read before the decode, since the decode is what would allocate the arrays (see
+      // MAX_TRANSFER_BATCH_DATA_LENGTH).
+      if (typeof log.data === 'string' && log.data.length > MAX_TRANSFER_BATCH_DATA_LENGTH) {
+        throw new UnreadableSimulationError(
+          `a TransferBatch log carries more than ${MAX_REPORTED_EFFECTS} movements, more than a preview can report`
+        )
+      }
       const parsed = decodeOrFail('TransferBatch', () => transferBatchInterface.parseLog({ topics: log.topics, data: log.data }))
       // Access by index: `Result` exposes an array-like `.values()` method that shadows a named
       // `values` arg, so named access would return the method.
@@ -543,22 +575,6 @@ function decodeErc1155Transfers(rawLogs: TenderlySimulationResult['rawLogs']): A
   }
 
   return changes
-}
-
-/**
- * Upper bound on the movements or permissions one preview reports. The collections it is built from are
- * bounded already (see MAX_COLLECTION_ENTRIES), but that does not bound this: a single `TransferBatch`
- * carries as many `(id, value)` pairs as it likes, and each is a movement. Past this the preview is
- * refused for the same reason a collection past its bound is — a prefix of the effects is not a preview —
- * and it keeps the response, and the work of building it, bounded whatever one log expands into.
- */
-const MAX_REPORTED_EFFECTS = 1024
-
-/** Refuses a preview that would report more than it can (see MAX_REPORTED_EFFECTS). */
-function assertReportableCount(count: number, what: string): void {
-  if (count > MAX_REPORTED_EFFECTS) {
-    throw new UnreadableSimulationError(`the transaction has more than ${MAX_REPORTED_EFFECTS} ${what}, more than a preview can report`)
-  }
 }
 
 const MAX_REVERT_REASON_LENGTH = 200
@@ -699,7 +715,6 @@ export async function createSimulationComponent(
       ...decodeErc1155Transfers(result.rawLogs).map(logged => enrich(logged, consume(describesErc1155(logged))))
     ]
     const assetChanges: AssetChange[] = [...reportedChanges.filter(change => change.standard === 'native'), ...unconsumed, ...loggedRows]
-    assertReportableCount(assetChanges.length, 'asset movements')
 
     // 6. Approvals from raw logs (primary source), enriched with token metadata, minus the clears a transfer
     //    emitted as a side effect (see transferImpliedClearIndices).
@@ -731,6 +746,10 @@ export async function createSimulationComponent(
         dollarValue: null
       })
     }
+
+    // Counted here rather than before the fallback: the movement it synthesizes is a reported effect like
+    // any other, so a preview already at the bound must not be pushed past it by appending one more.
+    assertReportableCount(assetChanges.length, 'asset movements')
 
     logger.debug(`Simulated tx on chain ${body.chainId}: status=success assets=${assetChanges.length} approvals=${approvalChanges.length}`)
 

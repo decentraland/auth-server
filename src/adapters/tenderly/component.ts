@@ -219,17 +219,18 @@ export async function createTenderlyAdapter({
       if (!Array.isArray(value)) {
         throw new TenderlyUnavailableError(`Tenderly returned a malformed ${collection} collection`)
       }
-      // The entries are read as objects below; a null or primitive entry would fail there as a plain crash,
-      // so it is refused here as the malformed answer it is.
-      if (!value.every(isRecord)) {
-        throw new TenderlyUnavailableError(`Tenderly returned a malformed ${collection} entry`)
-      }
-      // Checked before the entries are walked, so a response built to be expensive to normalize costs
-      // nothing past the length read (see MAX_COLLECTION_ENTRIES).
+      // The length first, before anything walks the entries: every check below is linear in the entry
+      // count, so reading it after them would let an oversized array cost a full pass to be thrown away
+      // (see MAX_COLLECTION_ENTRIES).
       if (value.length > MAX_COLLECTION_ENTRIES) {
         throw new TenderlyUnavailableError(
           `Tenderly returned more than ${MAX_COLLECTION_ENTRIES} ${collection} entries, more than a preview can report`
         )
+      }
+      // The entries are read as objects below; a null or primitive entry would fail there as a plain crash,
+      // so it is refused here as the malformed answer it is.
+      if (!value.every(isRecord)) {
+        throw new TenderlyUnavailableError(`Tenderly returned a malformed ${collection} entry`)
       }
       // An asset change's raw amount and token id are what the preview compares and gates on; one that arrived
       // as a number beyond 2^53 has already lost digits and would preview a different quantity.

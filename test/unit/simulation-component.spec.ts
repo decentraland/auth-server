@@ -1586,4 +1586,60 @@ describe('when simulating a transaction', () => {
       expect(elapsedMs).toBeLessThan(2000)
     })
   })
+  describe('and the preview is exactly at the effect bound and the submitted value adds one more movement', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      // The native fallback synthesizes the submitted value transfer, which is a reported effect like any
+      // other: a preview already at the bound must not be pushed past it by appending one.
+      body = { chainId: 137, from: FROM, to: TO, value: '1000000000000000000' }
+      const ids = Array.from({ length: 1024 }, (_, index) => BigInt(index))
+      const values = ids.map(() => 1n)
+      tenderly.simulate.mockResolvedValue(baseResult({ rawLogs: [transferBatchLog(FROM, FROM, TO, ids, values, TOKEN)] }))
+    })
+
+    it('should refuse the preview rather than report one movement past the bound', async () => {
+      await expect(component.simulateTransaction(body)).rejects.toThrow(UnreadableSimulationError)
+      await expect(component.simulateTransaction(body)).rejects.toThrow('more than a preview can report')
+    })
+  })
+
+  describe('and the preview is one below the effect bound and the submitted value adds one more movement', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO, value: '1000000000000000000' }
+      const ids = Array.from({ length: 1023 }, (_, index) => BigInt(index))
+      const values = ids.map(() => 1n)
+      tenderly.simulate.mockResolvedValue(baseResult({ rawLogs: [transferBatchLog(FROM, FROM, TO, ids, values, TOKEN)] }))
+    })
+
+    it('should report every movement including the synthesized one', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges).toHaveLength(1024)
+      expect(response.assetChanges.at(-1)).toMatchObject({ standard: 'native', rawAmount: '1000000000000000000' })
+    })
+  })
+
+  describe('and one TransferBatch log encodes more pairs than a preview can report', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO }
+      // Hand-built rather than ABI-encoded: the point is that the length is read before anything decodes
+      // it, so the payload never has to be a valid encoding of that many pairs to be refused.
+      const oversized = `0x${'0'.repeat(2 + 64 * (4 + 2 * 1024))}`
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          rawLogs: [{ address: TOKEN, topics: [id('TransferBatch(address,address,address,uint256[],uint256[])')], data: oversized }]
+        })
+      )
+    })
+
+    it('should refuse it before the decode allocates the arrays', async () => {
+      await expect(component.simulateTransaction(body)).rejects.toThrow(UnreadableSimulationError)
+      await expect(component.simulateTransaction(body)).rejects.toThrow('more than a preview can report')
+    })
+  })
 })
