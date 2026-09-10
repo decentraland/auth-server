@@ -134,7 +134,9 @@ export async function getIdentityHandler(context: HandlerContextWithPath<'storag
     return { status: 400, body: { error: 'Invalid identity format' } satisfies InvalidResponseMessage }
   }
 
-  const identity = await storage.getIdentity(identityId)
+  // The identity contains a private key and is a one-use capability. Taking it atomically prevents
+  // concurrent requests, including requests handled by different instances, from both receiving it.
+  const identity = await storage.takeIdentity(identityId)
 
   if (!identity) {
     const status = await storage.getIdentityStatus(identityId)
@@ -171,7 +173,6 @@ export async function getIdentityHandler(context: HandlerContextWithPath<'storag
   const signer = Authenticator.ownerAddress(identity.identity.authChain)
 
   if (identity.expiration < new Date()) {
-    await storage.deleteIdentity(identityId)
     await storage.updateIdentityStatus(identityId, { consumed: false, deletionReason: 'expired' })
     identityLogger.log(`[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve an expired identity`)
     return { status: 410, body: { error: 'Identity has expired' } satisfies InvalidResponseMessage }
@@ -192,8 +193,7 @@ export async function getIdentityHandler(context: HandlerContextWithPath<'storag
     }
     // Continue without blocking for mobile
   } else if (!ipsMatch(identity.ipAddress, clientIp)) {
-    // Non-mobile: delete identity and return 403
-    await storage.deleteIdentity(identityId)
+    // Non-mobile: the identity was already removed atomically; record why it was rejected.
     await storage.updateIdentityStatus(identityId, { consumed: false, deletionReason: 'ip_mismatch' })
     identityLogger.log(
       `[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve identity from different IP. Stored: ${identity.ipAddress}, Request: ${clientIp}. Identity deleted.`
@@ -202,8 +202,6 @@ export async function getIdentityHandler(context: HandlerContextWithPath<'storag
   }
 
   try {
-    // Delete the identity from the storage
-    await storage.deleteIdentity(identityId)
     await storage.updateIdentityStatus(identityId, { consumed: true, deletionReason: 'consumed' })
 
     identityLogger.log(
