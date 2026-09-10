@@ -47,7 +47,7 @@ export function createSimulationHandler(allowedOrigins: Set<string>, rateLimit: 
       return {
         status: 429,
         headers: { 'Retry-After': String(perIp.retryAfterSeconds) },
-        body: { error: 'Too many requests' } satisfies InvalidResponseMessage
+        body: { error: 'Too many requests', code: 'quota_exceeded' } satisfies SimulationErrorResponse
       }
     }
 
@@ -84,10 +84,14 @@ export function createSimulationHandler(allowedOrigins: Set<string>, rateLimit: 
     //     cannot run up the paid Tenderly upstream. Consumed only by requests that are about to reach it.
     const global = await rateLimiter.consume('simulations-global', 'all', { max: globalMax, windowSeconds: rateLimit.windowSeconds })
     if (!global.allowed) {
+      // Warned, not logged: this budget is shared by every caller, so exhausting it suppresses the preview
+      // for all of them at once, and a request page with no preview falls back to an acknowledgment the
+      // user can tick. It is therefore worth alerting on rather than counting.
+      logger.warn(`Simulation refused: the global rate limit for the window is exhausted (max=${globalMax})`)
       return {
         status: 429,
         headers: { 'Retry-After': String(global.retryAfterSeconds) },
-        body: { error: 'Too many requests' } satisfies InvalidResponseMessage
+        body: { error: 'Too many requests', code: 'quota_exceeded' } satisfies SimulationErrorResponse
       }
     }
 
@@ -112,7 +116,7 @@ export function createSimulationHandler(allowedOrigins: Set<string>, rateLimit: 
 
       if (e instanceof TenderlyRateLimitError) {
         logger.log(`Simulation rate limited by Tenderly: ${message}`)
-        return { status: 429, body: { error: 'Too many requests' } satisfies InvalidResponseMessage }
+        return { status: 429, body: { error: 'Too many requests', code: 'upstream_rate_limited' } satisfies SimulationErrorResponse }
       }
 
       if (e instanceof UnreadableSimulationError) {

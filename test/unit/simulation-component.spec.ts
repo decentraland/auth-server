@@ -197,7 +197,7 @@ describe('when simulating a transaction', () => {
       body = { chainId: 137, from: FROM, to: TO }
       tenderly.simulate.mockResolvedValue(
         baseResult({
-          balanceChanges: [{ address: FROM.toLowerCase(), dollarValue: '-12.34' }],
+          balanceChanges: [{ address: FROM.toLowerCase(), dollar_value: '-12.34' }],
           events: [{ name: 'Transfer', address: TOKEN.toLowerCase() }]
         })
       )
@@ -250,7 +250,7 @@ describe('when simulating a transaction', () => {
             { type: 'Transfer', from: FROM, to: TO, raw_amount: '1', token_info: { standard: 'ERC20', contract_address: TOKEN } }
           ],
           rawLogs: [approvalForAllLog(FROM, SPENDER, true, TOKEN), erc721TransferLog(FROM, TO, 1n, TOKEN)],
-          balanceChanges: [{ address: FROM.toLowerCase(), dollarValue: '-1.00' }],
+          balanceChanges: [{ address: FROM.toLowerCase(), dollar_value: '-1.00' }],
           events: [{ name: 'Transfer', address: TOKEN.toLowerCase() }]
         })
       )
@@ -1459,6 +1459,230 @@ describe('when simulating a transaction', () => {
       const response = await component.simulateTransaction(body)
 
       expect(response.approvalChanges[0].amount).toBe('500.0')
+    })
+  })
+  describe('and Tenderly reports an asset change whose display figures are not numbers', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          assetChanges: [
+            {
+              type: 'Transfer',
+              from: FROM,
+              to: TO,
+              // A figure the summary would otherwise print verbatim on the line that names the token.
+              amount: '1000000 MANA (verified by Decentraland)',
+              raw_amount: '1500000000000000000',
+              dollar_value: 'free',
+              token_info: { standard: 'ERC20', contract_address: TOKEN, symbol: 'MANA', decimals: 18 }
+            } as unknown as TenderlyAssetChange
+          ]
+        })
+      )
+    })
+
+    it('should report them as absent rather than pass the text through as a figure', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges).toHaveLength(1)
+      expect(response.assetChanges[0]).toMatchObject({ amount: null, dollarValue: null, rawAmount: '1500000000000000000' })
+    })
+  })
+
+  describe('and Tenderly reports display figures in the forms it actually uses', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          assetChanges: [
+            {
+              type: 'Transfer',
+              from: FROM,
+              to: TO,
+              amount: '0.000000000000000001',
+              dollar_value: '-1.5e-7',
+              token_info: { standard: 'ERC20', contract_address: TOKEN, decimals: 18 }
+            } as unknown as TenderlyAssetChange
+          ]
+        })
+      )
+    })
+
+    it('should keep a plain decimal, a signed value and exponential notation', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges[0]).toMatchObject({ amount: '0.000000000000000001', dollarValue: '-1.5e-7' })
+    })
+  })
+
+  describe('and one ERC1155 batch carries more movements than a preview can report', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO }
+      // The collections the preview is built from are bounded, but one log is not: a single TransferBatch
+      // expands into as many movements as it carries ids.
+      const ids = Array.from({ length: 1025 }, (_, index) => BigInt(index))
+      const values = ids.map(() => 1n)
+      tenderly.simulate.mockResolvedValue(baseResult({ rawLogs: [transferBatchLog(FROM, FROM, TO, ids, values, TOKEN)] }))
+    })
+
+    it('should refuse the preview rather than report a prefix of the movements', async () => {
+      await expect(component.simulateTransaction(body)).rejects.toThrow(UnreadableSimulationError)
+      await expect(component.simulateTransaction(body)).rejects.toThrow('more than a preview can report')
+    })
+  })
+
+  describe('and one ERC1155 batch carries exactly as many movements as a preview can report', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO }
+      const ids = Array.from({ length: 1024 }, (_, index) => BigInt(index))
+      const values = ids.map(() => 1n)
+      tenderly.simulate.mockResolvedValue(baseResult({ rawLogs: [transferBatchLog(FROM, FROM, TO, ids, values, TOKEN)] }))
+    })
+
+    it('should report every movement', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges).toHaveLength(1024)
+    })
+  })
+
+  describe('and every log is a zero-address ERC721 approval on a distinct contract', () => {
+    let body: SimulationRequestBody
+    const LOG_COUNT = 512
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          rawLogs: Array.from({ length: LOG_COUNT }, (_, index) =>
+            erc721ApprovalLog(FROM, ZeroAddress, BigInt(index), `0x${index.toString(16).padStart(40, 'a')}`)
+          )
+        })
+      )
+    })
+
+    it('should report every one of them as a revocation, since none is followed by a transfer of its token', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.approvalChanges).toHaveLength(LOG_COUNT)
+    })
+
+    it('should not scan the remaining logs once per approval (the pairing lookup must not be quadratic)', async () => {
+      const startedAt = process.hrtime.bigint()
+      await component.simulateTransaction(body)
+      const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1e6
+
+      // Generous by two orders of magnitude against the measured cost of the linear pass, so this fails
+      // only if the lookup goes back to searching the tail of the array per approval.
+      expect(elapsedMs).toBeLessThan(2000)
+    })
+  })
+  describe('and the preview is exactly at the effect bound and the submitted value adds one more movement', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      // The native fallback synthesizes the submitted value transfer, which is a reported effect like any
+      // other: a preview already at the bound must not be pushed past it by appending one.
+      body = { chainId: 137, from: FROM, to: TO, value: '1000000000000000000' }
+      const ids = Array.from({ length: 1024 }, (_, index) => BigInt(index))
+      const values = ids.map(() => 1n)
+      tenderly.simulate.mockResolvedValue(baseResult({ rawLogs: [transferBatchLog(FROM, FROM, TO, ids, values, TOKEN)] }))
+    })
+
+    it('should refuse the preview rather than report one movement past the bound', async () => {
+      await expect(component.simulateTransaction(body)).rejects.toThrow(UnreadableSimulationError)
+      await expect(component.simulateTransaction(body)).rejects.toThrow('more than a preview can report')
+    })
+  })
+
+  describe('and the preview is one below the effect bound and the submitted value adds one more movement', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO, value: '1000000000000000000' }
+      const ids = Array.from({ length: 1023 }, (_, index) => BigInt(index))
+      const values = ids.map(() => 1n)
+      tenderly.simulate.mockResolvedValue(baseResult({ rawLogs: [transferBatchLog(FROM, FROM, TO, ids, values, TOKEN)] }))
+    })
+
+    it('should report every movement including the synthesized one', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges).toHaveLength(1024)
+      expect(response.assetChanges.at(-1)).toMatchObject({ standard: 'native', rawAmount: '1000000000000000000' })
+    })
+  })
+
+  describe('and one TransferBatch log encodes more pairs than a preview can report', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO }
+      // Hand-built rather than ABI-encoded: the point is that the length is read before anything decodes
+      // it, so the payload never has to be a valid encoding of that many pairs to be refused.
+      const oversized = `0x${'0'.repeat(2 + 64 * (4 + 2 * 1024))}`
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          rawLogs: [{ address: TOKEN, topics: [id('TransferBatch(address,address,address,uint256[],uint256[])')], data: oversized }]
+        })
+      )
+    })
+
+    it('should refuse it before the decode allocates the arrays', async () => {
+      await expect(component.simulateTransaction(body)).rejects.toThrow(UnreadableSimulationError)
+      await expect(component.simulateTransaction(body)).rejects.toThrow('more than a preview can report')
+    })
+  })
+  describe('and Tenderly reports a net balance change whose dollar value is not a number', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          balanceChanges: [
+            { address: FROM.toLowerCase(), dollar_value: { usd: 12 } },
+            { address: TO.toLowerCase(), dollar_value: 'a lot' },
+            { address: TOKEN.toLowerCase(), dollar_value: '-12.34' }
+          ]
+        })
+      )
+    })
+
+    it('should read it as absent rather than pass the value through as a figure', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.balanceChanges).toEqual([
+        { address: FROM.toLowerCase(), dollarValue: null },
+        { address: TO.toLowerCase(), dollarValue: null },
+        { address: TOKEN.toLowerCase(), dollarValue: '-12.34' }
+      ])
+    })
+  })
+
+  describe('and Tenderly reports a net balance change without a readable address', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({ balanceChanges: [{ dollar_value: '-1.00' }, { address: 42, dollar_value: '-2.00' }] })
+      )
+    })
+
+    it('should drop the row, since a net change belongs to an address or to nobody', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.balanceChanges).toEqual([])
     })
   })
 })

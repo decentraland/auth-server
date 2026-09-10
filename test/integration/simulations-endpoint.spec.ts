@@ -91,7 +91,7 @@ test('when simulating a transaction via the endpoint', args => {
               }
             }
           ],
-          balanceChanges: [{ address: FROM, dollarValue: '-2.00' }],
+          balanceChanges: [{ address: FROM, dollar_value: '-2.00' }],
           events: [{ name: 'Transfer', address: TOKEN }]
         })
       )
@@ -285,6 +285,16 @@ test('when simulating a transaction via the endpoint', args => {
       expect(blocked.status).toBe(429)
       expect(blocked.headers.get('retry-after')).not.toBeNull()
     })
+
+    it('should account for the refusal as this service own quota, not as the provider rate limiting us', async () => {
+      for (let i = 0; i < max; i++) {
+        await postSimulation(baseUrl, body, '203.0.113.98')
+      }
+
+      const blocked = await postSimulation(baseUrl, body, '203.0.113.98')
+
+      expect(await blocked.json()).toMatchObject({ code: 'quota_exceeded' })
+    })
   })
 })
 
@@ -326,6 +336,12 @@ test('when the global simulation rate limit is exceeded across multiple IPs', ar
       const blocked = await postSimulation(baseUrl, body, '198.51.100.250')
 
       expect(blocked.status).toBe(429)
+    })
+
+    it('should account for the refusal as this service own quota, since the shared budget is what ran out', async () => {
+      const blocked = await postSimulation(baseUrl, body, '198.51.100.251')
+
+      expect(await blocked.json()).toMatchObject({ code: 'quota_exceeded' })
     })
   })
 })

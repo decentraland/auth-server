@@ -2,7 +2,7 @@ import { formatEther, formatUnits, id, Interface, MaxUint256, ZeroAddress } from
 import { TenderlyRawLog, TenderlySimulationResult } from '../../adapters/tenderly'
 import { AppComponents } from '../../types'
 import { InvalidSimulationParamsError, UnreadableSimulationError, UnsupportedChainError } from './errors'
-import { ApprovalChange, AssetChange, ISimulationComponent, SimulationRequestBody, SimulationResponseBody } from './types'
+import { ApprovalChange, AssetChange, BalanceChange, ISimulationComponent, SimulationRequestBody, SimulationResponseBody } from './types'
 
 // Unlimited-allowance threshold: many tokens use 2^256-1, some use 2^255+; anything
 // at or above 2^255 is treated as effectively unlimited for the UI warning.
@@ -11,6 +11,12 @@ const UNLIMITED_THRESHOLD = 2n ** 255n
 // Event ABI fragments. ERC20 and ERC721 `Approval` share the SAME topic0 (event
 // signature hash is unaffected by `indexed`), so they must be disambiguated by
 // topic count (4 topics ⇒ ERC721, 3 topics ⇒ ERC20), never by topic0 alone.
+//
+// The topic count is all there is to go on, so a token that indexes its ERC20 `Approval` value — which
+// the standard does not — is read as an ERC721 approval of token id <value>. The consumer then judges it
+// as a single-token grant rather than an allowance, which for a recognized spender is not gated the way
+// an unlimited allowance is. Nothing here can tell the two apart; a token whose events do not match the
+// standard it claims cannot be previewed as that standard.
 const erc20ApprovalInterface = new Interface(['event Approval(address indexed owner, address indexed spender, uint256 value)'])
 const erc721ApprovalInterface = new Interface(['event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId)'])
 const approvalForAllInterface = new Interface(['event ApprovalForAll(address indexed owner, address indexed operator, bool approved)'])
@@ -30,6 +36,9 @@ const TRANSFER_TOPIC = id('Transfer(address,address,uint256)').toLowerCase()
 const TRANSFER_SINGLE_TOPIC = id('TransferSingle(address,address,address,uint256,uint256)').toLowerCase()
 const TRANSFER_BATCH_TOPIC = id('TransferBatch(address,address,address,uint256[],uint256[])').toLowerCase()
 const APPROVAL_FOR_ALL_TOPIC = id('ApprovalForAll(address,address,bool)').toLowerCase()
+
+// The zero address as an indexed topic: a 32-byte word of zeroes.
+const ZERO_ADDRESS_TOPIC = `0x${'0'.repeat(64)}`
 
 /** Lowercases an address-ish string, or returns null when absent. */
 function lowerOrNull(value?: string | null): string | null {
@@ -61,10 +70,25 @@ function asExactQuantityProp(record: Record<string, unknown> | null, key: string
   return null
 }
 
-/** Reads a display-only figure (a decimals-applied amount, a dollar value) as a string, or null. */
+/**
+ * A figure the preview renders as a number: optionally signed, optionally in exponential notation. The
+ * consumer shows a decimals-applied amount on the same line as the token it names, so a value that is not
+ * a number would be read as part of that line — text on the one line the review exists to make plain.
+ * Bounded in length as well: the widest real figure is a uint256 with 18 decimals applied (79 characters).
+ */
+const DISPLAY_NUMBER_REGEX = /^-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?$/
+const MAX_DISPLAY_NUMBER_LENGTH = 128
+
+/**
+ * Reads a display-only figure (a decimals-applied amount, a dollar value) as a string, or null. Anything
+ * that is not a number reads as absent, which the consumer renders as the token without a figure rather
+ * than as the figure it could not read.
+ */
 function asDisplayNumberProp(record: Record<string, unknown> | null, key: string): string | null {
   const value = record ? record[key] : undefined
-  if (typeof value === 'string') return value
+  if (typeof value === 'string') {
+    return value.length <= MAX_DISPLAY_NUMBER_LENGTH && DISPLAY_NUMBER_REGEX.test(value) ? value : null
+  }
   if (typeof value === 'number' && Number.isFinite(value)) return String(value)
   return null
 }
@@ -119,6 +143,31 @@ function decodeOrFail<T>(name: string, decode: () => T | null): T {
   }
   return decoded
 }
+
+/**
+ * Upper bound on the movements or permissions one preview reports. The collections it is built from are
+ * bounded already (see MAX_COLLECTION_ENTRIES), but that does not bound this: a single `TransferBatch`
+ * carries as many `(id, value)` pairs as it likes, and each is a movement. Past this the preview is
+ * refused for the same reason a collection past its bound is — a prefix of the effects is not a preview —
+ * and it keeps the response, and the work of building it, bounded whatever one log expands into.
+ */
+const MAX_REPORTED_EFFECTS = 1024
+
+/** Refuses a preview that would report more than it can (see MAX_REPORTED_EFFECTS). */
+function assertReportableCount(count: number, what: string): void {
+  if (count > MAX_REPORTED_EFFECTS) {
+    throw new UnreadableSimulationError(`the transaction has more than ${MAX_REPORTED_EFFECTS} ${what}, more than a preview can report`)
+  }
+}
+
+/**
+ * The longest `data` a `TransferBatch` can carry and still be reportable. Its non-indexed payload encodes
+ * two offsets, two lengths and the two arrays — 4 + 2n words for n pairs — so the length alone bounds n.
+ * It is a string length, read before the decode allocates anything, which is the point: ethers decodes both
+ * arrays in full before any count of ours could reject them, so a single log encoding millions of pairs
+ * would otherwise do all that work to be thrown away.
+ */
+const MAX_TRANSFER_BATCH_DATA_LENGTH = 2 + 64 * (4 + 2 * MAX_REPORTED_EFFECTS)
 
 /** A token movement a raw `Transfer` log records: the ERC721 form indexes the token id, the ERC20 form carries the value in the data. */
 type LoggedTransfer = {
@@ -311,16 +360,37 @@ function transferImpliedClearIndices(rawLogs: TenderlySimulationResult['rawLogs'
   const implied = new Set<number>()
   const readTopics = (log: TenderlyRawLog | undefined) =>
     log && Array.isArray(log.topics) && typeof log.address === 'string' ? log.topics.map(topic => topic.toLowerCase()) : null
+  // For every log, the index of the next log on the same contract, built in one backwards pass. Searching
+  // the remainder of the array per approval instead copies and rescans that tail once for each of them,
+  // which is quadratic in the number of logs and holds the event loop for the whole time (a transaction
+  // whose logs are all zero-address approvals on distinct contracts is the worst case).
+  const nextOnSameAddress = new Array<number>(rawLogs.length).fill(-1)
+  const lastSeenByAddress = new Map<string, number>()
+  for (let index = rawLogs.length - 1; index >= 0; index--) {
+    const log = rawLogs[index]
+    // A log with no address is one no candidate can be "on the same contract" as; skipped rather than
+    // read, the way the decoders below skip it.
+    if (!log || typeof log.address !== 'string') continue
+    const address = log.address.toLowerCase()
+    const seen = lastSeenByAddress.get(address)
+    if (seen !== undefined) nextOnSameAddress[index] = seen
+    lastSeenByAddress.set(address, index)
+  }
   for (let index = 0; index < rawLogs.length; index++) {
     const log = rawLogs[index]
     const topics = readTopics(log)
     if (!topics || topics[0] !== APPROVAL_TOPIC || topics.length !== 4) continue
-    // Approval(owner, approved, tokenId), all indexed: a zero approved address is a clear. Decoded through the
-    // same guard as every effect log, so a malformed topic fails the simulation as unreadable rather than throw.
+    // Approval(owner, approved, tokenId), all indexed: a zero approved address is a clear. `approved` is
+    // topics[2], so comparing the word first keeps the decode for the logs actually up for suppression
+    // rather than running it over every 4-topic Approval in the trace — the decode is the expensive part,
+    // and decodeApprovals runs it again on everything this pass does not suppress.
+    if (topics[2] !== ZERO_ADDRESS_TOPIC) continue
+    // Decoded through the same guard as every effect log, so a malformed topic on a log this pass would
+    // suppress fails the simulation as unreadable rather than being dropped unseen.
     const parsed = decodeOrFail('Approval', () => erc721ApprovalInterface.parseLog({ topics: log.topics, data: log.data }))
     if ((parsed.args.approved as string) !== ZeroAddress) continue
-    const next = rawLogs.slice(index + 1).find(candidate => candidate && candidate.address.toLowerCase() === log.address.toLowerCase())
-    const nextTopics = readTopics(next)
+    const nextIndex = nextOnSameAddress[index]
+    const nextTopics = readTopics(nextIndex === -1 ? undefined : rawLogs[nextIndex])
     // Transfer(from, to, tokenId), all indexed, of the same token by the same owner.
     if (
       nextTopics &&
@@ -477,6 +547,13 @@ function decodeErc1155Transfers(rawLogs: TenderlySimulationResult['rawLogs']): A
         build(log.address, parsed.args.from as string, parsed.args.to as string, parsed.args.id as bigint, parsed.args.value as bigint)
       )
     } else if (topic0 === TRANSFER_BATCH_TOPIC) {
+      // Read before the decode, since the decode is what would allocate the arrays (see
+      // MAX_TRANSFER_BATCH_DATA_LENGTH).
+      if (typeof log.data === 'string' && log.data.length > MAX_TRANSFER_BATCH_DATA_LENGTH) {
+        throw new UnreadableSimulationError(
+          `a TransferBatch log carries more than ${MAX_REPORTED_EFFECTS} movements, more than a preview can report`
+        )
+      }
       const parsed = decodeOrFail('TransferBatch', () => transferBatchInterface.parseLog({ topics: log.topics, data: log.data }))
       // Access by index: `Result` exposes an array-like `.values()` method that shadows a named
       // `values` arg, so named access would return the method.
@@ -489,6 +566,8 @@ function decodeErc1155Transfers(rawLogs: TenderlySimulationResult['rawLogs']): A
       if (ids.length !== values.length) {
         throw new UnreadableSimulationError('a TransferBatch log carries a different number of ids and values')
       }
+      // Guarded as the rows accumulate, so a batch built to be enormous is refused before it is expanded.
+      assertReportableCount(changes.length + ids.length, 'asset movements')
       for (let i = 0; i < ids.length; i++) {
         changes.push(build(log.address, from, to, ids[i], values[i]))
       }
@@ -496,6 +575,20 @@ function decodeErc1155Transfers(rawLogs: TenderlySimulationResult['rawLogs']): A
   }
 
   return changes
+}
+
+/**
+ * Net dollar changes per address, read the same way every other figure in a preview is: an address that is
+ * not one drops the row, and a dollar value that is not a number reads as absent. The summary renders this
+ * as the user's own net change, so a value it cannot read must not reach that line.
+ */
+function normalizeBalanceChanges(balanceChanges: unknown[]): BalanceChange[] {
+  return balanceChanges
+    .map(entry => {
+      const change = asRecord(entry)
+      return { address: lowerOrNull(asStringProp(change, 'address')) ?? '', dollarValue: asDisplayNumberProp(change, 'dollar_value') }
+    })
+    .filter(change => change.address !== '')
 }
 
 const MAX_REVERT_REASON_LENGTH = 200
@@ -581,7 +674,13 @@ export async function createSimulationComponent(
     // stripped of control characters and bounded.
     if (result.status === false) {
       logger.debug(`Simulated tx on chain ${body.chainId}: status=reverted`)
-      const response: SimulationResponseBody = { status: 'reverted', assetChanges: [], approvalChanges: [], balanceChanges: [], events: [] }
+      const response: SimulationResponseBody = {
+        status: 'reverted',
+        assetChanges: [],
+        approvalChanges: [],
+        balanceChanges: [],
+        events: []
+      }
       const reason = sanitizeRevertReason(result.errorMessage)
       if (reason) response.error = reason
       return response
@@ -634,6 +733,7 @@ export async function createSimulationComponent(
     // 6. Approvals from raw logs (primary source), enriched with token metadata, minus the clears a transfer
     //    emitted as a side effect (see transferImpliedClearIndices).
     const approvalChanges = decodeApprovals(result.rawLogs, tokenMeta)
+    assertReportableCount(approvalChanges.length, 'permission changes')
 
     // 7. Native-value fallback: synthesize the submitted value transfer when value > 0 and Tenderly did not
     //    report that very movement (sender, recipient and amount); an internal native movement it did report
@@ -661,9 +761,19 @@ export async function createSimulationComponent(
       })
     }
 
+    // Counted here rather than before the fallback: the movement it synthesizes is a reported effect like
+    // any other, so a preview already at the bound must not be pushed past it by appending one more.
+    assertReportableCount(assetChanges.length, 'asset movements')
+
     logger.debug(`Simulated tx on chain ${body.chainId}: status=success assets=${assetChanges.length} approvals=${approvalChanges.length}`)
 
-    return { status: 'success', assetChanges, approvalChanges, balanceChanges: result.balanceChanges, events: result.events }
+    return {
+      status: 'success',
+      assetChanges,
+      approvalChanges,
+      balanceChanges: normalizeBalanceChanges(result.balanceChanges),
+      events: result.events
+    }
   }
 
   return { validateRequest, simulateTransaction }
