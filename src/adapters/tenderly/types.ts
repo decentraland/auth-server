@@ -50,7 +50,11 @@ export type TenderlySimulationResult = {
   rawLogs: TenderlyRawLog[]
   /** Net per-address USD balance deltas reported by Tenderly (addresses lowercased). */
   balanceChanges: Array<{ address: string; dollarValue: string | null }>
-  /** Decoded event log names alongside their emitting contract (addresses lowercased, capped). */
+  /**
+   * Decoded event log names alongside their emitting contract (addresses lowercased). Complete: a response
+   * with more entries than a preview can report is refused rather than truncated (see
+   * MAX_COLLECTION_ENTRIES), so the absence of an event here is evidence it did not happen.
+   */
   events: Array<{ name: string | null; address: string }>
 }
 

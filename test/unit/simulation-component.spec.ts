@@ -1461,4 +1461,129 @@ describe('when simulating a transaction', () => {
       expect(response.approvalChanges[0].amount).toBe('500.0')
     })
   })
+  describe('and Tenderly reports an asset change whose display figures are not numbers', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          assetChanges: [
+            {
+              type: 'Transfer',
+              from: FROM,
+              to: TO,
+              // A figure the summary would otherwise print verbatim on the line that names the token.
+              amount: '1000000 MANA (verified by Decentraland)',
+              raw_amount: '1500000000000000000',
+              dollar_value: 'free',
+              token_info: { standard: 'ERC20', contract_address: TOKEN, symbol: 'MANA', decimals: 18 }
+            } as unknown as TenderlyAssetChange
+          ]
+        })
+      )
+    })
+
+    it('should report them as absent rather than pass the text through as a figure', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges).toHaveLength(1)
+      expect(response.assetChanges[0]).toMatchObject({ amount: null, dollarValue: null, rawAmount: '1500000000000000000' })
+    })
+  })
+
+  describe('and Tenderly reports display figures in the forms it actually uses', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          assetChanges: [
+            {
+              type: 'Transfer',
+              from: FROM,
+              to: TO,
+              amount: '0.000000000000000001',
+              dollar_value: '-1.5e-7',
+              token_info: { standard: 'ERC20', contract_address: TOKEN, decimals: 18 }
+            } as unknown as TenderlyAssetChange
+          ]
+        })
+      )
+    })
+
+    it('should keep a plain decimal, a signed value and exponential notation', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges[0]).toMatchObject({ amount: '0.000000000000000001', dollarValue: '-1.5e-7' })
+    })
+  })
+
+  describe('and one ERC1155 batch carries more movements than a preview can report', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO }
+      // The collections the preview is built from are bounded, but one log is not: a single TransferBatch
+      // expands into as many movements as it carries ids.
+      const ids = Array.from({ length: 1025 }, (_, index) => BigInt(index))
+      const values = ids.map(() => 1n)
+      tenderly.simulate.mockResolvedValue(baseResult({ rawLogs: [transferBatchLog(FROM, FROM, TO, ids, values, TOKEN)] }))
+    })
+
+    it('should refuse the preview rather than report a prefix of the movements', async () => {
+      await expect(component.simulateTransaction(body)).rejects.toThrow(UnreadableSimulationError)
+      await expect(component.simulateTransaction(body)).rejects.toThrow('more than a preview can report')
+    })
+  })
+
+  describe('and one ERC1155 batch carries exactly as many movements as a preview can report', () => {
+    let body: SimulationRequestBody
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO }
+      const ids = Array.from({ length: 1024 }, (_, index) => BigInt(index))
+      const values = ids.map(() => 1n)
+      tenderly.simulate.mockResolvedValue(baseResult({ rawLogs: [transferBatchLog(FROM, FROM, TO, ids, values, TOKEN)] }))
+    })
+
+    it('should report every movement', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.assetChanges).toHaveLength(1024)
+    })
+  })
+
+  describe('and every log is a zero-address ERC721 approval on a distinct contract', () => {
+    let body: SimulationRequestBody
+    const LOG_COUNT = 512
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO }
+      tenderly.simulate.mockResolvedValue(
+        baseResult({
+          rawLogs: Array.from({ length: LOG_COUNT }, (_, index) =>
+            erc721ApprovalLog(FROM, ZeroAddress, BigInt(index), `0x${index.toString(16).padStart(40, 'a')}`)
+          )
+        })
+      )
+    })
+
+    it('should report every one of them as a revocation, since none is followed by a transfer of its token', async () => {
+      const response = await component.simulateTransaction(body)
+
+      expect(response.approvalChanges).toHaveLength(LOG_COUNT)
+    })
+
+    it('should not scan the remaining logs once per approval (the pairing lookup must not be quadratic)', async () => {
+      const startedAt = process.hrtime.bigint()
+      await component.simulateTransaction(body)
+      const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1e6
+
+      // Generous by two orders of magnitude against the measured cost of the linear pass, so this fails
+      // only if the lookup goes back to searching the tail of the array per approval.
+      expect(elapsedMs).toBeLessThan(2000)
+    })
+  })
 })

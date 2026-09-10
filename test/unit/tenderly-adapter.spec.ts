@@ -623,4 +623,84 @@ describe('when using the Tenderly adapter', () => {
       await expect(adapter.simulate(params)).rejects.toThrow(TenderlyUnavailableError)
     })
   })
+  describe('and the response carries more logs than a preview can report', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: true,
+            transaction_info: {
+              asset_changes: [],
+              logs: Array.from({ length: 513 }, (_, index) => ({
+                name: 'Transfer',
+                raw: { address: `0x${index.toString(16).padStart(40, '0')}`, topics: ['0x01'], data: '0x' }
+              }))
+            }
+          }
+        })
+      })
+    })
+
+    it('should refuse the response rather than read a prefix of the effects', async () => {
+      await expect(adapter.simulate(params)).rejects.toThrow(TenderlyUnavailableError)
+      await expect(adapter.simulate(params)).rejects.toThrow('more than a preview can report')
+    })
+  })
+
+  describe.each([['asset_changes'], ['exposure_changes'], ['balance_changes']])(
+    'and the response carries more %s entries than a preview can report',
+    collection => {
+      beforeEach(() => {
+        fetchMock.mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            transaction: {
+              status: true,
+              transaction_info: {
+                asset_changes: [],
+                logs: [],
+                [collection]: Array.from({ length: 513 }, () => ({}))
+              }
+            }
+          })
+        })
+      })
+
+      it('should refuse the response, since no collection a preview is built from may be read short', async () => {
+        await expect(adapter.simulate(params)).rejects.toThrow(TenderlyUnavailableError)
+        await expect(adapter.simulate(params)).rejects.toThrow('more than a preview can report')
+      })
+    }
+  )
+
+  describe('and the response carries exactly as many entries as a preview can report', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: true,
+            transaction_info: {
+              asset_changes: [],
+              logs: Array.from({ length: 512 }, (_, index) => ({
+                name: 'Transfer',
+                raw: { address: `0x${index.toString(16).padStart(40, '0')}`, topics: ['0x01'], data: '0x' }
+              }))
+            }
+          }
+        })
+      })
+    })
+
+    it('should accept it and report every event, since nothing is truncated', async () => {
+      const result = await adapter.simulate(params)
+
+      expect(result.events).toHaveLength(512)
+      expect(result.rawLogs).toHaveLength(512)
+    })
+  })
 })

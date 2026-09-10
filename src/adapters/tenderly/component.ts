@@ -30,8 +30,24 @@ const isRawLog = (value: unknown): value is TenderlyRawLog =>
 
 const DEFAULT_API_URL = 'https://api.tenderly.co'
 const DEFAULT_TIMEOUT_MS = 6000
-// Upper bound on decoded event logs returned, to keep the response payload small.
-const MAX_EVENTS = 50
+/**
+ * Upper bound on the entries of any collection a preview is built from. A response past it is refused,
+ * never read short: these collections are the whole record of what the call does — the logs are the only
+ * source of approvals and ERC-1155 movements, and every one of them is reconciled against Tenderly's own
+ * rows — so a prefix would preview fewer effects than the call has, which is the one thing this service
+ * must never do. The caller sees no preview and an acknowledgment saying so, which is honest; a truncated
+ * preview that looked complete would not be.
+ *
+ * The bound also caps the work one request can ask for. Normalizing is linear in the entry count and runs
+ * on the event loop, so an unbounded response lets one crafted call (a contract looping on `emit`) stall
+ * every other request the process is serving.
+ *
+ * 512 against what real calls emit: the recorded fixtures are 0, 1 and 7 logs, the last being a wearable
+ * purchase through the off-chain marketplace with three asset changes. The heaviest legitimate shape is a
+ * batch transfer, at one or two logs per token. So this is ~70x the busiest flow measured and covers a
+ * 256-token batch; a batch larger than that loses its preview and is acknowledged instead.
+ */
+const MAX_COLLECTION_ENTRIES = 512
 
 /**
  * Creates the Tenderly adapter — a thin, typed wrapper around Tenderly's
@@ -165,7 +181,15 @@ export async function createTenderlyAdapter({
     // with unreadable trace metadata is still the "likely to fail" preview, never an outage.
     if (reverted) {
       logger.log(`Tenderly simulation ok (to=${to}, networkId=${networkId}, status=false)`)
-      return { status: false, errorMessage, assetChanges: [], exposureChanges: [], rawLogs: [], balanceChanges: [], events: [] }
+      return {
+        status: false,
+        errorMessage,
+        assetChanges: [],
+        exposureChanges: [],
+        rawLogs: [],
+        balanceChanges: [],
+        events: []
+      }
     }
 
     // The effects live in `transaction_info`. A response without it, without the collections the preview is
@@ -200,6 +224,13 @@ export async function createTenderlyAdapter({
       if (!value.every(isRecord)) {
         throw new TenderlyUnavailableError(`Tenderly returned a malformed ${collection} entry`)
       }
+      // Checked before the entries are walked, so a response built to be expensive to normalize costs
+      // nothing past the length read (see MAX_COLLECTION_ENTRIES).
+      if (value.length > MAX_COLLECTION_ENTRIES) {
+        throw new TenderlyUnavailableError(
+          `Tenderly returned more than ${MAX_COLLECTION_ENTRIES} ${collection} entries, more than a preview can report`
+        )
+      }
       // An asset change's raw amount and token id are what the preview compares and gates on; one that arrived
       // as a number beyond 2^53 has already lost digits and would preview a different quantity.
       if (collection === 'asset_changes' && !value.every(entry => isExactQuantity(entry.raw_amount) && isExactQuantity(entry.token_id))) {
@@ -232,7 +263,6 @@ export async function createTenderlyAdapter({
         address: String((isRecord(log.raw) ? log.raw.address : '') ?? '').toLowerCase()
       }))
       .filter(event => event.address !== '')
-      .slice(0, MAX_EVENTS)
 
     logger.log(`Tenderly simulation ok (to=${to}, networkId=${networkId}, status=true)`)
 
