@@ -19,3 +19,15 @@ export class InvalidSimulationParamsError extends Error {
     this.name = 'InvalidSimulationParamsError'
   }
 }
+
+/**
+ * A log the simulator returned carries the signature of an effect this service reports (an approval, an
+ * ERC721 transfer, an ERC1155 movement) but could not be decoded as one, so the effects cannot be reported
+ * completely. Maps to HTTP 502, like an unusable upstream answer.
+ */
+export class UnreadableSimulationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'UnreadableSimulationError'
+  }
+}

@@ -1,3 +1,4 @@
+import { MaxUint256, id, zeroPadValue } from 'ethers'
 import { ITenderlyAdapter, TenderlyBadRequestError, TenderlySimulationResult, TenderlyUnavailableError } from '../../src/adapters/tenderly'
 import { test } from '../components'
 
@@ -34,6 +35,35 @@ test('when simulating a transaction via the endpoint', args => {
     const port = await args.components.config.requireString('HTTP_SERVER_PORT')
     baseUrl = `http://localhost:${port}`
     tenderly = args.components.tenderly as jest.Mocked<Pick<ITenderlyAdapter, 'simulate'>>
+  })
+
+  describe('and the request carries the largest calldata the auth dapp forwards (96 KiB plus the meta-transaction sender)', () => {
+    let body: Record<string, unknown>
+
+    beforeEach(() => {
+      body = { chainId: 137, from: TOKEN, to: TOKEN, data: `0xa9059cbb${'00'.repeat(96 * 1024 - 4)}${FROM.slice(2)}`, value: '0' }
+      tenderly.simulate.mockResolvedValue(successResult())
+    })
+
+    it('should accept the body instead of refusing it as too large', async () => {
+      const response = await postSimulation(baseUrl, body, '203.0.113.9')
+
+      expect(response.status).toBe(200)
+    })
+  })
+
+  describe('and a body of the same size is posted to another route', () => {
+    let body: string
+
+    beforeEach(() => {
+      body = JSON.stringify({ method: 'personal_sign', params: ['a'.repeat(20 * 1024)] })
+    })
+
+    it('should refuse it as too large, since only the simulations route carries the larger cap', async () => {
+      const response = await fetch(`${baseUrl}/requests`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+
+      expect(response.status).toBe(413)
+    })
   })
 
   describe('and the request is valid and Tenderly returns a successful simulation', () => {
@@ -105,10 +135,11 @@ test('when simulating a transaction via the endpoint', args => {
       body = { chainId: 137, from: FROM, to: 'not-an-address', value: '0' }
     })
 
-    it('should respond with 400', async () => {
+    it('should respond with 400 saying the request itself was refused', async () => {
       const response = await postSimulation(baseUrl, body, '203.0.113.2')
 
       expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ code: 'invalid_request' })
     })
   })
 
@@ -140,6 +171,22 @@ test('when simulating a transaction via the endpoint', args => {
     })
   })
 
+  describe('and the value is above what an EVM transaction can carry', () => {
+    let body: Record<string, unknown>
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO, value: (MaxUint256 + 1n).toString() }
+    })
+
+    it('should respond with 400 saying the request itself was refused, without reaching the provider', async () => {
+      const response = await postSimulation(baseUrl, body, '203.0.113.11')
+
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ code: 'invalid_request' })
+      expect(tenderly.simulate).not.toHaveBeenCalled()
+    })
+  })
+
   describe('and the chain id is not supported', () => {
     let body: Record<string, unknown>
 
@@ -147,10 +194,36 @@ test('when simulating a transaction via the endpoint', args => {
       body = { chainId: 999999, from: FROM, to: TO, value: '0' }
     })
 
-    it('should respond with 400', async () => {
+    it('should respond with 400 saying the request itself was refused', async () => {
       const response = await postSimulation(baseUrl, body, '203.0.113.5')
 
       expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ code: 'invalid_request' })
+    })
+  })
+
+  describe('and Tenderly returns an Approval log that cannot be decoded', () => {
+    let body: Record<string, unknown>
+
+    beforeEach(() => {
+      body = { chainId: 137, from: FROM, to: TO, value: '0' }
+      tenderly.simulate.mockResolvedValue(
+        successResult({
+          rawLogs: [
+            {
+              address: TOKEN,
+              topics: [id('Approval(address,address,uint256)'), zeroPadValue(FROM, 32), zeroPadValue(TO, 32)],
+              data: '0x12'
+            }
+          ]
+        })
+      )
+    })
+
+    it('should respond with 502, since the effects cannot be reported completely', async () => {
+      const response = await postSimulation(baseUrl, body, '203.0.113.10')
+
+      expect(response.status).toBe(502)
     })
   })
 
@@ -183,11 +256,12 @@ test('when simulating a transaction via the endpoint', args => {
       expect(response.status).toBe(400)
     })
 
-    it('should not echo the upstream Tenderly detail in the response body', async () => {
+    it('should say the provider refused it without echoing the upstream detail, so the dapp treats it as an outage', async () => {
       const response = await postSimulation(baseUrl, body, '203.0.113.8')
       const responseBody = await response.json()
 
       expect(JSON.stringify(responseBody)).not.toContain('some upstream detail')
+      expect(responseBody).toMatchObject({ code: 'upstream_rejected' })
     })
   })
 
@@ -252,6 +326,52 @@ test('when the global simulation rate limit is exceeded across multiple IPs', ar
       const blocked = await postSimulation(baseUrl, body, '198.51.100.250')
 
       expect(blocked.status).toBe(429)
+    })
+  })
+})
+
+test('when invalid simulation requests arrive in bulk', args => {
+  let baseUrl: string
+  let tenderly: jest.Mocked<Pick<ITenderlyAdapter, 'simulate'>>
+
+  beforeEach(async () => {
+    const port = await args.components.config.requireString('HTTP_SERVER_PORT')
+    baseUrl = `http://localhost:${port}`
+    tenderly = args.components.tenderly as jest.Mocked<Pick<ITenderlyAdapter, 'simulate'>>
+  })
+
+  describe('and more requests than the global cap were refused before reaching the provider', () => {
+    let validBody: Record<string, unknown>
+
+    beforeEach(async () => {
+      validBody = { chainId: 137, from: FROM, to: TO, value: '0' }
+      tenderly.simulate.mockResolvedValue(successResult())
+
+      const globalMax = await args.components.config.requireNumber('SIMULATION_RATE_LIMIT_GLOBAL_MAX')
+      const perIpMax = await args.components.config.requireNumber('SIMULATION_RATE_LIMIT_MAX')
+      const invalidBodies = [
+        { chainId: 999999, from: FROM, to: TO, value: '0' },
+        { chainId: 137, from: 'not-an-address', to: TO, value: '0' }
+      ]
+
+      // Spread across enough IPs that none reaches the per-IP cap, so only the global cap could stop them.
+      let sent = 0
+      let ipOctet = 0
+      while (sent <= globalMax) {
+        const inThisIp = Math.min(perIpMax, globalMax + 1 - sent)
+        for (let i = 0; i < inThisIp; i++) {
+          await postSimulation(baseUrl, invalidBodies[sent % invalidBodies.length], `192.0.2.${ipOctet}`)
+          sent++
+        }
+        ipOctet++
+      }
+    })
+
+    it('should still simulate a valid request, since refused requests never spend the provider budget', async () => {
+      const response = await postSimulation(baseUrl, validBody, '192.0.2.250')
+
+      expect(response.status).toBe(200)
+      expect(tenderly.simulate).toHaveBeenCalledTimes(1)
     })
   })
 })

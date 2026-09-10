@@ -1,27 +1,37 @@
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { AppComponents } from '../../types'
 import { TenderlyAuthError, TenderlyBadRequestError, TenderlyRateLimitError, TenderlyUnavailableError } from './errors'
-import { ITenderlyAdapter, TenderlyRawLog, TenderlySimulateParams, TenderlySimulationResult } from './types'
+import { ITenderlyAdapter, TenderlyAssetChange, TenderlyRawLog, TenderlySimulateParams, TenderlySimulationResult } from './types'
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/** The collections a successful preview is built from; a success that lacks one is a partial answer. */
+const EFFECT_COLLECTIONS: ReadonlySet<string> = new Set(['logs', 'asset_changes'])
+
+/**
+ * A quantity the preview depends on exactly (a raw amount, a token id): an unsigned EVM integer. Absent, a
+ * canonical decimal or `0x` hexadecimal string, or a non-negative number a double holds exactly. A larger
+ * number has already been rounded by the JSON parse, and a sign, a fraction, an exponent, spaces or an empty
+ * string are not an unsigned integer, so any of those can only be refused.
+ */
+const UNSIGNED_INTEGER_STRING = /^(?:0|[1-9][0-9]*|0x[0-9a-fA-F]+)$/
+const isExactQuantity = (value: unknown): boolean =>
+  value == null ||
+  (typeof value === 'string' && UNSIGNED_INTEGER_STRING.test(value)) ||
+  (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)
+
+/** A raw EVM log as the decoders read it: string address and data, string topics. */
+const isRawLog = (value: unknown): value is TenderlyRawLog =>
+  isRecord(value) &&
+  typeof value.address === 'string' &&
+  typeof value.data === 'string' &&
+  Array.isArray(value.topics) &&
+  value.topics.every(topic => typeof topic === 'string')
 
 const DEFAULT_API_URL = 'https://api.tenderly.co'
 const DEFAULT_TIMEOUT_MS = 6000
 // Upper bound on decoded event logs returned, to keep the response payload small.
 const MAX_EVENTS = 50
-
-/** Shape of the Tenderly `/simulate` JSON response we consume (all fields best-effort). */
-type TenderlyRawResponse = {
-  error?: { slug?: string; message?: string } | null
-  transaction?: {
-    status?: boolean
-    error_info?: { error_message?: string } | null
-    transaction_info?: {
-      asset_changes?: TenderlySimulationResult['assetChanges'] | null
-      exposure_changes?: unknown[] | null
-      balance_changes?: Array<{ address?: string; dollar_value?: string | number | null }> | null
-      logs?: Array<{ name?: string | null; raw?: TenderlyRawLog }> | null
-    } | null
-  } | null
-}
 
 /**
  * Creates the Tenderly adapter — a thin, typed wrapper around Tenderly's
@@ -118,43 +128,119 @@ export async function createTenderlyAdapter({
       throw new TenderlyUnavailableError(`Tenderly returned an unexpected status (${response.status})`)
     }
 
-    let json: TenderlyRawResponse
+    let parsed: unknown
     try {
-      json = (await response.json()) as TenderlyRawResponse
+      parsed = await response.json()
     } catch {
+      throw new TenderlyUnavailableError('Tenderly returned a malformed response body')
+    }
+    if (!isRecord(parsed)) {
       throw new TenderlyUnavailableError('Tenderly returned a malformed response body')
     }
 
     // Tenderly returns 200 + a top-level `error` object for some invalid sims.
-    if (json && typeof json === 'object' && json.error) {
-      const message = json.error.message || json.error.slug || 'Tenderly rejected the simulation request'
+    if (isRecord(parsed.error)) {
+      const message = String(parsed.error.message || parsed.error.slug || 'Tenderly rejected the simulation request')
       throw new TenderlyBadRequestError(message)
     }
 
-    const transaction = json.transaction
-    const transactionInfo = transaction?.transaction_info
+    const transaction = parsed.transaction
+    if (!isRecord(transaction)) {
+      throw new TenderlyUnavailableError('Tenderly returned no transaction')
+    }
+    const errorInfo = isRecord(transaction.error_info) ? transaction.error_info : null
+    const errorMessage = typeof errorInfo?.error_message === 'string' ? errorInfo.error_message : null
 
-    const rawLogs = (transactionInfo?.logs ?? []).map(entry => entry.raw).filter((raw): raw is TenderlyRawLog => Boolean(raw))
+    // The status is what tells a successful preview from a reverting one, and it must be said outright: a
+    // response without a boolean status has no preview to show, whatever else it carries. Defaulting to
+    // success would render an empty "no changes" summary for a call whose outcome is unknown, and reading a
+    // revert reason as a status would let any error string stand in for one, so both are treated like every
+    // other unusable upstream answer.
+    if (typeof transaction.status !== 'boolean') {
+      throw new TenderlyUnavailableError('Tenderly returned no transaction status')
+    }
+    const reverted = transaction.status === false
 
-    const balanceChanges = (transactionInfo?.balance_changes ?? [])
+    // A revert reports no effects whatever the trace carries, so nothing past the reason is read: a revert
+    // with unreadable trace metadata is still the "likely to fail" preview, never an outage.
+    if (reverted) {
+      logger.log(`Tenderly simulation ok (to=${to}, networkId=${networkId}, status=false)`)
+      return { status: false, errorMessage, assetChanges: [], exposureChanges: [], rawLogs: [], balanceChanges: [], events: [] }
+    }
+
+    // The effects live in `transaction_info`. A response without it, without the collections the preview is
+    // built from (`logs`, `asset_changes`), or whose collections or entries are not what the schema says,
+    // would read as a success with no effects or crash the normalization, so it is refused: an absent field
+    // is a partial answer, while a collection Tenderly reports as null is its empty collection and is accepted
+    // as such. The two enrichment collections (`exposure_changes`, `balance_changes`) may be absent.
+    const transactionInfo = transaction.transaction_info
+    if (!isRecord(transactionInfo)) {
+      throw new TenderlyUnavailableError('Tenderly returned no transaction info')
+    }
+    const collections: Record<'logs' | 'asset_changes' | 'exposure_changes' | 'balance_changes', Record<string, unknown>[]> = {
+      logs: [],
+      asset_changes: [],
+      exposure_changes: [],
+      balance_changes: []
+    }
+    for (const collection of Object.keys(collections) as Array<keyof typeof collections>) {
+      const value = transactionInfo[collection]
+      if (value === undefined) {
+        if (EFFECT_COLLECTIONS.has(collection)) {
+          throw new TenderlyUnavailableError(`Tenderly returned no ${collection} collection`)
+        }
+        continue
+      }
+      if (value === null) continue
+      if (!Array.isArray(value)) {
+        throw new TenderlyUnavailableError(`Tenderly returned a malformed ${collection} collection`)
+      }
+      // The entries are read as objects below; a null or primitive entry would fail there as a plain crash,
+      // so it is refused here as the malformed answer it is.
+      if (!value.every(isRecord)) {
+        throw new TenderlyUnavailableError(`Tenderly returned a malformed ${collection} entry`)
+      }
+      // An asset change's raw amount and token id are what the preview compares and gates on; one that arrived
+      // as a number beyond 2^53 has already lost digits and would preview a different quantity.
+      if (collection === 'asset_changes' && !value.every(entry => isExactQuantity(entry.raw_amount) && isExactQuantity(entry.token_id))) {
+        throw new TenderlyUnavailableError('Tenderly returned an asset change whose quantity cannot be read exactly')
+      }
+      collections[collection] = value
+    }
+
+    // A log's `raw` is what the approval and transfer decoders read, and the only source of approvals and
+    // ERC1155 movements. An entry without it, or with one of another shape, cannot be told from an effect
+    // that went unreported, so the response is refused rather than read short.
+    const rawLogs: TenderlyRawLog[] = []
+    for (const entry of collections.logs) {
+      if (!isRawLog(entry.raw)) {
+        throw new TenderlyUnavailableError('Tenderly returned a log without a readable raw form')
+      }
+      rawLogs.push(entry.raw)
+    }
+
+    const balanceChanges = collections.balance_changes
       .map(bc => ({
         address: String(bc.address ?? '').toLowerCase(),
         dollarValue: bc.dollar_value != null ? String(bc.dollar_value) : null
       }))
       .filter(bc => bc.address !== '')
 
-    const events = (transactionInfo?.logs ?? [])
-      .map(log => ({ name: log.name ?? null, address: String(log.raw?.address ?? '').toLowerCase() }))
+    const events = collections.logs
+      .map(log => ({
+        name: typeof log.name === 'string' ? log.name : null,
+        address: String((isRecord(log.raw) ? log.raw.address : '') ?? '').toLowerCase()
+      }))
       .filter(event => event.address !== '')
       .slice(0, MAX_EVENTS)
 
-    logger.log(`Tenderly simulation ok (to=${to}, networkId=${networkId}, status=${transaction?.status ?? 'unknown'})`)
+    logger.log(`Tenderly simulation ok (to=${to}, networkId=${networkId}, status=true)`)
 
     return {
-      status: transaction?.status ?? true,
-      errorMessage: transaction?.error_info?.error_message ?? null,
-      assetChanges: transactionInfo?.asset_changes ?? [],
-      exposureChanges: transactionInfo?.exposure_changes ?? [],
+      status: true,
+      errorMessage,
+      assetChanges: collections.asset_changes as unknown as TenderlyAssetChange[],
+      exposureChanges: collections.exposure_changes,
       rawLogs,
       balanceChanges,
       events

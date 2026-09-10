@@ -1,6 +1,12 @@
+import { InvalidRequestError } from '@dcl/http-commons'
 import { TenderlyBadRequestError, TenderlyRateLimitError, TenderlyUnavailableError } from '../../adapters/tenderly'
 import { isErrorWithMessage } from '../../logic/error-handling'
-import { InvalidSimulationParamsError, UnsupportedChainError } from '../../logic/simulation'
+import {
+  InvalidSimulationParamsError,
+  SimulationErrorResponse,
+  UnreadableSimulationError,
+  UnsupportedChainError
+} from '../../logic/simulation'
 import { InvalidResponseMessage } from '../../ports/server/types'
 import { validateSimulationRequest } from '../../ports/server/validations'
 import { HandlerContextWithPath } from '../../types'
@@ -45,8 +51,37 @@ export function createSimulationHandler(allowedOrigins: Set<string>, rateLimit: 
       }
     }
 
-    // 2b. Global cap over the same window, independent of the (spoofable) client
-    //     IP, so a distributed flood cannot run up the paid Tenderly upstream.
+    // 3. Parse + validate. Both throw InvalidRequestError; answered here rather than by the generic
+    //    errorHandler so the 400 carries the `invalid_request` code the auth dapp keys its refusal on.
+    let body: ReturnType<typeof validateSimulationRequest>
+    try {
+      body = validateSimulationRequest(await parseJsonBody(request))
+    } catch (e) {
+      if (e instanceof InvalidRequestError) {
+        // The Ajv detail is for the log, not the client.
+        logger.log(`Simulation request rejected: ${e.message}`)
+        return {
+          status: 400,
+          body: { error: 'Invalid simulation request body', code: 'invalid_request' } satisfies SimulationErrorResponse
+        }
+      }
+      throw e
+    }
+
+    // 3b. What the simulation itself would refuse (an unsupported chain, a value that is not an integer),
+    //     answered now so a request that never reaches the provider spends nothing on it.
+    try {
+      simulation.validateRequest(body)
+    } catch (e) {
+      if (e instanceof UnsupportedChainError || e instanceof InvalidSimulationParamsError) {
+        logger.log(`Simulation rejected: ${e.message}`)
+        return { status: 400, body: { error: e.message, code: 'invalid_request' } satisfies SimulationErrorResponse }
+      }
+      throw e
+    }
+
+    // 3c. Global cap over the same window, independent of the (spoofable) client IP, so a distributed flood
+    //     cannot run up the paid Tenderly upstream. Consumed only by requests that are about to reach it.
     const global = await rateLimiter.consume('simulations-global', 'all', { max: globalMax, windowSeconds: rateLimit.windowSeconds })
     if (!global.allowed) {
       return {
@@ -55,10 +90,6 @@ export function createSimulationHandler(allowedOrigins: Set<string>, rateLimit: 
         body: { error: 'Too many requests' } satisfies InvalidResponseMessage
       }
     }
-
-    // 3. Parse + validate. Both throw InvalidRequestError → errorHandler maps to 400.
-    const rawBody = await parseJsonBody(request)
-    const body = validateSimulationRequest(rawBody)
 
     // 4. Simulate + map typed errors to HTTP statuses.
     try {
@@ -69,19 +100,24 @@ export function createSimulationHandler(allowedOrigins: Set<string>, rateLimit: 
       // Our own client-input errors carry safe, controlled messages we can echo.
       if (e instanceof UnsupportedChainError || e instanceof InvalidSimulationParamsError) {
         logger.log(`Simulation rejected: ${message}`)
-        return { status: 400, body: { error: message } satisfies InvalidResponseMessage }
+        return { status: 400, body: { error: message, code: 'invalid_request' } satisfies SimulationErrorResponse }
       }
 
       // Tenderly's 400 detail is uncontrolled upstream text — log it, but return a
       // generic message so upstream internals are never echoed to the client.
       if (e instanceof TenderlyBadRequestError) {
         logger.log(`Simulation rejected by Tenderly: ${message}`)
-        return { status: 400, body: { error: 'Invalid simulation request' } satisfies InvalidResponseMessage }
+        return { status: 400, body: { error: 'Invalid simulation request', code: 'upstream_rejected' } satisfies SimulationErrorResponse }
       }
 
       if (e instanceof TenderlyRateLimitError) {
         logger.log(`Simulation rate limited by Tenderly: ${message}`)
         return { status: 429, body: { error: 'Too many requests' } satisfies InvalidResponseMessage }
+      }
+
+      if (e instanceof UnreadableSimulationError) {
+        logger.warn(`Simulation effects unreadable: ${message}`)
+        return { status: 502, body: { error: 'Simulation provider returned an unreadable answer' } satisfies InvalidResponseMessage }
       }
 
       if (e instanceof TenderlyUnavailableError) {

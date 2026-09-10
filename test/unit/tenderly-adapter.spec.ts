@@ -61,7 +61,7 @@ describe('when using the Tenderly adapter', () => {
               asset_changes: [{ type: 'Transfer', token_info: { standard: 'ERC20' } }],
               exposure_changes: [{ contract_address: '0xabc' }],
               balance_changes: [{ address: '0xAbCdEf0000000000000000000000000000000001', dollar_value: '12.34' }],
-              logs: [{ name: 'Transfer', raw: { address: '0xDEAD', topics: ['0x01'], data: '0x' } }, { other: true }]
+              logs: [{ name: 'Transfer', raw: { address: '0xDEAD', topics: ['0x01'], data: '0x' } }]
             }
           }
         })
@@ -131,7 +131,8 @@ describe('when using the Tenderly adapter', () => {
             error_info: null,
             transaction_info: {
               balance_changes: [{ address: '0xFEED' }],
-              logs: []
+              logs: [],
+              asset_changes: null
             }
           }
         })
@@ -155,7 +156,8 @@ describe('when using the Tenderly adapter', () => {
             status: true,
             error_info: null,
             transaction_info: {
-              logs: [{ raw: { address: '0xBEEF', topics: [], data: '0x' } }]
+              logs: [{ raw: { address: '0xBEEF', topics: [], data: '0x' } }],
+              asset_changes: null
             }
           }
         })
@@ -187,6 +189,363 @@ describe('when using the Tenderly adapter', () => {
     })
   })
 
+  describe('and Tenderly responds with 200 but no transaction status', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            transaction_info: { asset_changes: [], exposure_changes: [], balance_changes: [], logs: [] }
+          }
+        })
+      })
+    })
+
+    it('should throw a TenderlyUnavailableError instead of reporting a successful simulation with no changes', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe('and Tenderly responds with 200 and a status but no transaction info', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ transaction: { status: true } })
+      })
+    })
+
+    it('should throw a TenderlyUnavailableError instead of reporting a successful simulation with no effects', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe.each([
+    ['logs', null],
+    ['asset_changes', 'not-an-object'],
+    ['exposure_changes', 1],
+    ['balance_changes', null]
+  ])('and Tenderly responds with 200 but the %s collection carries an entry that is not an object', (collection, entry) => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: true,
+            transaction_info: { asset_changes: [], exposure_changes: [], balance_changes: [], logs: [], [collection]: [entry] }
+          }
+        })
+      })
+    })
+
+    it('should throw a TenderlyUnavailableError rather than crash while reading it', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe.each(['logs', 'asset_changes', 'exposure_changes', 'balance_changes'])(
+    'and Tenderly responds with 200 but the %s collection is not an array',
+    collection => {
+      beforeEach(() => {
+        fetchMock.mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            transaction: {
+              status: true,
+              transaction_info: { asset_changes: [], exposure_changes: [], balance_changes: [], logs: [], [collection]: 'not-a-list' }
+            }
+          })
+        })
+      })
+
+      it('should throw a TenderlyUnavailableError rather than read it as empty', async () => {
+        await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+      })
+    }
+  )
+
+  describe('and Tenderly reports its collections as null, its shape for none', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: true,
+            transaction_info: { asset_changes: null, exposure_changes: null, balance_changes: null, logs: null }
+          }
+        })
+      })
+    })
+
+    it('should report a successful simulation with no effects', async () => {
+      await expect(adapter.simulate(params)).resolves.toMatchObject({
+        status: true,
+        assetChanges: [],
+        exposureChanges: [],
+        rawLogs: [],
+        balanceChanges: [],
+        events: []
+      })
+    })
+  })
+
+  describe.each(['logs', 'asset_changes'])('and a successful response omits the %s collection', collection => {
+    beforeEach(() => {
+      const info: Record<string, unknown> = { asset_changes: null, exposure_changes: null, balance_changes: null, logs: null }
+      delete info[collection]
+      fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ transaction: { status: true, transaction_info: info } }) })
+    })
+
+    it('should throw a TenderlyUnavailableError, since an absent effect collection is a partial answer', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe('and a successful response carries an empty transaction info object', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ transaction: { status: true, transaction_info: {} } }) })
+    })
+
+    it('should throw a TenderlyUnavailableError instead of reporting a success with no effects', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe('and a successful response omits only the enrichment collections', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ transaction: { status: true, transaction_info: { logs: null, asset_changes: [] } } })
+      })
+    })
+
+    it('should report a successful simulation with no effects', async () => {
+      await expect(adapter.simulate(params)).resolves.toMatchObject({
+        status: true,
+        assetChanges: [],
+        rawLogs: [],
+        balanceChanges: [],
+        exposureChanges: []
+      })
+    })
+  })
+
+  describe('and a log entry carries no raw form', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: true,
+            transaction_info: { asset_changes: [], exposure_changes: [], balance_changes: [], logs: [{ name: 'Approval' }] }
+          }
+        })
+      })
+    })
+
+    it('should throw a TenderlyUnavailableError, since an approval it may carry cannot be read', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe.each([
+    ['a numeric topic', { address: '0xdead', topics: [123], data: '0x' }],
+    ['a missing address', { topics: ['0x01'], data: '0x' }],
+    ['non-string data', { address: '0xdead', topics: ['0x01'], data: 7 }]
+  ])('and a raw log carries %s', (_label, raw) => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: true,
+            transaction_info: { asset_changes: [], exposure_changes: [], balance_changes: [], logs: [{ name: 'Transfer', raw }] }
+          }
+        })
+      })
+    })
+
+    it('should throw a TenderlyUnavailableError rather than hand the decoders a log they cannot read', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe.each([
+    ['a raw amount', { raw_amount: Number.MAX_SAFE_INTEGER + 2 }],
+    ['a token id', { token_id: Number.MAX_SAFE_INTEGER + 2 }]
+  ])('and an asset change carries %s as a number a double cannot hold', (_label, fields) => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: true,
+            transaction_info: { asset_changes: [{ type: 'Transfer', ...fields }], exposure_changes: [], balance_changes: [], logs: [] }
+          }
+        })
+      })
+    })
+
+    it('should throw a TenderlyUnavailableError, since the parse has already rounded it', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe.each([
+    ['a negative string', '-1'],
+    ['an exponent string', '1e18'],
+    ['a fractional string', '1.5'],
+    ['an empty string', ''],
+    ['a padded string', ' 12'],
+    ['a string with a leading zero', '012'],
+    ['a negative number', -1],
+    ['a fractional number', 1.5]
+  ])('and an asset change carries a raw amount that is %s', (_label, rawAmount) => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: true,
+            transaction_info: {
+              asset_changes: [{ type: 'Transfer', raw_amount: rawAmount }],
+              exposure_changes: [],
+              balance_changes: [],
+              logs: []
+            }
+          }
+        })
+      })
+    })
+
+    it('should throw a TenderlyUnavailableError, since it is not an unsigned integer', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe('and an asset change carries its quantities as strings and safe numbers', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: true,
+            transaction_info: {
+              asset_changes: [
+                { type: 'Transfer', raw_amount: '9007199254740993', token_id: 7 },
+                { type: 'Transfer', raw_amount: '0', token_id: '0x1F' }
+              ],
+              exposure_changes: [],
+              balance_changes: [],
+              logs: []
+            }
+          }
+        })
+      })
+    })
+
+    it('should accept them as sent, hexadecimal included', async () => {
+      await expect(adapter.simulate(params)).resolves.toMatchObject({
+        assetChanges: [
+          { raw_amount: '9007199254740993', token_id: 7 },
+          { raw_amount: '0', token_id: '0x1F' }
+        ]
+      })
+    })
+  })
+
+  describe('and Tenderly responds with 200 and a body that is JSON null', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => null })
+    })
+
+    it('should throw a TenderlyUnavailableError', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe('and Tenderly reports a revert with a reason but omits the status field', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ transaction: { error_info: { error_message: 'execution reverted' }, transaction_info: { logs: null } } })
+      })
+    })
+
+    it('should throw a TenderlyUnavailableError, since a reason is not a status', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe('and Tenderly reports a revert whose trace metadata is unreadable', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          transaction: {
+            status: false,
+            error_info: { error_message: 'execution reverted' },
+            transaction_info: { logs: 'junk', asset_changes: [null] }
+          }
+        })
+      })
+    })
+
+    it('should still read it as a reverted simulation carrying the reason, since a revert reports no effects', async () => {
+      await expect(adapter.simulate(params)).resolves.toMatchObject({
+        status: false,
+        errorMessage: 'execution reverted',
+        assetChanges: [],
+        rawLogs: []
+      })
+    })
+  })
+
+  describe('and Tenderly reports a revert without any transaction info', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ transaction: { status: false, error_info: { error_message: 'execution reverted' } } })
+      })
+    })
+
+    it('should read it as a reverted simulation with no effects', async () => {
+      await expect(adapter.simulate(params)).resolves.toMatchObject({
+        status: false,
+        errorMessage: 'execution reverted',
+        assetChanges: [],
+        rawLogs: []
+      })
+    })
+  })
+
+  describe('and Tenderly responds with 200 but no transaction at all', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ simulation: { id: 'abc' } })
+      })
+    })
+
+    it('should throw a TenderlyUnavailableError', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
   describe('and Tenderly responds with 401', () => {
     let bodyCancel: jest.Mock
 
@@ -202,6 +561,36 @@ describe('when using the Tenderly adapter', () => {
     it('should cancel the response body before throwing', async () => {
       await expect(adapter.simulate(params)).rejects.toThrow(TenderlyAuthError)
       expect(bodyCancel).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('and Tenderly responds with 400', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({ ok: false, status: 400, body: { cancel: jest.fn().mockResolvedValue(undefined) } })
+    })
+
+    it('should throw a TenderlyBadRequestError', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyBadRequestError)
+    })
+  })
+
+  describe('and Tenderly responds with a status this adapter does not expect', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({ ok: false, status: 418, body: { cancel: jest.fn().mockResolvedValue(undefined) } })
+    })
+
+    it('should throw a TenderlyUnavailableError', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
+    })
+  })
+
+  describe('and Tenderly responds with 200 and a body that is not JSON', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => Promise.reject(new SyntaxError('Unexpected token')) })
+    })
+
+    it('should throw a TenderlyUnavailableError', async () => {
+      await expect(adapter.simulate(params)).rejects.toBeInstanceOf(TenderlyUnavailableError)
     })
   })
 

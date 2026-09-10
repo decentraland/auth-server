@@ -339,7 +339,7 @@ export function validateAccountDeletionMetadata(msg: unknown) {
 
 export function validateSimulationRequest(msg: unknown): SimulationRequestBody {
   if (!simulationRequestValidator(msg)) {
-    // errorHandler maps InvalidRequestError to a 400.
+    // The simulations handler answers this as a 400 with the `invalid_request` code and logs the detail.
     throw new InvalidRequestError(JSON.stringify(simulationRequestValidator.errors))
   }
 

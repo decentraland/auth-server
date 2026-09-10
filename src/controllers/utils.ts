@@ -11,9 +11,9 @@ import { InvalidRequestError } from '@dcl/http-commons'
 export const SOCKET_REMOTE_ADDRESS_HEADER = 'x-socket-remote-address'
 
 /**
- * Reads and JSON-parses the request body, throwing InvalidRequestError (mapped to a 400 by the
- * shared errorHandler) when the body is missing or not valid JSON — restoring the previous
- * body-parser behavior instead of letting the parse error surface as a 500.
+ * Reads and JSON-parses the request body, throwing InvalidRequestError (answered as a 400 by the route's
+ * handler or by the shared errorHandler) when the body is missing or not valid JSON, instead of letting the
+ * parse error surface as a 500.
  */
 export async function parseJsonBody(request: Request): Promise<unknown> {
   try {

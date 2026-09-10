@@ -3,6 +3,7 @@ import * as Sentry from '@sentry/node'
 import { IBaseComponent } from '@well-known-components/interfaces'
 import { Server, Socket } from 'socket.io'
 import { getUnderlyingServer } from '@dcl/http-server'
+import { MAX_BODY_SIZE_BYTES } from '../../ports/server/constants'
 import { InvalidResponseMessage } from '../../ports/server/types'
 import { AppComponents } from '../../types'
 import { isErrorWithMessage } from '../error-handling'
@@ -123,7 +124,8 @@ export async function createSocketServerComponent(
     // http-server keeps handling every other request.
     const httpServer = await getUnderlyingServer<HttpServer>(server)
 
-    io = new Server(httpServer, { cors })
+    // The same bound as the HTTP transport: a socket message is a request like any other.
+    io = new Server(httpServer, { cors, maxHttpBufferSize: MAX_BODY_SIZE_BYTES })
     io.on('connection', onConnection)
 
     logger.log('Socket server attached to the HTTP server')
