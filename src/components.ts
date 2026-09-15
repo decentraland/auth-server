@@ -10,17 +10,14 @@ import { createSlackComponent } from '@dcl/slack-component'
 import { createTracerComponent } from '@dcl/tracer-component'
 import { createFeatureFlagsAdapter } from './adapters/feature-flags'
 import { createMagicAdapter } from './adapters/magic'
-import { createTenderlyAdapter } from './adapters/tenderly'
 import { createAccountDeletionComponent } from './logic/account-deletion'
 import { parseCorsOrigins } from './logic/cors'
-import { createSimulationComponent } from './logic/simulation'
 import { createSocketServerComponent } from './logic/socket-server'
 import { metricDeclarations } from './metrics'
 import { createPgComponent } from './ports/db/component'
 import { createEmailComponent } from './ports/email/component'
 import { createNudgeJobComponent } from './ports/nudge-job/component'
 import { createOnboardingComponent } from './ports/onboarding/component'
-import { createRateLimiterComponent } from './ports/rate-limiter'
 import { MAX_BODY_SIZE_BYTES } from './ports/server/constants'
 import { createStorageComponent } from './ports/storage/component'
 import { AppComponents, GlobalContext } from './types'
@@ -61,12 +58,6 @@ export async function initComponents(): Promise<AppComponents> {
   const storage = createStorageComponent({ cache })
   const fetch = createFetchComponent()
   const magic = await createMagicAdapter({ config, logs, fetch })
-  const tenderly = await createTenderlyAdapter({ config, logs, fetch })
-  const rateLimiter = createRateLimiterComponent({ cache })
-  const supportedChainIds = (await config.requireString('SIMULATION_SUPPORTED_CHAIN_IDS'))
-    .split(',')
-    .map(chainId => parseInt(chainId.trim(), 10))
-  const simulation = await createSimulationComponent({ tenderly, logs }, { supportedChainIds })
   const features = await createFeaturesComponent(
     { config, logs, fetch },
     (await config.getString('SERVICE_BASE_URL')) || 'https://auth-api.decentraland.org'
@@ -96,10 +87,7 @@ export async function initComponents(): Promise<AppComponents> {
     features,
     featureFlags,
     magic,
-    tenderly,
     accountDeletion,
-    simulation,
-    rateLimiter,
     nudgeJob,
     db,
     email,
