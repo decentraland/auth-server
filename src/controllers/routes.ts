@@ -1,7 +1,6 @@
 import { rejectIfSigner, wellKnownComponents } from '@dcl/crypto-middleware'
 import { bearerTokenMiddleware, errorHandler } from '@dcl/http-commons'
-import { Router, createBodySizeLimitMiddleware } from '@dcl/http-server'
-import { DEFAULT_BODY_SIZE_BYTES } from '../ports/server/constants'
+import { Router } from '@dcl/http-server'
 import { GlobalContext } from '../types'
 import { createDeleteAccountHandler } from './handlers/accounts'
 import { getPendingNudgesForSequenceHandler, runEvaluatorHandler, sendTestEmailHandler } from './handlers/admin'
@@ -16,7 +15,6 @@ import {
   getRequestValidationStatusHandler,
   notifyRequestValidationHandler
 } from './handlers/requests'
-import { createSimulationHandler } from './handlers/simulations'
 
 /**
  * Metadata keys `DELETE /accounts` authorizes on, in their canonical spelling.
@@ -63,22 +61,6 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
       .filter(origin => origin.length > 0)
   )
 
-  // Exact-match allowlist of browser Origins permitted to call the simulation
-  // endpoint (defense-in-depth on top of CORS). Empty disables the check.
-  const simulationAllowedOrigins = new Set(
-    ((await config.getString('SIMULATION_ALLOWED_ORIGINS')) || '')
-      .split(';')
-      .map(origin => origin.trim().toLowerCase())
-      .filter(origin => origin.length > 0)
-  )
-  const simulationRateLimit = {
-    max: await config.requireNumber('SIMULATION_RATE_LIMIT_MAX'),
-    windowSeconds: await config.requireNumber('SIMULATION_RATE_LIMIT_WINDOW_SECONDS')
-  }
-  // Global (IP-independent) cap over the same window, protecting the paid Tenderly
-  // upstream from a distributed flood that stays under the per-IP budget.
-  const simulationRateLimitGlobalMax = (await config.getNumber('SIMULATION_RATE_LIMIT_GLOBAL_MAX')) ?? 600
-
   /**
    * Builds a signed-fetch middleware (ADR-44). Blocks scene-originated requests.
    *
@@ -109,11 +91,6 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
 
   router.use(errorHandler)
 
-  // Every route keeps the service's historical body cap. Only `/simulations` needs the larger transport
-  // cap the server is configured with (see MAX_BODY_SIZE_BYTES), since it carries calldata.
-  const defaultBodyLimit = createBodySizeLimitMiddleware(DEFAULT_BODY_SIZE_BYTES)
-  router.use((context, next) => (context.url.pathname === '/simulations' ? next() : defaultBodyLimit(context, next)))
-
   // Health probes
   router.get('/health/ready', readyHandler)
   router.get('/health/startup', startupHandler)
@@ -126,9 +103,6 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
   router.get('/v2/requests/:requestId/validation', getRequestValidationStatusHandler)
   router.get('/requests/:requestId', getOutcomeHandler)
   router.post('/v2/requests/:requestId/outcome', createOutcomeHandler)
-
-  // Transaction simulation endpoint (Tenderly-backed). Public, rate-limited per IP.
-  router.post('/simulations', createSimulationHandler(simulationAllowedOrigins, simulationRateLimit, simulationRateLimitGlobalMax))
 
   // Identity endpoints
   router.post('/identities', signedFetchMiddleware, createIdentityHandler)
