@@ -268,6 +268,34 @@ test('when testing identity endpoints', args => {
       })
     })
 
+    describe('and two requests retrieve the identity concurrently', () => {
+      let statuses: number[]
+      let returnedIdentities: unknown[]
+
+      beforeEach(async () => {
+        const responses = await Promise.all([
+          fetch(`${baseUrl}/identities/${identityId}`, { method: 'GET' }),
+          fetch(`${baseUrl}/identities/${identityId}`, { method: 'GET' })
+        ])
+        statuses = responses.map(response => response.status).sort()
+        const bodies = await Promise.all(responses.map(response => response.json()))
+        returnedIdentities = bodies.filter(body => 'identity' in body)
+      })
+
+      afterEach(() => {
+        statuses = []
+        returnedIdentities = []
+      })
+
+      it('should return the private identity once', () => {
+        expect(returnedIdentities).toHaveLength(1)
+      })
+
+      it('should reject the other retrieval', () => {
+        expect(statuses).toEqual([200, 404])
+      })
+    })
+
     describe('and the IP address does not match', () => {
       describe('and the IP is from a completely different subnet', () => {
         it('should respond with 403 status and delete the identity', async () => {
@@ -406,14 +434,14 @@ test('when testing identity endpoints', args => {
     })
 
     describe('and the identity was evicted by Redis TTL', () => {
-      let getIdentitySpy: jest.SpyInstance
+      let takeIdentitySpy: jest.SpyInstance
       let response: Response
       let responseBody: { error: string; createdAt: string }
 
       beforeEach(async () => {
-        // Spy on getIdentity to return null, simulating Redis TTL eviction. The tombstone
+        // Spy on takeIdentity to return null, simulating Redis TTL eviction. The tombstone
         // (identity status) is still in Redis because it has a longer TTL.
-        getIdentitySpy = jest.spyOn(args.components.storage, 'getIdentity').mockResolvedValueOnce(null)
+        takeIdentitySpy = jest.spyOn(args.components.storage, 'takeIdentity').mockResolvedValueOnce(null)
 
         response = await fetch(`${baseUrl}/identities/${identityId}`, { method: 'GET' })
         responseBody = await response.json()
@@ -421,7 +449,7 @@ test('when testing identity endpoints', args => {
 
       afterEach(() => {
         // resetMocks clears mock state but does not restore a spy's original implementation.
-        getIdentitySpy.mockRestore()
+        takeIdentitySpy.mockRestore()
       })
 
       it('should respond with a 404 status code', () => {

@@ -8,6 +8,13 @@ export type IStorageComponent = {
   getIdentity(identityId: string): Promise<StorageIdentity | null>
   setIdentity(identityId: string, identityData: StorageIdentity | null): Promise<void>
   deleteIdentity(identityId: string): Promise<void>
+  /**
+   * Atomically removes and returns an identity. Concurrent callers for the same id are serialized,
+   * so at most one can receive the stored private key.
+   * @param identityId Identity capability to consume.
+   * @returns The stored identity for the winning caller, or null once it has been consumed.
+   */
+  takeIdentity(identityId: string): Promise<StorageIdentity | null>
   getIdentityStatus(identityId: string): Promise<IdentityStatus | null>
   setIdentityStatus(identityId: string, status: IdentityStatus): Promise<void>
   updateIdentityStatus(identityId: string, updates: Partial<IdentityStatus>): Promise<void>
