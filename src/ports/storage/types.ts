@@ -1,9 +1,12 @@
+import { IBaseComponent } from '@well-known-components/interfaces'
 import { AuthIdentity } from '@dcl/crypto'
 import { OutcomeResponseMessage, Request } from '../server/types'
 
-export type IStorageComponent = {
+export type IStorageComponent = IBaseComponent & {
   getRequest(requestId: string): Promise<StorageRequest | null>
   setRequest(requestId: string, request: StorageRequest | null): Promise<void>
+  /** Reserve a single outcome across workers, then persist it before any notification. */
+  recordOutcome(requestId: string, outcome: OutcomeResponseMessage, authorizationExpiresAt: number): Promise<StorageRequest>
   getRequestIdForSocketId(socketId: string): Promise<string | null>
   getIdentity(identityId: string): Promise<StorageIdentity | null>
   setIdentity(identityId: string, identityData: StorageIdentity | null): Promise<void>

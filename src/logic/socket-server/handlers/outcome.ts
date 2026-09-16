@@ -1,8 +1,9 @@
-import { InvalidResponseMessage, MessageType, OutcomeMessage, OutcomeResponseMessage } from '../../../ports/server/types'
+import { InvalidResponseMessage, MessageType, SignedOutcomeMessage } from '../../../ports/server/types'
 import { validateOutcomeMessage } from '../../../ports/server/validations'
 import { StorageRequest } from '../../../ports/storage/types'
 import { isErrorWithMessage } from '../../error-handling'
-import { loadActiveRequest, logInboundRequestStateError, RequestStateError } from '../../requests'
+import { authenticateAndRecordOutcome, OutcomeAuthorizationError } from '../../outcomes'
+import { logInboundRequestStateError, RequestStateError } from '../../requests'
 import { SocketHandlerContext } from '../types'
 
 // OUTCOME — records the outcome of a request and relays it to the waiting client, or persists it
@@ -11,11 +12,10 @@ export async function outcomeSocketHandler(context: SocketHandlerContext, data: 
   const {
     components: { storage },
     logger,
-    emitToSocket,
-    isSocketConnected
+    emitToSocket
   } = context
 
-  let msg: OutcomeMessage
+  let msg: SignedOutcomeMessage
   try {
     msg = validateOutcomeMessage(data)
   } catch (e) {
@@ -25,8 +25,9 @@ export async function outcomeSocketHandler(context: SocketHandlerContext, data: 
 
   let request: StorageRequest
   try {
-    request = await loadActiveRequest(storage, msg.requestId, { rejectIfHasResponse: true })
+    request = await authenticateAndRecordOutcome(storage, msg.requestId, msg)
   } catch (e) {
+    if (e instanceof OutcomeAuthorizationError) return { error: e.message } satisfies InvalidResponseMessage
     if (e instanceof RequestStateError) {
       logInboundRequestStateError(logger, msg.requestId, 'an outcome message', e)
       return { error: e.message } satisfies InvalidResponseMessage
@@ -34,11 +35,9 @@ export async function outcomeSocketHandler(context: SocketHandlerContext, data: 
     throw e
   }
 
-  const outcomeMessage: OutcomeResponseMessage = msg
-
   // If it has a socketId and the socket is still connected, send via socket.
   // Otherwise, store the response for polling via GET /requests/:requestId.
-  if (request.socketId && isSocketConnected(request.socketId)) {
+  if (request.socketId && emitToSocket(request.socketId, MessageType.OUTCOME, request.response)) {
     // Mark as fulfilled instead of deleting — allows frontend to distinguish "consumed" from "never existed"
     await storage.setRequest(msg.requestId, {
       requestId: msg.requestId,
@@ -51,18 +50,13 @@ export async function outcomeSocketHandler(context: SocketHandlerContext, data: 
       requiresValidation: false
     })
 
-    emitToSocket(request.socketId, MessageType.OUTCOME, outcomeMessage)
     logger.log(
       `[METHOD:${request.method}][RID:${
         request.requestId
       }][EXP:${request.expiration.getTime()}] Successfully sent outcome message to the client`
     )
   } else {
-    // Socket gone or HTTP-created request — persist response for polling
-    await storage.setRequest(msg.requestId, {
-      ...request,
-      response: outcomeMessage
-    })
+    // The authenticated outcome was persisted before attempting notification.
     logger.log(
       `[METHOD:${request.method}][RID:${
         request.requestId
