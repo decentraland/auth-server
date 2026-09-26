@@ -11,6 +11,7 @@ import { ISlackComponent } from '@dcl/slack-component'
 import { createRunner } from '@dcl/test-helpers'
 import { createTracerComponent } from '@dcl/tracer-component'
 import { IMagicAdapter } from '../src/adapters/magic'
+import { createSignatureValidatorAdapter } from '../src/adapters/signature-validator'
 import { createAccountDeletionComponent } from '../src/logic/account-deletion'
 import { parseCorsOrigins } from '../src/logic/cors'
 import { createSocketServerComponent } from '../src/logic/socket-server'
@@ -151,8 +152,10 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
 
   await instrumentHttpServerWithPromClientRegistry({ metrics, server, config, registry: metrics.registry })
 
+  const signatureValidator = createSignatureValidatorAdapter({ config, fetch, logs })
+
   const socketServer = await createSocketServerComponent(
-    { logs, storage, tracer, server },
+    { logs, storage, tracer, server, signatureValidator },
     {
       requestExpirationInSeconds: overrides.requestExpirationInSeconds ?? 5 * 60, // 5 Minutes
       cors: { origin: cors.origin, methods: await config.requireString('CORS_METHODS') }
@@ -165,6 +168,7 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     features,
     featureFlags,
     magic,
+    signatureValidator,
     accountDeletion,
     nudgeJob,
     db,

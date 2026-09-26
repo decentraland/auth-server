@@ -18,7 +18,7 @@ import { StorageRequest } from '../../ports/storage/types'
 import { HandlerContextWithPath } from '../../types'
 import { parseJsonBody } from '../utils'
 
-export type RequestsHandlerComponents = 'storage' | 'logs' | 'socketServer'
+export type RequestsHandlerComponents = 'storage' | 'logs' | 'socketServer' | 'signatureValidator'
 
 export type RequestExpirationOptions = {
   requestExpirationInSeconds: number
@@ -28,7 +28,7 @@ export type RequestExpirationOptions = {
 export function createRequestHandler({ requestExpirationInSeconds }: RequestExpirationOptions) {
   return async function requestHandler(context: HandlerContextWithPath<RequestsHandlerComponents, '/requests'>) {
     const {
-      components: { storage }
+      components: { storage, signatureValidator }
     } = context
 
     const data = await parseJsonBody(context.request)
@@ -46,7 +46,7 @@ export function createRequestHandler({ requestExpirationInSeconds }: RequestExpi
     let sender: string
 
     try {
-      sender = (await validateAuthChain(msg.authChain)).sender
+      sender = (await validateAuthChain(msg.authChain, signatureValidator)).sender
     } catch (e) {
       return {
         status: 400,

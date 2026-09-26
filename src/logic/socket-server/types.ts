@@ -2,6 +2,7 @@ import { IBaseComponent, ILoggerComponent } from '@well-known-components/interfa
 import { Socket } from 'socket.io'
 import { MessageType } from '../../ports/server/types'
 import { IStorageComponent } from '../../ports/storage/types'
+import type { ISignatureValidatorAdapter } from '../../adapters/signature-validator'
 
 export type ISocketServerComponent = IBaseComponent & {
   /**
@@ -24,6 +25,7 @@ export type ISocketServerComponent = IBaseComponent & {
 export type SocketHandlerContext = {
   components: {
     storage: IStorageComponent
+    signatureValidator: ISignatureValidatorAdapter
   }
   /** Connection-scoped logger, created once and passed in rather than re-created on every message. */
   logger: ILoggerComponent.ILogger

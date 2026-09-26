@@ -1,5 +1,6 @@
 import { Authenticator, parseEmphemeralPayload } from '@dcl/crypto'
 import { AuthChain } from '@dcl/schemas'
+import type { ISignatureValidatorAdapter } from '../adapters/signature-validator'
 
 /**
  * Whether `value` is a Decentraland ephemeral message — the payload whose signature mints an auth
@@ -48,8 +49,17 @@ function decodeHexMessage(value: string): string | undefined {
  * socket `request` handler. Throws on any validation failure; the `Ephemeral
  * payload has expired` error is re-thrown verbatim so callers can surface the
  * upstream "expired" status.
+ *
+ * A chain signed by an account with code behind it — a contract wallet, or an EOA delegated
+ * through EIP-7702 — cannot be settled here: ERC-1271 needs the account itself to be asked on
+ * chain. Those go to `signatureValidator`, which defers to the Catalyst. Passing `null` to
+ * `Authenticator.validateSignature` for them is what made every such login fail with
+ * `Missing provider`. An ordinary EOA signature still verifies offline and never leaves the box.
  */
-export async function validateAuthChain(authChain: AuthChain): Promise<{ sender: string; finalAuthority: string }> {
+export async function validateAuthChain(
+  authChain: AuthChain,
+  signatureValidator: ISignatureValidatorAdapter
+): Promise<{ sender: string; finalAuthority: string }> {
   if (!authChain.length) {
     throw new Error('Auth chain is required')
   }
@@ -69,7 +79,9 @@ export async function validateAuthChain(authChain: AuthChain): Promise<{ sender:
     throw new Error('Could not get final authority from auth chain')
   }
 
-  const validationResult = await Authenticator.validateSignature(finalAuthority, authChain, null)
+  const validationResult = signatureValidator.requiresOnChainValidation(authChain)
+    ? await signatureValidator.validateOnChain(authChain, finalAuthority)
+    : await Authenticator.validateSignature(finalAuthority, authChain, null)
 
   if (!validationResult.ok) {
     throw new Error(validationResult.message ?? 'Signature validation failed')

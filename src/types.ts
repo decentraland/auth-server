@@ -3,6 +3,7 @@ import type { IFeaturesComponent } from '@dcl/features-component'
 import type { ISlackComponent } from '@dcl/slack-component'
 import type { IFeatureFlagsAdapter } from './adapters/feature-flags'
 import type { IMagicAdapter } from './adapters/magic'
+import type { ISignatureValidatorAdapter } from './adapters/signature-validator'
 import type { IAccountDeletionComponent } from './logic/account-deletion'
 import type { ISocketServerComponent } from './logic/socket-server'
 import type { metricDeclarations } from './metrics'
@@ -24,6 +25,7 @@ export type BaseComponents = {
   features: IFeaturesComponent
   featureFlags: IFeatureFlagsAdapter
   magic: IMagicAdapter
+  signatureValidator: ISignatureValidatorAdapter
   accountDeletion: IAccountDeletionComponent
   nudgeJob: INudgeJobComponent
   db: IPgComponent

@@ -10,6 +10,7 @@ import { createSlackComponent } from '@dcl/slack-component'
 import { createTracerComponent } from '@dcl/tracer-component'
 import { createFeatureFlagsAdapter } from './adapters/feature-flags'
 import { createMagicAdapter } from './adapters/magic'
+import { createSignatureValidatorAdapter } from './adapters/signature-validator'
 import { createAccountDeletionComponent } from './logic/account-deletion'
 import { parseCorsOrigins } from './logic/cors'
 import { createSocketServerComponent } from './logic/socket-server'
@@ -58,6 +59,7 @@ export async function initComponents(): Promise<AppComponents> {
   const storage = createStorageComponent({ cache })
   const fetch = createFetchComponent()
   const magic = await createMagicAdapter({ config, logs, fetch })
+  const signatureValidator = createSignatureValidatorAdapter({ config, fetch, logs })
   const features = await createFeaturesComponent(
     { config, logs, fetch },
     (await config.getString('SERVICE_BASE_URL')) || 'https://auth-api.decentraland.org'
@@ -73,7 +75,7 @@ export async function initComponents(): Promise<AppComponents> {
   // socket.io server: attaches to the http-server's underlying Node http.Server on start
   // (after the http-server is listening) and owns the WebSocket protocol unchanged.
   const socketServer = await createSocketServerComponent(
-    { logs, storage, tracer, server },
+    { logs, storage, tracer, server, signatureValidator },
     {
       requestExpirationInSeconds,
       cors: { origin: cors.origin, methods: await config.requireString('CORS_METHODS') }
@@ -87,6 +89,7 @@ export async function initComponents(): Promise<AppComponents> {
     features,
     featureFlags,
     magic,
+    signatureValidator,
     accountDeletion,
     nudgeJob,
     db,

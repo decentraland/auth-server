@@ -14,7 +14,7 @@ export type SocketRequestExpirationOptions = {
 export function createRequestSocketHandler(options: SocketRequestExpirationOptions): SocketMessageHandler {
   return async (context: SocketHandlerContext, data: unknown) => {
     const {
-      components: { storage },
+      components: { storage, signatureValidator },
       logger,
       socket
     } = context
@@ -33,7 +33,7 @@ export function createRequestSocketHandler(options: SocketRequestExpirationOptio
 
     // Same validation as the HTTP /requests handler (shared to avoid drift).
     try {
-      sender = (await validateAuthChain(msg.authChain)).sender
+      sender = (await validateAuthChain(msg.authChain, signatureValidator)).sender
     } catch (e) {
       logger.log('Received a request with an invalid auth chain')
       return { error: isErrorWithMessage(e) ? e.message : 'Unknown error' } satisfies InvalidResponseMessage
