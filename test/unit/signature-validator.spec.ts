@@ -15,6 +15,7 @@ let config: IConfigComponent
 let fetchMock: jest.Mock
 let fetch: IFetchComponent
 let logs: ILoggerComponent
+let logger: { warn: jest.Mock; log: jest.Mock; error: jest.Mock; info: jest.Mock; debug: jest.Mock }
 let adapter: ISignatureValidatorAdapter
 
 beforeEach(() => {
@@ -26,9 +27,8 @@ beforeEach(() => {
   } as unknown as IConfigComponent
   fetchMock = jest.fn()
   fetch = { fetch: fetchMock } as unknown as IFetchComponent
-  logs = {
-    getLogger: () => ({ warn: jest.fn(), log: jest.fn(), error: jest.fn(), info: jest.fn(), debug: jest.fn() })
-  } as unknown as ILoggerComponent
+  logger = { warn: jest.fn(), log: jest.fn(), error: jest.fn(), info: jest.fn(), debug: jest.fn() }
+  logs = { getLogger: () => logger } as unknown as ILoggerComponent
   adapter = createSignatureValidatorAdapter({ config, fetch, logs })
 })
 
@@ -89,10 +89,17 @@ describe('validateOnChain', () => {
       expect(fetchMock.mock.calls[0][0]).toBe('https://peer.decentraland.org/lambdas/crypto/validate-signature')
     })
 
-    it("should bound the call through the fetch component's own timeout option, which owns the abort signal", async () => {
+    it("should own the deadline through its own controller, rather than the fetch component's header-only timeout", async () => {
       await adapter.validateOnChain(authChain, EPHEMERAL)
 
-      expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({ timeout: 5000 }))
+      expect(fetchMock.mock.calls[0][1].abortController).toBeInstanceOf(AbortController)
+      expect(fetchMock.mock.calls[0][1].timeout).toBeUndefined()
+    })
+
+    it('should leave the request unaborted once it answers in time', async () => {
+      await adapter.validateOnChain(authChain, EPHEMERAL)
+
+      expect(fetchMock.mock.calls[0][1].abortController.signal.aborted).toBe(false)
     })
   })
 
@@ -129,6 +136,12 @@ describe('validateOnChain', () => {
 
       expect(cancel).toHaveBeenCalledTimes(1)
     })
+
+    it('should log the status, so an upstream turning everyone away is visible', async () => {
+      await adapter.validateOnChain(authChain, EPHEMERAL)
+
+      expect(logger.warn).toHaveBeenCalledWith(expect.any(String), { status: 503 })
+    })
   })
 
   describe('and the body cannot be drained', () => {
@@ -159,6 +172,107 @@ describe('validateOnChain', () => {
         ok: false,
         message: 'Could not validate the signature on chain'
       })
+    })
+  })
+
+  describe('when the Catalyst answers its headers and then stalls the body', () => {
+    beforeEach(() => {
+      config.getNumber = jest
+        .fn()
+        .mockImplementation(async (key: string) => (key === 'PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS' ? 20 : undefined))
+      adapter = createSignatureValidatorAdapter({ config, fetch, logs })
+      // The fetch component clears its own timer as soon as the headers arrive, so only a
+      // deadline owned here can still reach a body that never comes.
+      fetchMock.mockImplementation(async (_url: string, options: { abortController: AbortController }) => ({
+        ok: true,
+        status: 200,
+        json: () =>
+          new Promise((_resolve, reject) => {
+            options.abortController.signal.addEventListener('abort', () => reject(new Error('The operation was aborted')))
+          })
+      }))
+    })
+
+    it('should abort it and fail closed, instead of holding the login open', async () => {
+      await expect(adapter.validateOnChain(authChain, EPHEMERAL)).resolves.toEqual({
+        ok: false,
+        message: 'Could not validate the signature on chain'
+      })
+    })
+  })
+
+  describe('when the chain carries more links than the Catalyst accepts', () => {
+    beforeEach(() => {
+      authChain = [
+        { type: AuthLinkType.SIGNER, payload: OWNER, signature: '' },
+        ...Array.from({ length: 10 }, () => ({
+          type: AuthLinkType.ECDSA_EIP_1654_EPHEMERAL,
+          payload: 'Decentraland Login\nEphemeral address: ...',
+          signature: '0xabc'
+        }))
+      ]
+    })
+
+    it('should refuse it without spending a call on a chain that would be rejected anyway', async () => {
+      await expect(adapter.validateOnChain(authChain, EPHEMERAL)).resolves.toEqual({
+        ok: false,
+        message: 'Auth chain length must be between 1 and 10'
+      })
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('when as many validations are already in flight as are allowed', () => {
+    let resolveInFlight: (value: unknown) => void
+    let inFlight: Promise<{ ok: boolean; message?: string }>[]
+
+    beforeEach(async () => {
+      config.getNumber = jest.fn().mockImplementation(async (key: string) => (key === 'PEER_VALIDATION_MAX_CONCURRENT' ? 2 : undefined))
+      adapter = createSignatureValidatorAdapter({ config, fetch, logs })
+      const held = new Promise(resolve => {
+        resolveInFlight = resolve
+      })
+      fetchMock.mockImplementation(async () => {
+        await held
+        return { ok: true, status: 200, json: async () => ({ valid: true }) }
+      })
+
+      inFlight = [adapter.validateOnChain(authChain, EPHEMERAL), adapter.validateOnChain(authChain, EPHEMERAL)]
+      // Let both take their slot before the third one asks for one.
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    afterEach(async () => {
+      resolveInFlight(undefined)
+      await Promise.all(inFlight)
+    })
+
+    it('should refuse the next one rather than queue it behind a saturated upstream', async () => {
+      await expect(adapter.validateOnChain(authChain, EPHEMERAL)).resolves.toEqual({
+        ok: false,
+        message: 'Could not validate the signature on chain'
+      })
+    })
+
+    it('should not let it reach the Catalyst', async () => {
+      await adapter.validateOnChain(authChain, EPHEMERAL)
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('should record it, so a saturated cap is visible rather than silent', async () => {
+      await adapter.validateOnChain(authChain, EPHEMERAL)
+
+      expect(logger.warn).toHaveBeenCalledWith(expect.any(String), { inFlight: 2, maxConcurrent: 2 })
+    })
+
+    it('should let a later validation through once a slot is freed', async () => {
+      resolveInFlight(undefined)
+      await Promise.all(inFlight)
+
+      await expect(adapter.validateOnChain(authChain, EPHEMERAL)).resolves.toEqual({ ok: true })
     })
   })
 

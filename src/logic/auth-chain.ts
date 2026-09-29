@@ -67,11 +67,13 @@ export async function validateAuthChain(
   const sender = Authenticator.ownerAddress(authChain)
 
   let finalAuthority: string
+  let expiration: number
 
   try {
     const ephemeralPayload = parseEmphemeralPayload(authChain[authChain.length - 1].payload)
 
     finalAuthority = ephemeralPayload.ephemeralAddress
+    expiration = ephemeralPayload.expiration
   } catch (e) {
     if (e instanceof Error && e.message === 'Ephemeral payload has expired') {
       throw e
@@ -79,9 +81,23 @@ export async function validateAuthChain(
     throw new Error('Could not get final authority from auth chain')
   }
 
-  const validationResult = signatureValidator.requiresOnChainValidation(authChain)
-    ? await signatureValidator.validateOnChain(authChain, finalAuthority)
-    : await Authenticator.validateSignature(finalAuthority, authChain, null)
+  let validationResult: { ok: boolean; message?: string }
+
+  if (signatureValidator.requiresOnChainValidation(authChain)) {
+    // The offline path gets its expiry check from `Authenticator.validateSignature`, and the
+    // parser above only rejects an expired payload on some versions of `@dcl/crypto` — not the
+    // one pinned here. So the on-chain path has no backstop before the chain leaves the box, and
+    // an expired one would spend a Catalyst call to be told what is already known here. These
+    // chains arrive on unauthenticated endpoints, so that is free amplification: settle it
+    // locally. Nothing the Catalyst would have accepted is rejected, since it runs the same check.
+    if (expiration < Date.now()) {
+      throw new Error('Ephemeral payload has expired')
+    }
+
+    validationResult = await signatureValidator.validateOnChain(authChain, finalAuthority)
+  } else {
+    validationResult = await Authenticator.validateSignature(finalAuthority, authChain, null)
+  }
 
   if (!validationResult.ok) {
     throw new Error(validationResult.message ?? 'Signature validation failed')
