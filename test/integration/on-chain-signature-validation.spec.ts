@@ -18,7 +18,11 @@ const asSmartAccountChain = (authChain: AuthChain): AuthChain => [
   { ...authChain[authChain.length - 1], type: AuthLinkType.ECDSA_EIP_1654_EPHEMERAL }
 ]
 
-const catalystAnswers = (body: { valid: boolean; error?: string }) =>
+/**
+ * The Catalyst's answer. `ownerAddress` is part of it because the adapter checks the verdict is
+ * about the account that signed the chain, the same way `@dcl/crypto-middleware` does.
+ */
+const catalystAnswers = (body: { valid: boolean; ownerAddress?: string; error?: string }) =>
   jest.fn().mockResolvedValue({ ok: true, status: 200, json: async () => body })
 
 test('when an account with code behind it signs in', args => {
@@ -26,6 +30,7 @@ test('when an account with code behind it signs in', args => {
   let baseUrl: string
   let identity: AuthIdentity
   let authChain: AuthChain
+  let owner: string
   let fetchMock: jest.Mock
 
   beforeEach(async () => {
@@ -33,6 +38,7 @@ test('when an account with code behind it signs in', args => {
     baseUrl = `http://localhost:${port}`
     identity = await createTestIdentity()
     authChain = asSmartAccountChain(identity.authChain)
+    owner = identity.authChain[0].payload
     // eslint-disable-next-line @typescript-eslint/unbound-method -- fetch is a mock, never invoked as a method here
     fetchMock = args.components.fetch.fetch as jest.Mock
     fetchMock.mockReset()
@@ -47,7 +53,7 @@ test('when an account with code behind it signs in', args => {
 
     describe('and the Catalyst confirms the signature', () => {
       beforeEach(() => {
-        fetchMock.mockImplementation(catalystAnswers({ valid: true }))
+        fetchMock.mockImplementation(catalystAnswers({ valid: true, ownerAddress: owner }))
       })
 
       it('should accept it, which is what a plain provider-less check could never do', async () => {
@@ -86,7 +92,7 @@ test('when an account with code behind it signs in', args => {
 
     describe('and the Catalyst confirms the signature', () => {
       beforeEach(() => {
-        fetchMock.mockImplementation(catalystAnswers({ valid: true }))
+        fetchMock.mockImplementation(catalystAnswers({ valid: true, ownerAddress: owner }))
       })
 
       it('should register it, with the validator reached through the handler wiring', async () => {
@@ -123,7 +129,7 @@ test('when an account with code behind it signs in', args => {
 
     describe('and the Catalyst confirms the signature', () => {
       beforeEach(() => {
-        fetchMock.mockImplementation(catalystAnswers({ valid: true }))
+        fetchMock.mockImplementation(catalystAnswers({ valid: true, ownerAddress: owner }))
       })
 
       it('should register it, so the socket path is wired to the validator too', async () => {

@@ -1,5 +1,5 @@
 import type { IFetchComponent } from '@dcl/core-commons'
-import { AuthLinkType } from '@dcl/crypto'
+import { Authenticator, AuthLinkType } from '@dcl/crypto'
 import { AuthChain } from '@dcl/schemas'
 import type { IConfigComponent, ILoggerComponent } from '@well-known-components/interfaces'
 
@@ -25,12 +25,41 @@ const DEFAULT_TIMEOUT_IN_MILLISECONDS = 5000
 const DEFAULT_MAX_CONCURRENT_VALIDATIONS = 10
 
 /**
- * The same bound lamb2 enforces on `/lambdas/crypto/validate-signature`, for the same reason it
- * states there: real EIP-1654 chains are 2-5 links long, and capping keeps an unauthenticated
- * caller from amplifying one request into many `eth_call`s. A longer chain is answered upstream
- * with a 400 anyway, so refusing it here only spares the round trip.
+ * The shape a login actually produces: a `SIGNER` link naming the account, followed by the
+ * ephemeral link that account signed. `isEIP1654AuthChain` in `@dcl/crypto-middleware` applies the
+ * same rule, so this is the shape the rest of the platform accepts too.
+ *
+ * Checking it costs nothing and is a much tighter bound than a length cap: a forged chain still
+ * has to look like a login to reach the Catalyst at all. Nothing legitimate is turned away —
+ * `validateAuthChain` already requires the last link to parse as an ephemeral payload, so no other
+ * shape can reach this adapter in the first place.
  */
-const MAX_AUTH_CHAIN_LENGTH = 10
+function isSmartAccountLoginChain(authChain: AuthChain): boolean {
+  return (
+    (authChain.length === 2 || authChain.length === 3) &&
+    authChain[0].type === AuthLinkType.SIGNER &&
+    authChain[1].type === AuthLinkType.ECDSA_EIP_1654_EPHEMERAL
+  )
+}
+
+/**
+ * Reads a bound from config, rejecting a value that would disable what it bounds. `0` is the one
+ * that matters: it is not nullish, so it survives `??`, and it would mean "abort every call" for
+ * the timeout and "refuse every call" for the cap.
+ */
+async function readPositiveInteger(config: IConfigComponent, name: string, fallback: number): Promise<number> {
+  const value = await config.getNumber(name)
+
+  if (value === undefined) {
+    return fallback
+  }
+
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`Configuration: config "${name}" should be a positive integer, got ${value} instead`)
+  }
+
+  return value
+}
 
 /**
  * Validates the auth chains this service cannot verify on its own.
@@ -43,15 +72,18 @@ const MAX_AUTH_CHAIN_LENGTH = 10
  * validation and exposes it. `builder-server` resolves the same problem the same way.
  *
  * `POST /requests` and the socket `request` event accept an auth chain from anyone, so this is the
- * one place where unauthenticated input turns into outbound traffic. Two bounds keep that from
- * becoming an availability problem for the logins this adapter exists to fix: chains longer than
- * the Catalyst would accept never leave the box, and no more than `PEER_VALIDATION_MAX_CONCURRENT`
- * validations are in flight at once — past that, a request is refused here rather than queued
- * behind a saturated upstream. Results are deliberately NOT cached: an account's ERC-1271 answer
- * changes when its owner rotates or its EIP-7702 delegation is revoked, so a cached `valid` could
- * outlive the authority it recorded.
+ * one place where unauthenticated input turns into outbound traffic. Three bounds keep that from
+ * becoming an availability problem for the logins this adapter exists to fix: a chain that is not
+ * shaped like a login never leaves the box, an expired one is settled by the caller, and no more
+ * than `PEER_VALIDATION_MAX_CONCURRENT` validations are in flight at once — past that a request is
+ * refused here rather than queued behind a saturated upstream. Results are deliberately NOT
+ * cached: an account's ERC-1271 answer changes when its owner rotates or its EIP-7702 delegation
+ * is revoked, so a cached `valid` could outlive the authority it recorded.
+ *
+ * Config is resolved and checked here rather than on first use, so a bad `PEER_URL` or bound fails
+ * at boot instead of surfacing as a 400 on some user's login.
  */
-export function createSignatureValidatorAdapter({
+export async function createSignatureValidatorAdapter({
   config,
   fetch,
   logs
@@ -59,27 +91,20 @@ export function createSignatureValidatorAdapter({
   config: IConfigComponent
   fetch: IFetchComponent
   logs: ILoggerComponent
-}): ISignatureValidatorAdapter {
+}): Promise<ISignatureValidatorAdapter> {
   const logger = logs.getLogger('signature-validator')
-  let cachedPeerUrl: string | undefined
-  let cachedTimeout: number | undefined
-  let cachedMaxConcurrent: number | undefined
+
+  const peerUrl = ((await config.getString('PEER_URL')) || DEFAULT_PEER_URL).replace(/\/+$/, '')
+  const timeout = await readPositiveInteger(config, 'PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS', DEFAULT_TIMEOUT_IN_MILLISECONDS)
+  const maxConcurrent = await readPositiveInteger(config, 'PEER_VALIDATION_MAX_CONCURRENT', DEFAULT_MAX_CONCURRENT_VALIDATIONS)
+  const validateSignatureUrl = `${peerUrl}/lambdas/crypto/validate-signature`
+
+  // Logged so the values actually in force are visible at boot. `PEER_VALIDATION_...=5s` parses as
+  // `5` rather than failing, and a 5ms deadline is otherwise only noticeable as every
+  // smart-account login being turned away.
+  logger.log(`Validating on-chain signatures against ${validateSignatureUrl}`, { timeout, maxConcurrent })
+
   let inFlight = 0
-
-  async function getPeerUrl(): Promise<string> {
-    cachedPeerUrl ??= (await config.getString('PEER_URL')) || DEFAULT_PEER_URL
-    return cachedPeerUrl.replace(/\/+$/, '')
-  }
-
-  async function getTimeout(): Promise<number> {
-    cachedTimeout ??= (await config.getNumber('PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS')) ?? DEFAULT_TIMEOUT_IN_MILLISECONDS
-    return cachedTimeout
-  }
-
-  async function getMaxConcurrent(): Promise<number> {
-    cachedMaxConcurrent ??= (await config.getNumber('PEER_VALIDATION_MAX_CONCURRENT')) ?? DEFAULT_MAX_CONCURRENT_VALIDATIONS
-    return cachedMaxConcurrent
-  }
 
   return {
     requiresOnChainValidation(authChain: AuthChain): boolean {
@@ -87,16 +112,11 @@ export function createSignatureValidatorAdapter({
     },
 
     async validateOnChain(authChain: AuthChain, finalAuthority: string): Promise<{ ok: boolean; message?: string }> {
-      if (authChain.length > MAX_AUTH_CHAIN_LENGTH) {
-        return { ok: false, message: `Auth chain length must be between 1 and ${MAX_AUTH_CHAIN_LENGTH}` }
+      if (!isSmartAccountLoginChain(authChain)) {
+        return { ok: false, message: 'Auth chain is not shaped like a login' }
       }
 
-      // Every value this call needs is resolved before the slot is taken, so the check and the
-      // increment below run in one synchronous block and the cap cannot be raced past.
-      const peerUrl = await getPeerUrl()
-      const timeout = await getTimeout()
-      const maxConcurrent = await getMaxConcurrent()
-
+      // Nothing is awaited between the check and the increment, so the cap cannot be raced past.
       if (inFlight >= maxConcurrent) {
         logger.warn('Refused to validate a signature on chain: too many validations in flight', { inFlight, maxConcurrent })
         return { ok: false, message: 'Could not validate the signature on chain' }
@@ -114,7 +134,7 @@ export function createSignatureValidatorAdapter({
       const timer = setTimeout(() => abortController.abort(), timeout)
 
       try {
-        const response = await fetch.fetch(`${peerUrl}/lambdas/crypto/validate-signature`, {
+        const response = await fetch.fetch(validateSignatureUrl, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ authChain, signedMessage: finalAuthority }),
@@ -128,8 +148,17 @@ export function createSignatureValidatorAdapter({
           return { ok: false, message: `Could not validate the signature on chain (${response.status})` }
         }
 
-        const result = (await response.json()) as { valid?: boolean; error?: string }
-        return result.valid ? { ok: true } : { ok: false, message: result.error ?? 'Signature validation failed' }
+        const result = (await response.json()) as { valid?: unknown; ownerAddress?: unknown; error?: string }
+
+        // The same three checks `verifyEIP1654Sign` makes in `@dcl/crypto-middleware`. `PEER_URL`
+        // is configurable, so a misrouted or misbehaving peer answering `{"valid":"false"}` must
+        // not read as valid, and an answer about a different account must not settle this one.
+        const isValid =
+          result.valid === true &&
+          typeof result.ownerAddress === 'string' &&
+          result.ownerAddress.toLowerCase() === Authenticator.ownerAddress(authChain).toLowerCase()
+
+        return isValid ? { ok: true } : { ok: false, message: result.error ?? 'Signature validation failed' }
       } catch (error) {
         // Fail closed: an unverified signature is not an accepted one.
         logger.warn('Could not reach the Catalyst to validate a signature', {

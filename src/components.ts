@@ -59,7 +59,7 @@ export async function initComponents(): Promise<AppComponents> {
   const storage = createStorageComponent({ cache })
   const fetch = createFetchComponent()
   const magic = await createMagicAdapter({ config, logs, fetch })
-  const signatureValidator = createSignatureValidatorAdapter({ config, fetch, logs })
+  const signatureValidator = await createSignatureValidatorAdapter({ config, fetch, logs })
   const features = await createFeaturesComponent(
     { config, logs, fetch },
     (await config.getString('SERVICE_BASE_URL')) || 'https://auth-api.decentraland.org'
