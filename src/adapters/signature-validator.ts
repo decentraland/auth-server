@@ -44,22 +44,25 @@ function isSmartAccountLoginChain(authChain: AuthChain): boolean {
 }
 
 /**
- * Reads a bound from config, rejecting a value that would disable what it bounds. `0` is the one
- * that matters: it is not nullish, so it survives `??`, and it would mean "abort every call" for
- * the timeout and "refuse every call" for the cap.
+ * Reads a bound from config, rejecting anything that would disable what it bounds.
+ *
+ * Read as a string on purpose: `config.getNumber` resolves through `parseFloat`, so `5s` comes
+ * back as `5` — a 5ms deadline that aborts every call — rather than failing. Requiring digits
+ * rejects that at boot. `0` matters for the same reason: it is not nullish, so it survives `??`,
+ * and it means "abort every call" for the timeout and "refuse every call" for the cap.
  */
 async function readPositiveInteger(config: IConfigComponent, name: string, fallback: number): Promise<number> {
-  const value = await config.getNumber(name)
+  const value = await config.getString(name)
 
-  if (value === undefined) {
+  if (value === undefined || value === '') {
     return fallback
   }
 
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new Error(`Configuration: config "${name}" should be a positive integer, got ${value} instead`)
+  if (!/^\d+$/.test(value) || Number(value) === 0) {
+    throw new Error(`Configuration: config "${name}" should be a positive integer, got "${value}" instead`)
   }
 
-  return value
+  return Number(value)
 }
 
 /**
@@ -156,20 +159,33 @@ export async function createSignatureValidatorAdapter({
 
         const result = (await response.json()) as { valid?: unknown; ownerAddress?: unknown; error?: unknown }
 
-        // The same three checks `verifyEIP1654Sign` makes in `@dcl/crypto-middleware`. `PEER_URL`
-        // is configurable, so a misrouted or misbehaving peer answering `{"valid":"false"}` must
-        // not read as valid, and an answer about a different account must not settle this one.
-        const isValid =
-          result.valid === true &&
-          typeof result.ownerAddress === 'string' &&
-          result.ownerAddress.toLowerCase() === Authenticator.ownerAddress(authChain).toLowerCase()
+        // The same checks `verifyEIP1654Sign` makes in `@dcl/crypto-middleware`. `PEER_URL` is
+        // configurable, so a misrouted or misbehaving peer answering `{"valid":"false"}` must not
+        // read as valid, and an answer about a different account must not settle this one. These
+        // are metered apart from a rejected signature: otherwise a peer pointed at the wrong chain
+        // looks exactly like a wave of bad signatures.
+        if (typeof result.valid !== 'boolean') {
+          logger.warn('The Catalyst answered a shape this service does not recognise', { valid: typeof result.valid })
+          metrics.increment('signature_validation_refused_total', { reason: 'invalid_response' })
+          return { ok: false, message: 'Signature validation failed' }
+        }
 
-        // `error` comes from a configurable peer and ends up in a 400 body, so it is only passed
-        // on when it is actually a string — otherwise `new Error(obj)` upstream would render it as
-        // `[object Object]`.
-        return isValid
-          ? { ok: true }
-          : { ok: false, message: typeof result.error === 'string' ? result.error : 'Signature validation failed' }
+        if (!result.valid) {
+          // `error` comes from a configurable peer and ends up in a 400 body, so it is only passed
+          // on when it is actually a string — otherwise `new Error(obj)` upstream would render it
+          // as `[object Object]`.
+          return { ok: false, message: typeof result.error === 'string' ? result.error : 'Signature validation failed' }
+        }
+
+        const owner = Authenticator.ownerAddress(authChain).toLowerCase()
+
+        if (typeof result.ownerAddress !== 'string' || result.ownerAddress.toLowerCase() !== owner) {
+          logger.warn('The Catalyst validated a signature for a different account', { expected: owner })
+          metrics.increment('signature_validation_refused_total', { reason: 'invalid_response' })
+          return { ok: false, message: 'Signature validation failed' }
+        }
+
+        return { ok: true }
       } catch (error) {
         // Fail closed: an unverified signature is not an accepted one.
         logger.warn('Could not reach the Catalyst to validate a signature', {

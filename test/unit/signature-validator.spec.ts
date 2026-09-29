@@ -12,7 +12,7 @@ const buildAuthChain = (ephemeralLinkType: AuthLinkType): AuthChain => [
   { type: ephemeralLinkType, payload: 'Decentraland Login\nEphemeral address: ...', signature: '0xabc' }
 ]
 
-const givenNumbers = (values: Record<string, number>) => jest.fn().mockImplementation(async (key: string) => values[key])
+const givenStrings = (values: Record<string, string>) => jest.fn().mockImplementation(async (key: string) => values[key])
 
 let config: IConfigComponent
 let fetchMock: jest.Mock
@@ -71,28 +71,38 @@ describe('requiresOnChainValidation', () => {
 describe('when building the adapter', () => {
   describe('and a bound is set to zero', () => {
     it('should refuse to start rather than abort every call', async () => {
-      config.getNumber = givenNumbers({ PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS: 0 })
+      config.getString = givenStrings({ PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS: '0' })
 
       await expect(createSignatureValidatorAdapter({ config, fetch, logs, metrics })).rejects.toThrow(
-        'Configuration: config "PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS" should be a positive integer, got 0 instead'
+        'Configuration: config "PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS" should be a positive integer, got "0" instead'
       )
     })
 
     it('should refuse to start rather than turn every login away', async () => {
-      config.getNumber = givenNumbers({ PEER_VALIDATION_MAX_CONCURRENT: 0 })
+      config.getString = givenStrings({ PEER_VALIDATION_MAX_CONCURRENT: '0' })
 
       await expect(createSignatureValidatorAdapter({ config, fetch, logs, metrics })).rejects.toThrow(
-        'Configuration: config "PEER_VALIDATION_MAX_CONCURRENT" should be a positive integer, got 0 instead'
+        'Configuration: config "PEER_VALIDATION_MAX_CONCURRENT" should be a positive integer, got "0" instead'
       )
     })
   })
 
   describe('and a bound is not a whole number', () => {
     it('should refuse to start', async () => {
-      config.getNumber = givenNumbers({ PEER_VALIDATION_MAX_CONCURRENT: 2.5 })
+      config.getString = givenStrings({ PEER_VALIDATION_MAX_CONCURRENT: '2.5' })
 
       await expect(createSignatureValidatorAdapter({ config, fetch, logs, metrics })).rejects.toThrow(
-        'Configuration: config "PEER_VALIDATION_MAX_CONCURRENT" should be a positive integer, got 2.5 instead'
+        'Configuration: config "PEER_VALIDATION_MAX_CONCURRENT" should be a positive integer, got "2.5" instead'
+      )
+    })
+  })
+
+  describe('and a bound carries a unit suffix', () => {
+    it('should refuse to start, rather than let parseFloat read it as a 5ms deadline', async () => {
+      config.getString = givenStrings({ PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS: '5s' })
+
+      await expect(createSignatureValidatorAdapter({ config, fetch, logs, metrics })).rejects.toThrow(
+        'Configuration: config "PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS" should be a positive integer, got "5s" instead'
       )
     })
   })
@@ -170,16 +180,31 @@ describe('validateOnChain', () => {
         message: 'Signature validation failed'
       })
     })
+
+    it('should meter it apart, since it points at a peer on the wrong chain rather than a bad signature', async () => {
+      await adapter.validateOnChain(authChain, EPHEMERAL)
+
+      expect(increment).toHaveBeenCalledWith('signature_validation_refused_total', { reason: 'invalid_response' })
+    })
   })
 
   describe('when the answer does not have the shape the Catalyst promises', () => {
-    it('should not read a non-boolean verdict as valid', async () => {
+    beforeEach(() => {
       fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ valid: 'false', ownerAddress: OWNER }) })
+    })
 
+    it('should not read a non-boolean verdict as valid', async () => {
       await expect(adapter.validateOnChain(authChain, EPHEMERAL)).resolves.toEqual({
         ok: false,
         message: 'Signature validation failed'
       })
+    })
+
+    it('should meter it apart, so a misrouted PEER_URL does not read as a wave of bad signatures', async () => {
+      await adapter.validateOnChain(authChain, EPHEMERAL)
+
+      expect(increment).toHaveBeenCalledWith('signature_validation_refused_total', { reason: 'invalid_response' })
+      expect(logger.warn).toHaveBeenCalled()
     })
 
     it('should not accept a verdict with no owner to check it against', async () => {
@@ -297,7 +322,7 @@ describe('validateOnChain', () => {
 
   describe('when the Catalyst answers its headers and then stalls the body', () => {
     beforeEach(async () => {
-      config.getNumber = givenNumbers({ PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS: 20 })
+      config.getString = givenStrings({ PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS: '20' })
       adapter = await createSignatureValidatorAdapter({ config, fetch, logs, metrics })
       // The fetch component clears its own timer as soon as the headers arrive, so only a
       // deadline owned here can still reach a body that never comes.
@@ -362,7 +387,7 @@ describe('validateOnChain', () => {
     let inFlight: Promise<{ ok: boolean; message?: string }>[]
 
     beforeEach(async () => {
-      config.getNumber = givenNumbers({ PEER_VALIDATION_MAX_CONCURRENT: 2 })
+      config.getString = givenStrings({ PEER_VALIDATION_MAX_CONCURRENT: '2' })
       adapter = await createSignatureValidatorAdapter({ config, fetch, logs, metrics })
       const held = new Promise(resolve => {
         resolveInFlight = resolve
@@ -419,7 +444,7 @@ describe('validateOnChain', () => {
 
   describe('when a Catalyst is configured', () => {
     beforeEach(async () => {
-      config.getString = jest.fn().mockResolvedValue('https://peer-ec1.decentraland.org/')
+      config.getString = givenStrings({ PEER_URL: 'https://peer-ec1.decentraland.org/' })
       adapter = await createSignatureValidatorAdapter({ config, fetch, logs, metrics })
       fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ valid: true, ownerAddress: OWNER }) })
     })
