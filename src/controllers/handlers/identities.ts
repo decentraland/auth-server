@@ -38,24 +38,30 @@ export async function createIdentityHandler(
     // Validate auth chain using the same logic as /requests endpoint
     let identitySender: string
     try {
-      const { sender, finalAuthority } = await validateAuthChain(identity.authChain, signatureValidator)
-      identitySender = sender
+      // Verify that the user making the request is the same as the one who signed the identity.
+      // This runs before the chain is validated because it is free and `validateAuthChain` is not:
+      // a chain signed by a smart account goes out to the Catalyst and takes a slot from the
+      // shared concurrency cap. Without this order, any holder of a valid signed-fetch could spend
+      // those on chains belonging to arbitrary other accounts.
+      identitySender = Authenticator.ownerAddress(identity.authChain)
+      const requestSender = verification?.auth
+
+      if (!requestSender || requestSender.toLowerCase() !== identitySender.toLowerCase()) {
+        identityLogger.log(`Request sender (${requestSender}) does not match identity owner (${identitySender})`)
+        return {
+          status: 403,
+          body: { error: 'Request sender does not match identity owner' } satisfies InvalidResponseMessage
+        }
+      }
+
+      const { finalAuthority } = await validateAuthChain(identity.authChain, signatureValidator)
+
       // Verify that the ephemeral wallet address matches the finalAuthority from auth chain
       if (identity.ephemeralIdentity.address.toLowerCase() !== finalAuthority.toLowerCase()) {
         identityLogger.log(`Ephemeral wallet address does not match auth chain final authority for sender: ${identitySender}`)
         return {
           status: 403,
           body: { error: 'Ephemeral wallet address does not match auth chain final authority' } satisfies InvalidResponseMessage
-        }
-      }
-
-      // Verify that the user making the request is the same as the one who signed the identity
-      const requestSender = verification?.auth
-      if (!requestSender || requestSender.toLowerCase() !== identitySender.toLowerCase()) {
-        identityLogger.log(`Request sender (${requestSender}) does not match identity owner (${identitySender})`)
-        return {
-          status: 403,
-          body: { error: 'Request sender does not match identity owner' } satisfies InvalidResponseMessage
         }
       }
 

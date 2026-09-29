@@ -152,7 +152,7 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
 
   await instrumentHttpServerWithPromClientRegistry({ metrics, server, config, registry: metrics.registry })
 
-  const signatureValidator = await createSignatureValidatorAdapter({ config, fetch, logs })
+  const signatureValidator = await createSignatureValidatorAdapter({ config, fetch, logs, metrics })
 
   const socketServer = await createSocketServerComponent(
     { logs, storage, tracer, server, signatureValidator },

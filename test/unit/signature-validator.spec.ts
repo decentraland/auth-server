@@ -1,7 +1,8 @@
 import type { IFetchComponent } from '@dcl/core-commons'
 import { AuthChain, AuthLinkType } from '@dcl/schemas'
 import { createSignatureValidatorAdapter, ISignatureValidatorAdapter } from '../../src/adapters/signature-validator'
-import type { IConfigComponent, ILoggerComponent } from '@well-known-components/interfaces'
+import type { metricDeclarations } from '../../src/metrics'
+import type { IConfigComponent, ILoggerComponent, IMetricsComponent } from '@well-known-components/interfaces'
 
 const OWNER = '0x16f1d6d51c594b147ba40e3e113e9d24a24d193b'
 const EPHEMERAL = '0x1234567890abcdef1234567890abcdef12345678'
@@ -18,6 +19,8 @@ let fetchMock: jest.Mock
 let fetch: IFetchComponent
 let logs: ILoggerComponent
 let logger: { warn: jest.Mock; log: jest.Mock; error: jest.Mock; info: jest.Mock; debug: jest.Mock }
+let increment: jest.Mock
+let metrics: IMetricsComponent<keyof typeof metricDeclarations>
 let adapter: ISignatureValidatorAdapter
 
 beforeEach(async () => {
@@ -31,7 +34,9 @@ beforeEach(async () => {
   fetch = { fetch: fetchMock } as unknown as IFetchComponent
   logger = { warn: jest.fn(), log: jest.fn(), error: jest.fn(), info: jest.fn(), debug: jest.fn() }
   logs = { getLogger: () => logger } as unknown as ILoggerComponent
-  adapter = await createSignatureValidatorAdapter({ config, fetch, logs })
+  increment = jest.fn()
+  metrics = { increment } as unknown as IMetricsComponent<keyof typeof metricDeclarations>
+  adapter = await createSignatureValidatorAdapter({ config, fetch, logs, metrics })
 })
 
 afterEach(() => {
@@ -68,7 +73,7 @@ describe('when building the adapter', () => {
     it('should refuse to start rather than abort every call', async () => {
       config.getNumber = givenNumbers({ PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS: 0 })
 
-      await expect(createSignatureValidatorAdapter({ config, fetch, logs })).rejects.toThrow(
+      await expect(createSignatureValidatorAdapter({ config, fetch, logs, metrics })).rejects.toThrow(
         'Configuration: config "PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS" should be a positive integer, got 0 instead'
       )
     })
@@ -76,7 +81,7 @@ describe('when building the adapter', () => {
     it('should refuse to start rather than turn every login away', async () => {
       config.getNumber = givenNumbers({ PEER_VALIDATION_MAX_CONCURRENT: 0 })
 
-      await expect(createSignatureValidatorAdapter({ config, fetch, logs })).rejects.toThrow(
+      await expect(createSignatureValidatorAdapter({ config, fetch, logs, metrics })).rejects.toThrow(
         'Configuration: config "PEER_VALIDATION_MAX_CONCURRENT" should be a positive integer, got 0 instead'
       )
     })
@@ -86,7 +91,7 @@ describe('when building the adapter', () => {
     it('should refuse to start', async () => {
       config.getNumber = givenNumbers({ PEER_VALIDATION_MAX_CONCURRENT: 2.5 })
 
-      await expect(createSignatureValidatorAdapter({ config, fetch, logs })).rejects.toThrow(
+      await expect(createSignatureValidatorAdapter({ config, fetch, logs, metrics })).rejects.toThrow(
         'Configuration: config "PEER_VALIDATION_MAX_CONCURRENT" should be a positive integer, got 2.5 instead'
       )
     })
@@ -96,7 +101,7 @@ describe('when building the adapter', () => {
     it('should not wait for the first login to find out the Catalyst is unset', async () => {
       config.getString = jest.fn().mockRejectedValue(new Error('Configuration: config "PEER_URL" is unreadable'))
 
-      await expect(createSignatureValidatorAdapter({ config, fetch, logs })).rejects.toThrow('PEER_URL')
+      await expect(createSignatureValidatorAdapter({ config, fetch, logs, metrics })).rejects.toThrow('PEER_URL')
     })
 
     it('should record the values actually in force', async () => {
@@ -198,6 +203,25 @@ describe('validateOnChain', () => {
         message: 'Invalid signature'
       })
     })
+
+    it('should not count it as a refusal, since the validation worked', async () => {
+      await adapter.validateOnChain(authChain, EPHEMERAL)
+
+      expect(increment).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('when the peer answers with a reason that is not text', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ valid: false, error: { code: 500 } }) })
+    })
+
+    it('should not pass it on, since it would reach the client as [object Object]', async () => {
+      await expect(adapter.validateOnChain(authChain, EPHEMERAL)).resolves.toEqual({
+        ok: false,
+        message: 'Signature validation failed'
+      })
+    })
   })
 
   describe('when the Catalyst answers with an error status', () => {
@@ -225,6 +249,12 @@ describe('validateOnChain', () => {
       await adapter.validateOnChain(authChain, EPHEMERAL)
 
       expect(logger.warn).toHaveBeenCalledWith(expect.any(String), { status: 503 })
+    })
+
+    it('should count it apart from the local refusals', async () => {
+      await adapter.validateOnChain(authChain, EPHEMERAL)
+
+      expect(increment).toHaveBeenCalledWith('signature_validation_refused_total', { reason: 'upstream_status' })
     })
   })
 
@@ -257,12 +287,18 @@ describe('validateOnChain', () => {
         message: 'Could not validate the signature on chain'
       })
     })
+
+    it('should count it apart from the local refusals', async () => {
+      await adapter.validateOnChain(authChain, EPHEMERAL)
+
+      expect(increment).toHaveBeenCalledWith('signature_validation_refused_total', { reason: 'unreachable' })
+    })
   })
 
   describe('when the Catalyst answers its headers and then stalls the body', () => {
     beforeEach(async () => {
       config.getNumber = givenNumbers({ PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS: 20 })
-      adapter = await createSignatureValidatorAdapter({ config, fetch, logs })
+      adapter = await createSignatureValidatorAdapter({ config, fetch, logs, metrics })
       // The fetch component clears its own timer as soon as the headers arrive, so only a
       // deadline owned here can still reach a body that never comes.
       fetchMock.mockImplementation(async (_url: string, options: { abortController: AbortController }) => ({
@@ -313,6 +349,12 @@ describe('validateOnChain', () => {
       })
       expect(fetchMock).not.toHaveBeenCalled()
     })
+
+    it('should count it, so forged traffic is visible on a dashboard', async () => {
+      await adapter.validateOnChain(shapes[0][1], EPHEMERAL)
+
+      expect(increment).toHaveBeenCalledWith('signature_validation_refused_total', { reason: 'invalid_shape' })
+    })
   })
 
   describe('when as many validations are already in flight as are allowed', () => {
@@ -321,7 +363,7 @@ describe('validateOnChain', () => {
 
     beforeEach(async () => {
       config.getNumber = givenNumbers({ PEER_VALIDATION_MAX_CONCURRENT: 2 })
-      adapter = await createSignatureValidatorAdapter({ config, fetch, logs })
+      adapter = await createSignatureValidatorAdapter({ config, fetch, logs, metrics })
       const held = new Promise(resolve => {
         resolveInFlight = resolve
       })
@@ -361,6 +403,12 @@ describe('validateOnChain', () => {
       expect(logger.warn).toHaveBeenCalledWith(expect.any(String), { inFlight: 2, maxConcurrent: 2 })
     })
 
+    it('should count it, since a saturated cap turning logins away is what to alert on', async () => {
+      await adapter.validateOnChain(authChain, EPHEMERAL)
+
+      expect(increment).toHaveBeenCalledWith('signature_validation_refused_total', { reason: 'cap_reached' })
+    })
+
     it('should let a later validation through once a slot is freed', async () => {
       resolveInFlight(undefined)
       await Promise.all(inFlight)
@@ -372,7 +420,7 @@ describe('validateOnChain', () => {
   describe('when a Catalyst is configured', () => {
     beforeEach(async () => {
       config.getString = jest.fn().mockResolvedValue('https://peer-ec1.decentraland.org/')
-      adapter = await createSignatureValidatorAdapter({ config, fetch, logs })
+      adapter = await createSignatureValidatorAdapter({ config, fetch, logs, metrics })
       fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ valid: true, ownerAddress: OWNER }) })
     })
 

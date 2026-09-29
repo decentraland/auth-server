@@ -1,7 +1,8 @@
 import type { IFetchComponent } from '@dcl/core-commons'
 import { Authenticator, AuthLinkType } from '@dcl/crypto'
 import { AuthChain } from '@dcl/schemas'
-import type { IConfigComponent, ILoggerComponent } from '@well-known-components/interfaces'
+import type { metricDeclarations } from '../metrics'
+import type { IConfigComponent, ILoggerComponent, IMetricsComponent } from '@well-known-components/interfaces'
 
 export type ISignatureValidatorAdapter = {
   /**
@@ -86,11 +87,13 @@ async function readPositiveInteger(config: IConfigComponent, name: string, fallb
 export async function createSignatureValidatorAdapter({
   config,
   fetch,
-  logs
+  logs,
+  metrics
 }: {
   config: IConfigComponent
   fetch: IFetchComponent
   logs: ILoggerComponent
+  metrics: IMetricsComponent<keyof typeof metricDeclarations>
 }): Promise<ISignatureValidatorAdapter> {
   const logger = logs.getLogger('signature-validator')
 
@@ -113,12 +116,14 @@ export async function createSignatureValidatorAdapter({
 
     async validateOnChain(authChain: AuthChain, finalAuthority: string): Promise<{ ok: boolean; message?: string }> {
       if (!isSmartAccountLoginChain(authChain)) {
+        metrics.increment('signature_validation_refused_total', { reason: 'invalid_shape' })
         return { ok: false, message: 'Auth chain is not shaped like a login' }
       }
 
       // Nothing is awaited between the check and the increment, so the cap cannot be raced past.
       if (inFlight >= maxConcurrent) {
         logger.warn('Refused to validate a signature on chain: too many validations in flight', { inFlight, maxConcurrent })
+        metrics.increment('signature_validation_refused_total', { reason: 'cap_reached' })
         return { ok: false, message: 'Could not validate the signature on chain' }
       }
 
@@ -143,12 +148,13 @@ export async function createSignatureValidatorAdapter({
 
         if (!response.ok) {
           logger.warn('The Catalyst could not validate a signature', { status: response.status })
+          metrics.increment('signature_validation_refused_total', { reason: 'upstream_status' })
           // Drain the body so undici releases the socket back to the pool before returning.
           await response.body?.cancel().catch(() => undefined)
           return { ok: false, message: `Could not validate the signature on chain (${response.status})` }
         }
 
-        const result = (await response.json()) as { valid?: unknown; ownerAddress?: unknown; error?: string }
+        const result = (await response.json()) as { valid?: unknown; ownerAddress?: unknown; error?: unknown }
 
         // The same three checks `verifyEIP1654Sign` makes in `@dcl/crypto-middleware`. `PEER_URL`
         // is configurable, so a misrouted or misbehaving peer answering `{"valid":"false"}` must
@@ -158,12 +164,18 @@ export async function createSignatureValidatorAdapter({
           typeof result.ownerAddress === 'string' &&
           result.ownerAddress.toLowerCase() === Authenticator.ownerAddress(authChain).toLowerCase()
 
-        return isValid ? { ok: true } : { ok: false, message: result.error ?? 'Signature validation failed' }
+        // `error` comes from a configurable peer and ends up in a 400 body, so it is only passed
+        // on when it is actually a string — otherwise `new Error(obj)` upstream would render it as
+        // `[object Object]`.
+        return isValid
+          ? { ok: true }
+          : { ok: false, message: typeof result.error === 'string' ? result.error : 'Signature validation failed' }
       } catch (error) {
         // Fail closed: an unverified signature is not an accepted one.
         logger.warn('Could not reach the Catalyst to validate a signature', {
           error: error instanceof Error ? error.message : 'Unknown error'
         })
+        metrics.increment('signature_validation_refused_total', { reason: 'unreachable' })
         return { ok: false, message: 'Could not validate the signature on chain' }
       } finally {
         clearTimeout(timer)

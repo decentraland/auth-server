@@ -153,6 +153,28 @@ test('when an account with code behind it signs in', args => {
     })
   })
 
+  describe('and someone else signs the request that carries its chain', () => {
+    let otherIdentity: AuthIdentity
+
+    beforeEach(async () => {
+      otherIdentity = await createTestIdentity()
+      fetchMock.mockImplementation(catalystAnswers({ valid: true, ownerAddress: owner }))
+    })
+
+    it('should refuse it before spending a Catalyst call on a chain the caller does not own', async () => {
+      const response = await createSignedFetchRequest(baseUrl, {
+        method: 'POST',
+        path: '/identities',
+        body: { identity: { ...identity, authChain } },
+        identity: otherIdentity
+      })
+
+      expect(response.status).toBe(403)
+      await expect(response.json()).resolves.toEqual({ error: 'Request sender does not match identity owner' })
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+  })
+
   describe('and every link was signed by a plain EOA instead', () => {
     let client: HttpPollingClient
 
