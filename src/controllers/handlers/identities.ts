@@ -1,6 +1,6 @@
 import { ethers } from 'ethers'
 import { v4 as uuid } from 'uuid'
-import { Authenticator } from '@dcl/crypto'
+import { Authenticator, AuthLinkType } from '@dcl/crypto'
 import { DecentralandSignatureContext } from '@dcl/crypto-middleware'
 import { validateAuthChain } from '../../logic/auth-chain'
 import { isErrorWithMessage } from '../../logic/error-handling'
@@ -38,23 +38,40 @@ export async function createIdentityHandler(
     // Validate auth chain using the same logic as /requests endpoint
     let identitySender: string
     try {
-      // Verify that the user making the request is the same as the one who signed the identity.
-      // This runs before the chain is validated because it is free and `validateAuthChain` is not:
-      // a chain signed by a smart account goes out to the Catalyst and takes a slot from the
-      // shared concurrency cap. Without this order, any holder of a valid signed-fetch could spend
-      // those on chains belonging to arbitrary other accounts.
-      identitySender = Authenticator.ownerAddress(identity.authChain)
       const requestSender = verification?.auth
-
-      if (!requestSender || requestSender.toLowerCase() !== identitySender.toLowerCase()) {
-        identityLogger.log(`Request sender (${requestSender}) does not match identity owner (${identitySender})`)
+      const senderMismatch = (owner: string) => {
+        identityLogger.log(`Request sender (${requestSender}) does not match identity owner (${owner})`)
         return {
           status: 403,
           body: { error: 'Request sender does not match identity owner' } satisfies InvalidResponseMessage
         }
       }
 
-      const { finalAuthority } = await validateAuthChain(identity.authChain, signatureValidator)
+      // Verify that the user making the request is the same as the one who signed the identity
+      // before the chain is validated, because this is free and `validateAuthChain` is not: a
+      // chain signed by a smart account goes out to the Catalyst and takes a slot from the shared
+      // concurrency cap. Without it, any holder of a valid signed-fetch could spend those on
+      // chains belonging to arbitrary other accounts.
+      //
+      // Only a chain that names an owner can be compared this early. `Authenticator.ownerAddress`
+      // does not throw on one that doesn't — it answers `Invalid-Owner-Address` — so an empty or
+      // malformed chain falls through to `validateAuthChain`, which rejects it with its own 400
+      // without reaching the Catalyst.
+      const namesOwner = identity.authChain.length > 0 && identity.authChain[0].type === AuthLinkType.SIGNER
+      if (namesOwner) {
+        const owner = Authenticator.ownerAddress(identity.authChain)
+        if (!requestSender || requestSender.toLowerCase() !== owner.toLowerCase()) {
+          return senderMismatch(owner)
+        }
+      }
+
+      const { sender, finalAuthority } = await validateAuthChain(identity.authChain, signatureValidator)
+      identitySender = sender
+
+      // Re-checked against the validated owner, so correctness never rests on the early check.
+      if (!requestSender || requestSender.toLowerCase() !== identitySender.toLowerCase()) {
+        return senderMismatch(identitySender)
+      }
 
       // Verify that the ephemeral wallet address matches the finalAuthority from auth chain
       if (identity.ephemeralIdentity.address.toLowerCase() !== finalAuthority.toLowerCase()) {

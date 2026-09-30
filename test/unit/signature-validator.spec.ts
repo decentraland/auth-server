@@ -74,7 +74,7 @@ describe('when building the adapter', () => {
       config.getString = givenStrings({ PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS: '0' })
 
       await expect(createSignatureValidatorAdapter({ config, fetch, logs, metrics })).rejects.toThrow(
-        'Configuration: config "PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS" should be a positive integer, got "0" instead'
+        /"PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS" should be a positive integer.* got "0" instead/
       )
     })
 
@@ -82,7 +82,7 @@ describe('when building the adapter', () => {
       config.getString = givenStrings({ PEER_VALIDATION_MAX_CONCURRENT: '0' })
 
       await expect(createSignatureValidatorAdapter({ config, fetch, logs, metrics })).rejects.toThrow(
-        'Configuration: config "PEER_VALIDATION_MAX_CONCURRENT" should be a positive integer, got "0" instead'
+        /"PEER_VALIDATION_MAX_CONCURRENT" should be a positive integer.* got "0" instead/
       )
     })
   })
@@ -92,7 +92,7 @@ describe('when building the adapter', () => {
       config.getString = givenStrings({ PEER_VALIDATION_MAX_CONCURRENT: '2.5' })
 
       await expect(createSignatureValidatorAdapter({ config, fetch, logs, metrics })).rejects.toThrow(
-        'Configuration: config "PEER_VALIDATION_MAX_CONCURRENT" should be a positive integer, got "2.5" instead'
+        /"PEER_VALIDATION_MAX_CONCURRENT" should be a positive integer.* got "2\.5" instead/
       )
     })
   })
@@ -102,7 +102,43 @@ describe('when building the adapter', () => {
       config.getString = givenStrings({ PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS: '5s' })
 
       await expect(createSignatureValidatorAdapter({ config, fetch, logs, metrics })).rejects.toThrow(
-        'Configuration: config "PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS" should be a positive integer, got "5s" instead'
+        /"PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS" should be a positive integer.* got "5s" instead/
+      )
+    })
+  })
+
+  describe('and the timeout is larger than a timer can hold', () => {
+    it('should refuse to start, since Node would clamp it to 1ms and abort every call', async () => {
+      config.getString = givenStrings({ PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS: '3000000000' })
+
+      await expect(createSignatureValidatorAdapter({ config, fetch, logs, metrics })).rejects.toThrow(
+        /"PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS" should be a positive integer no larger than 2147483647/
+      )
+    })
+
+    it('should accept the largest delay a timer honours', async () => {
+      config.getString = givenStrings({ PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS: String(2 ** 31 - 1) })
+
+      await expect(createSignatureValidatorAdapter({ config, fetch, logs, metrics })).resolves.toBeDefined()
+    })
+  })
+
+  describe('and the Catalyst is reached over plain http', () => {
+    it('should refuse to start, since anyone on that link could forge a valid verdict', async () => {
+      config.getString = givenStrings({ PEER_URL: 'http://peer.decentraland.org' })
+
+      await expect(createSignatureValidatorAdapter({ config, fetch, logs, metrics })).rejects.toThrow(
+        'Configuration: config "PEER_URL" should use https, got "http://peer.decentraland.org" instead'
+      )
+    })
+  })
+
+  describe('and the Catalyst is not an absolute URL', () => {
+    it('should refuse to start, rather than fail on the first smart-account login', async () => {
+      config.getString = givenStrings({ PEER_URL: 'peer.decentraland.org' })
+
+      await expect(createSignatureValidatorAdapter({ config, fetch, logs, metrics })).rejects.toThrow(
+        'Configuration: config "PEER_URL" should be an absolute URL, got "peer.decentraland.org" instead'
       )
     })
   })
@@ -342,6 +378,119 @@ describe('validateOnChain', () => {
         message: 'Could not validate the signature on chain'
       })
     })
+
+    it('should count it as a timeout, apart from a Catalyst that cannot be reached', async () => {
+      await adapter.validateOnChain(authChain, EPHEMERAL)
+
+      expect(increment).toHaveBeenCalledWith('signature_validation_refused_total', { reason: 'timeout' })
+    })
+  })
+
+  describe('when the Catalyst never answers its headers', () => {
+    beforeEach(async () => {
+      config.getString = givenStrings({ PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS: '20' })
+      adapter = await createSignatureValidatorAdapter({ config, fetch, logs, metrics })
+      fetchMock.mockImplementation(
+        (_url: string, options: { abortController: AbortController }) =>
+          new Promise((_resolve, reject) => {
+            options.abortController.signal.addEventListener('abort', () => reject(new Error('Request aborted (timed out)')))
+          })
+      )
+    })
+
+    it('should give up at the deadline and count it as a timeout', async () => {
+      await expect(adapter.validateOnChain(authChain, EPHEMERAL)).resolves.toEqual({
+        ok: false,
+        message: 'Could not validate the signature on chain'
+      })
+      expect(increment).toHaveBeenCalledWith('signature_validation_refused_total', { reason: 'timeout' })
+    })
+  })
+
+  describe('when the peer answers 200 with something that is not a JSON object', () => {
+    const bodies: [string, () => Promise<unknown>][] = [
+      ['an HTML page', async () => Promise.reject(new SyntaxError('Unexpected token < in JSON at position 0'))],
+      ['JSON null', async () => null],
+      ['a JSON array', async () => []],
+      ['a bare JSON string', async () => 'ok']
+    ]
+
+    it.each(bodies)('should fail closed when it is %s', async (_body, json) => {
+      fetchMock.mockResolvedValue({ ok: true, status: 200, json })
+
+      await expect(adapter.validateOnChain(authChain, EPHEMERAL)).resolves.toEqual({
+        ok: false,
+        message: 'Signature validation failed'
+      })
+    })
+
+    it.each(bodies)('should count %s as a bad answer rather than an unreachable Catalyst', async (_body, json) => {
+      fetchMock.mockResolvedValue({ ok: true, status: 200, json })
+
+      await adapter.validateOnChain(authChain, EPHEMERAL)
+
+      expect(increment).toHaveBeenCalledWith('signature_validation_refused_total', { reason: 'invalid_response' })
+      expect(increment).not.toHaveBeenCalledWith('signature_validation_refused_total', { reason: 'unreachable' })
+    })
+  })
+
+  describe('when the Catalyst rejects the signature with a very long reason', () => {
+    beforeEach(() => {
+      fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ valid: false, error: 'x'.repeat(5000) }) })
+    })
+
+    it('should cap what reaches the client', async () => {
+      const result = await adapter.validateOnChain(authChain, EPHEMERAL)
+
+      expect(result.message).toHaveLength(200)
+    })
+  })
+
+  describe('when a validation ends in a failure and the cap allows a single one', () => {
+    const failures: [string, () => void][] = [
+      ['the Catalyst cannot be reached', () => fetchMock.mockRejectedValueOnce(new Error('network down'))],
+      [
+        'the Catalyst answers an error status',
+        () => fetchMock.mockResolvedValueOnce({ ok: false, status: 503, body: { cancel: async () => undefined } })
+      ],
+      [
+        'the Catalyst validates a different account',
+        () =>
+          fetchMock.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            json: async () => ({ valid: true, ownerAddress: '0x0000000000000000000000000000000000000001' })
+          })
+      ],
+      [
+        'the peer answers a body that is not JSON',
+        () => fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => null })
+      ],
+      [
+        'the call hits the deadline',
+        () =>
+          fetchMock.mockImplementationOnce(
+            (_url: string, options: { abortController: AbortController }) =>
+              new Promise((_resolve, reject) => {
+                options.abortController.signal.addEventListener('abort', () => reject(new Error('Request aborted (timed out)')))
+              })
+          )
+      ]
+    ]
+
+    beforeEach(async () => {
+      config.getString = givenStrings({ PEER_VALIDATION_MAX_CONCURRENT: '1', PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS: '20' })
+      adapter = await createSignatureValidatorAdapter({ config, fetch, logs, metrics })
+      fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ valid: true, ownerAddress: OWNER }) })
+    })
+
+    it.each(failures)('should free its slot when %s, so the next login still gets through', async (_failure, arrange) => {
+      arrange()
+      await adapter.validateOnChain(authChain, EPHEMERAL)
+
+      await expect(adapter.validateOnChain(authChain, EPHEMERAL)).resolves.toEqual({ ok: true })
+      expect(increment).not.toHaveBeenCalledWith('signature_validation_refused_total', { reason: 'cap_reached' })
+    })
   })
 
   describe('when the chain is not shaped like a login', () => {
@@ -439,6 +588,20 @@ describe('validateOnChain', () => {
       await Promise.all(inFlight)
 
       await expect(adapter.validateOnChain(authChain, EPHEMERAL)).resolves.toEqual({ ok: true })
+    })
+  })
+
+  describe('when the configured Catalyst carries a path', () => {
+    beforeEach(async () => {
+      config.getString = givenStrings({ PEER_URL: 'https://peer-ec1.decentraland.org/content/other' })
+      adapter = await createSignatureValidatorAdapter({ config, fetch, logs, metrics })
+      fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ valid: true, ownerAddress: OWNER }) })
+    })
+
+    it('should keep only its origin, as the crypto middleware does', async () => {
+      await adapter.validateOnChain(authChain, EPHEMERAL)
+
+      expect(fetchMock.mock.calls[0][0]).toBe('https://peer-ec1.decentraland.org/lambdas/crypto/validate-signature')
     })
   })
 

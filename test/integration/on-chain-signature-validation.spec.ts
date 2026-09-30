@@ -114,6 +114,33 @@ test('when an account with code behind it signs in', args => {
         })
       })
     })
+
+    describe('and the Catalyst turns the signature down', () => {
+      beforeEach(() => {
+        fetchMock.mockImplementation(catalystAnswers({ valid: false, error: 'Invalid signature' }))
+      })
+
+      it('should refuse it with the reason the Catalyst gave', async () => {
+        await expect(client.request({ method: 'eth_sendTransaction', params: [], authChain })).resolves.toEqual({
+          error: 'Invalid signature'
+        })
+      })
+    })
+
+    describe('and its ephemeral payload has expired', () => {
+      beforeEach(async () => {
+        const expired = await createTestIdentity(-1)
+        authChain = asSmartAccountChain(expired.authChain)
+        fetchMock.mockImplementation(catalystAnswers({ valid: true, ownerAddress: expired.authChain[0].payload }))
+      })
+
+      it('should refuse it without spending a Catalyst call', async () => {
+        await expect(client.request({ method: 'eth_sendTransaction', params: [], authChain })).resolves.toEqual({
+          error: 'Ephemeral payload has expired'
+        })
+        expect(fetchMock).not.toHaveBeenCalled()
+      })
+    })
   })
 
   describe('and it registers a request over the socket', () => {
@@ -140,6 +167,18 @@ test('when an account with code behind it signs in', args => {
       })
     })
 
+    describe('and the Catalyst cannot be reached', () => {
+      beforeEach(() => {
+        fetchMock.mockRejectedValue(new Error('network down'))
+      })
+
+      it('should fail closed over the socket too', async () => {
+        await expect(socket.emitWithAck('request', { method: 'eth_sendTransaction', params: [], authChain })).resolves.toEqual({
+          error: 'Could not validate the signature on chain'
+        })
+      })
+    })
+
     describe('and the Catalyst turns the signature down', () => {
       beforeEach(() => {
         fetchMock.mockImplementation(catalystAnswers({ valid: false, error: 'Invalid signature' }))
@@ -150,6 +189,40 @@ test('when an account with code behind it signs in', args => {
           error: 'Invalid signature'
         })
       })
+    })
+  })
+
+  describe('and it stores an identity whose chain names no owner', () => {
+    const chains: [string, (chain: AuthChain) => AuthChain][] = [
+      ['is empty', () => []],
+      ['does not start with a SIGNER link', chain => chain.slice(1)]
+    ]
+
+    beforeEach(() => {
+      fetchMock.mockImplementation(catalystAnswers({ valid: true, ownerAddress: owner }))
+    })
+
+    it.each(chains)('should reject a chain that %s as malformed (400), not as a sender mismatch', async (_shape, build) => {
+      const response = await createSignedFetchRequest(baseUrl, {
+        method: 'POST',
+        path: '/identities',
+        body: { identity: { ...identity, authChain: build(authChain) } },
+        identity
+      })
+
+      expect(response.status).toBe(400)
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it('should keep the message an empty chain always had', async () => {
+      const response = await createSignedFetchRequest(baseUrl, {
+        method: 'POST',
+        path: '/identities',
+        body: { identity: { ...identity, authChain: [] } },
+        identity
+      })
+
+      await expect(response.json()).resolves.toEqual({ error: 'Auth chain is required' })
     })
   })
 

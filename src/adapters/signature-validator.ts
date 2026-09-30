@@ -26,6 +26,18 @@ const DEFAULT_TIMEOUT_IN_MILLISECONDS = 5000
 const DEFAULT_MAX_CONCURRENT_VALIDATIONS = 10
 
 /**
+ * The largest delay `setTimeout` honours. Node clamps anything above it to 1ms and only prints a
+ * `TimeoutOverflowWarning`, so a larger deadline would abort every call instead of waiting longer.
+ */
+const MAX_TIMER_DELAY_IN_MILLISECONDS = 2 ** 31 - 1
+
+/**
+ * Longest Catalyst `error` text passed on to clients. It is already public through lamb2, so this
+ * is not about secrecy — it keeps a misbehaving peer from filling a 400 body with whatever it sent.
+ */
+const MAX_ERROR_MESSAGE_LENGTH = 200
+
+/**
  * The shape a login actually produces: a `SIGNER` link naming the account, followed by the
  * ephemeral link that account signed. `isEIP1654AuthChain` in `@dcl/crypto-middleware` applies the
  * same rule, so this is the shape the rest of the platform accepts too.
@@ -51,18 +63,57 @@ function isSmartAccountLoginChain(authChain: AuthChain): boolean {
  * rejects that at boot. `0` matters for the same reason: it is not nullish, so it survives `??`,
  * and it means "abort every call" for the timeout and "refuse every call" for the cap.
  */
-async function readPositiveInteger(config: IConfigComponent, name: string, fallback: number): Promise<number> {
+async function readPositiveInteger(
+  config: IConfigComponent,
+  name: string,
+  fallback: number,
+  max: number = Number.MAX_SAFE_INTEGER
+): Promise<number> {
   const value = await config.getString(name)
 
   if (value === undefined || value === '') {
     return fallback
   }
 
-  if (!/^\d+$/.test(value) || Number(value) === 0) {
-    throw new Error(`Configuration: config "${name}" should be a positive integer, got "${value}" instead`)
+  if (!/^\d+$/.test(value) || Number(value) === 0 || Number(value) > max) {
+    throw new Error(`Configuration: config "${name}" should be a positive integer no larger than ${max}, got "${value}" instead`)
   }
 
   return Number(value)
+}
+
+/**
+ * Reads the Catalyst's origin, refusing anything but `https`.
+ *
+ * The Catalyst's verdict is what admits a smart-account login, so the link it travels over is part
+ * of the signature check: over plain `http` anyone able to tamper with the traffic could answer
+ * `{"valid":true,"ownerAddress":<victim>}` and sign in as that account. Only the origin is kept,
+ * the same way `@dcl/crypto-middleware` resolves its catalyst, so a stray path cannot redirect the
+ * call elsewhere on the host.
+ */
+async function readPeerOrigin(config: IConfigComponent): Promise<string> {
+  const value = (await config.getString('PEER_URL')) || DEFAULT_PEER_URL
+
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    throw new Error(`Configuration: config "PEER_URL" should be an absolute URL, got "${value}" instead`)
+  }
+
+  if (url.protocol !== 'https:') {
+    throw new Error(`Configuration: config "PEER_URL" should use https, got "${value}" instead`)
+  }
+
+  return url.origin
+}
+
+/**
+ * Whether the peer's answer is a JSON object. A peer that is not a Catalyst can answer `null`, an
+ * array or a bare string with a 200, and reading `.valid` off `null` would throw.
+ */
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /**
@@ -100,10 +151,15 @@ export async function createSignatureValidatorAdapter({
 }): Promise<ISignatureValidatorAdapter> {
   const logger = logs.getLogger('signature-validator')
 
-  const peerUrl = ((await config.getString('PEER_URL')) || DEFAULT_PEER_URL).replace(/\/+$/, '')
-  const timeout = await readPositiveInteger(config, 'PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS', DEFAULT_TIMEOUT_IN_MILLISECONDS)
+  const peerOrigin = await readPeerOrigin(config)
+  const timeout = await readPositiveInteger(
+    config,
+    'PEER_VALIDATION_TIMEOUT_IN_MILLISECONDS',
+    DEFAULT_TIMEOUT_IN_MILLISECONDS,
+    MAX_TIMER_DELAY_IN_MILLISECONDS
+  )
   const maxConcurrent = await readPositiveInteger(config, 'PEER_VALIDATION_MAX_CONCURRENT', DEFAULT_MAX_CONCURRENT_VALIDATIONS)
-  const validateSignatureUrl = `${peerUrl}/lambdas/crypto/validate-signature`
+  const validateSignatureUrl = `${peerOrigin}/lambdas/crypto/validate-signature`
 
   // Logged so the values actually in force are visible at boot. `PEER_VALIDATION_...=5s` parses as
   // `5` rather than failing, and a 5ms deadline is otherwise only noticeable as every
@@ -157,7 +213,24 @@ export async function createSignatureValidatorAdapter({
           return { ok: false, message: `Could not validate the signature on chain (${response.status})` }
         }
 
-        const result = (await response.json()) as { valid?: unknown; ownerAddress?: unknown; error?: unknown }
+        // Parsed on its own so a peer answering HTML, or JSON that is not an object, is metered as
+        // a bad answer rather than as an unreachable Catalyst — the two point at different fixes.
+        // An abort while reading the body is still a timeout, and is left to the outer `catch`.
+        let result: unknown
+        try {
+          result = await response.json()
+        } catch (error) {
+          if (abortController.signal.aborted) {
+            throw error
+          }
+          result = undefined
+        }
+
+        if (!isObject(result)) {
+          logger.warn('The Catalyst answered something that is not a JSON object')
+          metrics.increment('signature_validation_refused_total', { reason: 'invalid_response' })
+          return { ok: false, message: 'Signature validation failed' }
+        }
 
         // The same checks `verifyEIP1654Sign` makes in `@dcl/crypto-middleware`. `PEER_URL` is
         // configurable, so a misrouted or misbehaving peer answering `{"valid":"false"}` must not
@@ -174,7 +247,10 @@ export async function createSignatureValidatorAdapter({
           // `error` comes from a configurable peer and ends up in a 400 body, so it is only passed
           // on when it is actually a string — otherwise `new Error(obj)` upstream would render it
           // as `[object Object]`.
-          return { ok: false, message: typeof result.error === 'string' ? result.error : 'Signature validation failed' }
+          return {
+            ok: false,
+            message: typeof result.error === 'string' ? result.error.slice(0, MAX_ERROR_MESSAGE_LENGTH) : 'Signature validation failed'
+          }
         }
 
         const owner = Authenticator.ownerAddress(authChain).toLowerCase()
@@ -187,11 +263,14 @@ export async function createSignatureValidatorAdapter({
 
         return { ok: true }
       } catch (error) {
-        // Fail closed: an unverified signature is not an accepted one.
+        // Fail closed: an unverified signature is not an accepted one. A deadline abort is metered
+        // apart from a connection failure: a slow Catalyst and a down one call for different fixes.
+        const reason = abortController.signal.aborted ? 'timeout' : 'unreachable'
         logger.warn('Could not reach the Catalyst to validate a signature', {
+          reason,
           error: error instanceof Error ? error.message : 'Unknown error'
         })
-        metrics.increment('signature_validation_refused_total', { reason: 'unreachable' })
+        metrics.increment('signature_validation_refused_total', { reason })
         return { ok: false, message: 'Could not validate the signature on chain' }
       } finally {
         clearTimeout(timer)
