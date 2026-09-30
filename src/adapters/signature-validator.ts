@@ -1,8 +1,32 @@
+import { AsyncLocalStorage } from 'async_hooks'
 import type { IFetchComponent } from '@dcl/core-commons'
 import { Authenticator, AuthLinkType } from '@dcl/crypto'
 import { AuthChain } from '@dcl/schemas'
 import type { metricDeclarations } from '../metrics'
 import type { IConfigComponent, ILoggerComponent, IMetricsComponent } from '@well-known-components/interfaces'
+
+/**
+ * Who is asking for an on-chain validation, which decides whose budget it draws from.
+ *
+ * - `authenticated`: the caller proved control of an account with a signed fetch (`/identities`,
+ *   the login handoff).
+ * - `anonymous`: nothing is proved about the caller (`POST /requests`, the socket `request`
+ *   event).
+ *
+ * The two never share slots, so traffic that proves nothing cannot starve the login. That alone
+ * does not protect the login, though: a plain account costs nothing to create, so a signed fetch
+ * proves control of *an* account, not that the caller is scarce.
+ *
+ * `clientKeys` are what the per-client limit is counted against, each independently: a call is
+ * refused when any one of them already holds its share. The login handoff passes both the verified
+ * account and the trusted client IP, so neither minting accounts nor spreading one account over
+ * many addresses buys more slots. The anonymous paths pass the trusted client IP. A key can be
+ * missing — no trusted address could be established — and then only the pool cap applies.
+ */
+export type ValidationCaller = {
+  pool: 'authenticated' | 'anonymous'
+  clientKeys: string[]
+}
 
 export type ISignatureValidatorAdapter = {
   /**
@@ -12,8 +36,30 @@ export type ISignatureValidatorAdapter = {
   /**
    * Validates such a chain, resolving to the reason when it is not valid.
    */
-  validateOnChain(authChain: AuthChain, finalAuthority: string): Promise<{ ok: boolean; message?: string }>
+  validateOnChain(authChain: AuthChain, finalAuthority: string, caller: ValidationCaller): Promise<{ ok: boolean; message?: string }>
+  /**
+   * Origin of the Catalyst every on-chain check goes to, as configured in `PEER_URL`.
+   */
+  readonly peerOrigin: string
+  /**
+   * A fetch for the signed-fetch middleware's own Catalyst calls, which would otherwise have no
+   * deadline and no limit. It applies the same deadline as `validateOnChain` and draws from a third
+   * budget, `signed_fetch`, counted per client like the other two. The client is whatever
+   * `withSignedFetchCaller` bound for the request in progress.
+   */
+  readonly deadlineFetcher: IFetchComponent
+  /**
+   * Runs `run` — the signed-fetch middleware, for one request — with `clientKeys` bound as the client
+   * its Catalyst calls are counted against. The middleware calls `deadlineFetcher` without any
+   * request context, so this is how that fetcher knows who is asking.
+   */
+  withSignedFetchCaller<T>(clientKeys: string[], run: () => Promise<T>): Promise<T>
 }
+
+type Pool = ValidationCaller['pool'] | 'signed_fetch'
+
+/** Statuses a `Response` must be constructed without a body for. */
+const NULL_BODY_STATUSES = new Set([204, 205, 304])
 
 /**
  * Link types whose signature belongs to an account with code behind it, and can only be checked by
@@ -24,6 +70,7 @@ const ON_CHAIN_LINK_TYPES: AuthLinkType[] = [AuthLinkType.ECDSA_EIP_1654_EPHEMER
 const DEFAULT_PEER_URL = 'https://peer.decentraland.org'
 const DEFAULT_TIMEOUT_IN_MILLISECONDS = 5000
 const DEFAULT_MAX_CONCURRENT_VALIDATIONS = 10
+const DEFAULT_MAX_CONCURRENT_VALIDATIONS_PER_CLIENT = 3
 
 /**
  * The largest delay `setTimeout` honours. Node clamps anything above it to 1ms and only prints a
@@ -126,14 +173,36 @@ function isObject(value: unknown): value is Record<string, unknown> {
  * decision about which chain to query, it defers to the Catalyst, which already runs that
  * validation and exposes it. `builder-server` resolves the same problem the same way.
  *
- * `POST /requests` and the socket `request` event accept an auth chain from anyone, so this is the
- * one place where unauthenticated input turns into outbound traffic. Three bounds keep that from
- * becoming an availability problem for the logins this adapter exists to fix: a chain that is not
- * shaped like a login never leaves the box, an expired one is settled by the caller, and no more
- * than `PEER_VALIDATION_MAX_CONCURRENT` validations are in flight at once — past that a request is
- * refused here rather than queued behind a saturated upstream. Results are deliberately NOT
- * cached: an account's ERC-1271 answer changes when its owner rotates or its EIP-7702 delegation
- * is revoked, so a cached `valid` could outlive the authority it recorded.
+ * `POST /requests` and the socket `request` event accept an auth chain from anyone, and turn it into
+ * outbound traffic here. (The only other path is the signed-fetch middleware on `/identities`, which
+ * checks a smart account's own signed fetch the same way; it borrows `peerOrigin` and
+ * `deadlineFetcher` so it at least asks the same Catalyst under the same deadline.) A well-formed, unexpired chain
+ * needs no key to build, and one whose `SIGNER` is a slow contract holds a slot for the whole
+ * deadline. The bounds that keep this from switching the feature off:
+ *
+ * - a chain that is not shaped like a login never leaves the box, and an expired one is settled by
+ *   the caller;
+ * - calls draw from separate budgets of `PEER_VALIDATION_MAX_CONCURRENT` slots each — the login
+ *   handoff, the anonymous paths (see `ValidationCaller`) and the signed-fetch middleware's own
+ *   checks (see `deadlineFetcher`) — so filling one cannot touch the others;
+ * - within a budget, each client key holds at most `PEER_VALIDATION_MAX_CONCURRENT_PER_CLIENT`
+ *   slots (see `ValidationCaller`). That is an in-flight count, not a rate, so a user behind a
+ *   shared NAT who retries once still gets through: the retry only needs the first attempt to
+ *   have finished. Client addresses come from `getTrustedClientIp`, never from a header the client
+ *   can set.
+ *
+ * Past a limit a request is refused here rather than queued behind a saturated upstream. The
+ * counters live in this process, which is global only while the service runs as a single task (as
+ * it does in every environment today). What remains is a caller spread over enough addresses to
+ * fill a pool — `PEER_VALIDATION_MAX_CONCURRENT / PEER_VALIDATION_MAX_CONCURRENT_PER_CLIENT`
+ * IPv4 addresses or IPv6 /64s, which a single ordinary /56 or /48 delegation provides. That needs a
+ * limit across instances and sources: a Cloudflare rate limit on these routes, which is a separate
+ * change to the service definition and not something this process can enforce. The per-address
+ * limit here does not rely on it, because not all traffic can be assumed to pass through the edge.
+ *
+ * Results are deliberately NOT cached: an account's ERC-1271 answer changes when its owner rotates
+ * or its EIP-7702 delegation is revoked, so a cached `valid` could outlive the authority it
+ * recorded.
  *
  * Config is resolved and checked here rather than on first use, so a bad `PEER_URL` or bound fails
  * at boot instead of surfacing as a 400 on some user's login.
@@ -159,34 +228,162 @@ export async function createSignatureValidatorAdapter({
     MAX_TIMER_DELAY_IN_MILLISECONDS
   )
   const maxConcurrent = await readPositiveInteger(config, 'PEER_VALIDATION_MAX_CONCURRENT', DEFAULT_MAX_CONCURRENT_VALIDATIONS)
+  // The default is clamped to the pool, so lowering the pool alone cannot leave a per-client limit
+  // that is larger than the pool and therefore never applies.
+  const maxConcurrentPerClient = await readPositiveInteger(
+    config,
+    'PEER_VALIDATION_MAX_CONCURRENT_PER_CLIENT',
+    Math.min(DEFAULT_MAX_CONCURRENT_VALIDATIONS_PER_CLIENT, maxConcurrent),
+    maxConcurrent
+  )
   const validateSignatureUrl = `${peerOrigin}/lambdas/crypto/validate-signature`
 
   // Logged so the values actually in force are visible at boot. `PEER_VALIDATION_...=5s` parses as
   // `5` rather than failing, and a 5ms deadline is otherwise only noticeable as every
   // smart-account login being turned away.
-  logger.log(`Validating on-chain signatures against ${validateSignatureUrl}`, { timeout, maxConcurrent })
+  logger.log(`Validating on-chain signatures against ${validateSignatureUrl}`, { timeout, maxConcurrent, maxConcurrentPerClient })
 
-  let inFlight = 0
+  // One budget per pool. `byClient` only holds keys with a call in flight, so it is bounded by
+  // `maxConcurrent` times the keys per call and never grows with the number of clients seen.
+  const budgets: Record<Pool, { inFlight: number; byClient: Map<string, number> }> = {
+    authenticated: { inFlight: 0, byClient: new Map() },
+    anonymous: { inFlight: 0, byClient: new Map() },
+    signed_fetch: { inFlight: 0, byClient: new Map() }
+  }
+
+  const signedFetchCallers = new AsyncLocalStorage<string[]>()
+
+  const count = (reason: string, pool: Pool) => metrics.increment('signature_validation_refused_total', { reason, pool })
+
+  // Refusals can be triggered by anyone at no cost, so the warning for each kind is logged at most
+  // once per interval, with how many were folded into it. The metric still counts every one.
+  const REFUSAL_WARNING_INTERVAL_IN_MILLISECONDS = 10_000
+  const refusalWarnings = new Map<string, { lastLoggedAt: number; suppressed: number }>()
+  function warnRefusal(message: string, details: { pool: Pool } & Record<string, string | number>): void {
+    const key = `${message}|${details.pool}`
+    const now = Date.now()
+    const state = refusalWarnings.get(key)
+    if (state && now - state.lastLoggedAt < REFUSAL_WARNING_INTERVAL_IN_MILLISECONDS) {
+      state.suppressed++
+      return
+    }
+    logger.warn(message, state?.suppressed ? { ...details, suppressedSinceLastWarning: state.suppressed } : details)
+    refusalWarnings.set(key, { lastLoggedAt: now, suppressed: 0 })
+  }
+
+  /**
+   * Takes a slot in `pool` for `clientKeys` (already deduplicated), or says which limit is in the
+   * way. Synchronous from check to increment, so no limit can be raced past.
+   */
+  function tryAcquire(pool: Pool, clientKeys: string[]): 'acquired' | 'cap_reached' | 'client_cap_reached' {
+    const budget = budgets[pool]
+    const busiestKey = Math.max(0, ...clientKeys.map(key => budget.byClient.get(key) ?? 0))
+
+    if (budget.inFlight >= maxConcurrent) {
+      warnRefusal('Refused to validate a signature on chain: too many validations in flight', {
+        pool,
+        inFlight: budget.inFlight,
+        maxConcurrent
+      })
+      return 'cap_reached'
+    }
+
+    if (busiestKey >= maxConcurrentPerClient) {
+      warnRefusal('Refused to validate a signature on chain: this client has too many validations in flight', {
+        pool,
+        inFlight: busiestKey,
+        maxConcurrentPerClient
+      })
+      return 'client_cap_reached'
+    }
+
+    budget.inFlight++
+    for (const key of clientKeys) {
+      budget.byClient.set(key, (budget.byClient.get(key) ?? 0) + 1)
+    }
+    return 'acquired'
+  }
+
+  function release(pool: Pool, clientKeys: string[]): void {
+    const budget = budgets[pool]
+    budget.inFlight--
+    for (const key of clientKeys) {
+      const held = (budget.byClient.get(key) ?? 1) - 1
+      if (held > 0) {
+        budget.byClient.set(key, held)
+      } else {
+        budget.byClient.delete(key)
+      }
+    }
+  }
 
   return {
+    peerOrigin,
+
+    deadlineFetcher: {
+      async fetch(url, init) {
+        // These calls run before any handler, so before either handler pool: without a budget of
+        // their own, signed fetches naming a smart account would be an unbounded way to reach the
+        // Catalyst, and without the per-client share anyone could fill that budget. Refusing throws,
+        // which the middleware answers with a 503.
+        const clientKeys = [...new Set(signedFetchCallers.getStore() ?? [])]
+        const outcome = tryAcquire('signed_fetch', clientKeys)
+        if (outcome !== 'acquired') {
+          count(outcome, 'signed_fetch')
+          throw new Error('Too many signature validations in flight')
+        }
+
+        // The body is read here, inside the slot and the deadline, and handed back as an in-memory
+        // `Response`: the middleware reads the body only after this resolves, so returning the live
+        // one would leave the read outside both.
+        const abortController = new AbortController()
+        const timer = setTimeout(() => abortController.abort(), timeout)
+
+        try {
+          const response = await fetch.fetch(url, { ...init, abortController })
+
+          if (!response.ok) {
+            // The middleware discards a non-ok body unread; cancelling it here frees the socket.
+            await response.body?.cancel().catch(() => undefined)
+            return new Response(null, { status: response.status, statusText: response.statusText })
+          }
+
+          const body = NULL_BODY_STATUSES.has(response.status) ? null : await response.text()
+          return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers })
+        } finally {
+          clearTimeout(timer)
+          release('signed_fetch', clientKeys)
+        }
+      }
+    },
+
+    withSignedFetchCaller<T>(clientKeys: string[], run: () => Promise<T>): Promise<T> {
+      return signedFetchCallers.run(clientKeys, run)
+    },
+
     requiresOnChainValidation(authChain: AuthChain): boolean {
       return authChain.some(link => ON_CHAIN_LINK_TYPES.includes(link.type))
     },
 
-    async validateOnChain(authChain: AuthChain, finalAuthority: string): Promise<{ ok: boolean; message?: string }> {
+    async validateOnChain(
+      authChain: AuthChain,
+      finalAuthority: string,
+      caller: ValidationCaller
+    ): Promise<{ ok: boolean; message?: string }> {
+      const refuse = (reason: string) => count(reason, caller.pool)
+
       if (!isSmartAccountLoginChain(authChain)) {
-        metrics.increment('signature_validation_refused_total', { reason: 'invalid_shape' })
+        refuse('invalid_shape')
         return { ok: false, message: 'Auth chain is not shaped like a login' }
       }
 
-      // Nothing is awaited between the check and the increment, so the cap cannot be raced past.
-      if (inFlight >= maxConcurrent) {
-        logger.warn('Refused to validate a signature on chain: too many validations in flight', { inFlight, maxConcurrent })
-        metrics.increment('signature_validation_refused_total', { reason: 'cap_reached' })
+      // Deduplicated so a caller passing the same key twice is not counted against it twice.
+      const clientKeys = [...new Set(caller.clientKeys)]
+      const outcome = tryAcquire(caller.pool, clientKeys)
+      if (outcome !== 'acquired') {
+        refuse(outcome)
         return { ok: false, message: 'Could not validate the signature on chain' }
       }
-
-      inFlight++
 
       // The deadline is owned here rather than handed to the fetch component, whose own `timeout`
       // stops at the response headers: it clears its timer as soon as `fetch` resolves, leaving a
@@ -207,7 +404,7 @@ export async function createSignatureValidatorAdapter({
 
         if (!response.ok) {
           logger.warn('The Catalyst could not validate a signature', { status: response.status })
-          metrics.increment('signature_validation_refused_total', { reason: 'upstream_status' })
+          refuse('upstream_status')
           // Drain the body so undici releases the socket back to the pool before returning.
           await response.body?.cancel().catch(() => undefined)
           return { ok: false, message: `Could not validate the signature on chain (${response.status})` }
@@ -228,7 +425,7 @@ export async function createSignatureValidatorAdapter({
 
         if (!isObject(result)) {
           logger.warn('The Catalyst answered something that is not a JSON object')
-          metrics.increment('signature_validation_refused_total', { reason: 'invalid_response' })
+          refuse('invalid_response')
           return { ok: false, message: 'Signature validation failed' }
         }
 
@@ -239,7 +436,7 @@ export async function createSignatureValidatorAdapter({
         // looks exactly like a wave of bad signatures.
         if (typeof result.valid !== 'boolean') {
           logger.warn('The Catalyst answered a shape this service does not recognise', { valid: typeof result.valid })
-          metrics.increment('signature_validation_refused_total', { reason: 'invalid_response' })
+          refuse('invalid_response')
           return { ok: false, message: 'Signature validation failed' }
         }
 
@@ -257,7 +454,7 @@ export async function createSignatureValidatorAdapter({
 
         if (typeof result.ownerAddress !== 'string' || result.ownerAddress.toLowerCase() !== owner) {
           logger.warn('The Catalyst validated a signature for a different account', { expected: owner })
-          metrics.increment('signature_validation_refused_total', { reason: 'invalid_response' })
+          refuse('invalid_response')
           return { ok: false, message: 'Signature validation failed' }
         }
 
@@ -270,11 +467,11 @@ export async function createSignatureValidatorAdapter({
           reason,
           error: error instanceof Error ? error.message : 'Unknown error'
         })
-        metrics.increment('signature_validation_refused_total', { reason })
+        refuse(reason)
         return { ok: false, message: 'Could not validate the signature on chain' }
       } finally {
         clearTimeout(timer)
-        inFlight--
+        release(caller.pool, clientKeys)
       }
     }
   }

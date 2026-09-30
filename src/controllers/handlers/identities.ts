@@ -8,7 +8,7 @@ import { ONE_HOUR_IN_MILLISECONDS } from '../../ports/server/constants'
 import { IdentityIdValidationResponse, IdentityResponse, InvalidResponseMessage } from '../../ports/server/types'
 import { validateIdentityId, validateIdentityRequest } from '../../ports/server/validations'
 import { HandlerContextWithPath } from '../../types'
-import { formatIpHeaders, getClientIp, ipsMatch } from '../utils'
+import { formatIpHeaders, getClientIp, getTrustedClientIp, ipsMatch } from '../utils'
 
 // POST /identities — store identity (protected by signed-fetch middleware)
 export async function createIdentityHandler(
@@ -47,6 +47,12 @@ export async function createIdentityHandler(
         }
       }
 
+      // The signed-fetch middleware is mandatory on this route, so a sender is always present; this
+      // is what lets it key the validation budget below.
+      if (!requestSender) {
+        return senderMismatch(Authenticator.ownerAddress(identity.authChain))
+      }
+
       // Verify that the user making the request is the same as the one who signed the identity
       // before the chain is validated, because this is free and `validateAuthChain` is not: a
       // chain signed by a smart account goes out to the Catalyst and takes a slot from the shared
@@ -60,16 +66,24 @@ export async function createIdentityHandler(
       const namesOwner = identity.authChain.length > 0 && identity.authChain[0].type === AuthLinkType.SIGNER
       if (namesOwner) {
         const owner = Authenticator.ownerAddress(identity.authChain)
-        if (!requestSender || requestSender.toLowerCase() !== owner.toLowerCase()) {
+        if (requestSender.toLowerCase() !== owner.toLowerCase()) {
           return senderMismatch(owner)
         }
       }
 
-      const { sender, finalAuthority } = await validateAuthChain(identity.authChain, signatureValidator)
+      // The signed fetch has proved `requestSender`, so the call draws from the authenticated budget,
+      // which anonymous callers cannot touch. It is counted against both that account and the trusted
+      // client address: accounts cost nothing to create, so the account alone would let one caller
+      // mint as many slots as it likes.
+      const trustedIp = getTrustedClientIp(request.headers)
+      const { sender, finalAuthority } = await validateAuthChain(identity.authChain, signatureValidator, {
+        pool: 'authenticated',
+        clientKeys: [`account:${requestSender.toLowerCase()}`, ...(trustedIp ? [`ip:${trustedIp}`] : [])]
+      })
       identitySender = sender
 
       // Re-checked against the validated owner, so correctness never rests on the early check.
-      if (!requestSender || requestSender.toLowerCase() !== identitySender.toLowerCase()) {
+      if (requestSender.toLowerCase() !== identitySender.toLowerCase()) {
         return senderMismatch(identitySender)
       }
 

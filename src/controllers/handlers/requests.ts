@@ -16,7 +16,7 @@ import {
 import { validateHttpOutcomeMessage, validateRequestMessage } from '../../ports/server/validations'
 import { StorageRequest } from '../../ports/storage/types'
 import { HandlerContextWithPath } from '../../types'
-import { parseJsonBody } from '../utils'
+import { getTrustedClientIp, parseJsonBody } from '../utils'
 
 export type RequestsHandlerComponents = 'storage' | 'logs' | 'socketServer' | 'signatureValidator'
 
@@ -46,7 +46,15 @@ export function createRequestHandler({ requestExpirationInSeconds }: RequestExpi
     let sender: string
 
     try {
-      sender = (await validateAuthChain(msg.authChain, signatureValidator)).sender
+      // Nothing about the caller is proved here, so the call draws from the anonymous budget and is
+      // counted against the trusted client address.
+      const trustedIp = getTrustedClientIp(context.request.headers)
+      sender = (
+        await validateAuthChain(msg.authChain, signatureValidator, {
+          pool: 'anonymous',
+          clientKeys: trustedIp ? [`ip:${trustedIp}`] : []
+        })
+      ).sender
     } catch (e) {
       return {
         status: 400,

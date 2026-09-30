@@ -15,6 +15,7 @@ import {
   getRequestValidationStatusHandler,
   notifyRequestValidationHandler
 } from './handlers/requests'
+import { getTrustedClientIp } from './utils'
 
 /**
  * Metadata keys `DELETE /accounts` authorizes on, in their canonical spelling.
@@ -46,7 +47,7 @@ const ACCOUNT_DELETION_CANONICAL_METADATA_KEYS = ['signer', 'didToken']
 // We return the entire router because it will be easier to test than a whole server
 export async function setupRouter(globalContext: GlobalContext): Promise<Router<GlobalContext>> {
   const router = new Router<GlobalContext>()
-  const { config } = globalContext.components
+  const { config, signatureValidator } = globalContext.components
 
   const onboardingApiKey = await config.requireString('ONBOARDING_API_KEY')
   const adminEnabled = (await config.getString('ONBOARDING_ADMIN_ENABLED')) === 'true'
@@ -67,16 +68,32 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
    * @param canonicalMetadataKeys When present, opts the routes using this instance into accepting
    *   the pre-6.0.0 signed payload as a fallback. Absent — the default — means current format only.
    */
-  const createSignedFetchMiddleware = (canonicalMetadataKeys?: string[]) =>
-    wellKnownComponents({
+  const createSignedFetchMiddleware = (canonicalMetadataKeys?: string[]) => {
+    const verifySignedFetch = wellKnownComponents({
       optional: false,
       onError: err => ({
         error: err.message,
         message: 'This endpoint requires a signed fetch request. See ADR-44.'
       }),
       metadataValidator: rejectIfSigner('decentraland-kernel-scene'), // prevent requests from scenes
-      canonicalMetadataKeys
+      canonicalMetadataKeys,
+      // A signed fetch whose own chain was signed by a smart account is checked by asking a Catalyst
+      // (ERC-1271). Without these the middleware asks the mainnet peer with the global `fetch` and no
+      // deadline; with them it asks the same Catalyst as the signature validator, under the same
+      // deadline, so a smart account on dev (Sepolia) can sign in there too.
+      catalyst: signatureValidator.peerOrigin,
+      fetcher: signatureValidator.deadlineFetcher
     })
+
+    // Binds this request's trusted client address to the Catalyst checks the middleware makes, so
+    // `deadlineFetcher` can count them per client: one caller cannot fill that budget for everyone.
+    const bindCallerAndVerify: typeof verifySignedFetch = (context, next) => {
+      const trustedIp = getTrustedClientIp(context.request.headers)
+      return signatureValidator.withSignedFetchCaller(trustedIp ? [`ip:${trustedIp}`] : [], () => verifySignedFetch(context, next))
+    }
+
+    return bindCallerAndVerify
+  }
 
   // Current signed-payload format only. `POST /identities` stays here: both its callers send
   // metadata that folds to itself — `sites` sends an all-lowercase `{ signer, intent }` and the auth

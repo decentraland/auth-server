@@ -1,5 +1,6 @@
 import { randomInt } from 'crypto'
 import { v4 as uuid } from 'uuid'
+import { getSocketTrustedClientIp } from '../../../controllers/utils'
 import { InvalidResponseMessage, RequestResponseMessage, ValidatedRequestMessage } from '../../../ports/server/types'
 import { validateRequestMessage } from '../../../ports/server/validations'
 import { validateAuthChain } from '../../auth-chain'
@@ -33,7 +34,16 @@ export function createRequestSocketHandler(options: SocketRequestExpirationOptio
 
     // Same validation as the HTTP /requests handler (shared to avoid drift).
     try {
-      sender = (await validateAuthChain(msg.authChain, signatureValidator)).sender
+      // Anonymous, like the HTTP /requests handler, and counted against the same trusted client
+      // address: opening more sockets from one address does not buy more slots, and neither does
+      // sending more `request` events down one socket, which no edge rule can see.
+      const trustedIp = getSocketTrustedClientIp(socket.handshake)
+      sender = (
+        await validateAuthChain(msg.authChain, signatureValidator, {
+          pool: 'anonymous',
+          clientKeys: trustedIp ? [`ip:${trustedIp}`] : []
+        })
+      ).sender
     } catch (e) {
       logger.log('Received a request with an invalid auth chain')
       return { error: isErrorWithMessage(e) ? e.message : 'Unknown error' } satisfies InvalidResponseMessage

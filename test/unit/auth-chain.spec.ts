@@ -1,8 +1,10 @@
 import { AuthIdentity } from '@dcl/crypto'
 import { AuthChain, AuthLinkType } from '@dcl/schemas'
-import { ISignatureValidatorAdapter } from '../../src/adapters/signature-validator'
+import { ISignatureValidatorAdapter, ValidationCaller } from '../../src/adapters/signature-validator'
 import { validateAuthChain } from '../../src/logic/auth-chain'
 import { createTestIdentity } from '../utils/test-identity'
+
+const CALLER: ValidationCaller = { pool: 'anonymous', clientKeys: ['ip:203.0.113.7'] }
 
 let identity: AuthIdentity
 let authChain: AuthChain
@@ -25,20 +27,20 @@ afterEach(() => {
 describe('validateAuthChain', () => {
   describe('when the chain is empty', () => {
     it('should reject it before anything else', async () => {
-      await expect(validateAuthChain([], signatureValidator)).rejects.toThrow('Auth chain is required')
+      await expect(validateAuthChain([], signatureValidator, CALLER)).rejects.toThrow('Auth chain is required')
       expect(validateOnChain).not.toHaveBeenCalled()
     })
   })
 
   describe('when every link was signed by a plain EOA', () => {
     it('should settle it offline, without reaching the Catalyst', async () => {
-      await validateAuthChain(authChain, signatureValidator)
+      await validateAuthChain(authChain, signatureValidator, CALLER)
 
       expect(validateOnChain).not.toHaveBeenCalled()
     })
 
     it('should return the owner and the ephemeral address', async () => {
-      await expect(validateAuthChain(authChain, signatureValidator)).resolves.toEqual({
+      await expect(validateAuthChain(authChain, signatureValidator, CALLER)).resolves.toEqual({
         sender: expect.any(String),
         finalAuthority: identity.ephemeralIdentity.address
       })
@@ -51,14 +53,14 @@ describe('validateAuthChain', () => {
       authChain = [...authChain.slice(0, -1), { ...authChain[authChain.length - 1], type: AuthLinkType.ECDSA_EIP_1654_EPHEMERAL }]
     })
 
-    it('should hand the chain and the ephemeral address to the on-chain validator', async () => {
-      await validateAuthChain(authChain, signatureValidator)
+    it('should hand the chain, the ephemeral address and the caller to the on-chain validator', async () => {
+      await validateAuthChain(authChain, signatureValidator, CALLER)
 
-      expect(validateOnChain).toHaveBeenCalledWith(authChain, identity.ephemeralIdentity.address)
+      expect(validateOnChain).toHaveBeenCalledWith(authChain, identity.ephemeralIdentity.address, CALLER)
     })
 
     it('should accept it when the Catalyst does', async () => {
-      await expect(validateAuthChain(authChain, signatureValidator)).resolves.toEqual({
+      await expect(validateAuthChain(authChain, signatureValidator, CALLER)).resolves.toEqual({
         sender: expect.any(String),
         finalAuthority: identity.ephemeralIdentity.address
       })
@@ -70,7 +72,9 @@ describe('validateAuthChain', () => {
       })
 
       it('should surface the reason it gave, rather than a generic failure', async () => {
-        await expect(validateAuthChain(authChain, signatureValidator)).rejects.toThrow('Could not validate the signature on chain (503)')
+        await expect(validateAuthChain(authChain, signatureValidator, CALLER)).rejects.toThrow(
+          'Could not validate the signature on chain (503)'
+        )
       })
     })
   })
@@ -83,11 +87,11 @@ describe('validateAuthChain', () => {
     })
 
     it('should re-throw the expiry verbatim, so callers can map it to the upstream status', async () => {
-      await expect(validateAuthChain(authChain, signatureValidator)).rejects.toThrow('Ephemeral payload has expired')
+      await expect(validateAuthChain(authChain, signatureValidator, CALLER)).rejects.toThrow('Ephemeral payload has expired')
     })
 
     it('should not spend a Catalyst call on a chain that cannot be used anyway', async () => {
-      await expect(validateAuthChain(authChain, signatureValidator)).rejects.toThrow()
+      await expect(validateAuthChain(authChain, signatureValidator, CALLER)).rejects.toThrow()
 
       expect(validateOnChain).not.toHaveBeenCalled()
     })

@@ -1,6 +1,6 @@
 import { Authenticator, parseEmphemeralPayload } from '@dcl/crypto'
 import { AuthChain } from '@dcl/schemas'
-import type { ISignatureValidatorAdapter } from '../adapters/signature-validator'
+import type { ISignatureValidatorAdapter, ValidationCaller } from '../adapters/signature-validator'
 
 /**
  * Whether `value` is a Decentraland ephemeral message — the payload whose signature mints an auth
@@ -55,10 +55,14 @@ function decodeHexMessage(value: string): string | undefined {
  * chain. Those go to `signatureValidator`, which defers to the Catalyst. Passing `null` to
  * `Authenticator.validateSignature` for them is what made every such login fail with
  * `Missing provider`. An ordinary EOA signature still verifies offline and never leaves the box.
+ *
+ * `caller` says whose budget such a call draws from — see `ValidationCaller`. It is unused for a
+ * chain that verifies offline.
  */
 export async function validateAuthChain(
   authChain: AuthChain,
-  signatureValidator: ISignatureValidatorAdapter
+  signatureValidator: ISignatureValidatorAdapter,
+  caller: ValidationCaller
 ): Promise<{ sender: string; finalAuthority: string }> {
   if (!authChain.length) {
     throw new Error('Auth chain is required')
@@ -94,7 +98,7 @@ export async function validateAuthChain(
       throw new Error('Ephemeral payload has expired')
     }
 
-    validationResult = await signatureValidator.validateOnChain(authChain, finalAuthority)
+    validationResult = await signatureValidator.validateOnChain(authChain, finalAuthority, caller)
   } else {
     validationResult = await Authenticator.validateSignature(finalAuthority, authChain, null)
   }
