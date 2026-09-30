@@ -28,7 +28,7 @@ const validateThroughRpc = async () => {
   return validateAuthChain(asContractAccountChain(identity.authChain), l1Provider)
 }
 
-beforeAll(async () => {
+beforeEach(async () => {
   server = createServer((request, response) => {
     let raw = ''
     request.on('data', chunk => (raw += chunk))
@@ -41,7 +41,7 @@ beforeAll(async () => {
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
 })
 
-afterAll(async () => {
+afterEach(async () => {
   server.closeAllConnections()
   await new Promise(resolve => server.close(resolve))
 })
@@ -103,8 +103,8 @@ describe('when the RPC answers with an error status', () => {
     }
   })
 
-  it('should reject the chain, reporting the status', async () => {
-    await expect(validateThroughRpc()).rejects.toThrow(/RPC request failed with status 502/)
+  it('should reject the chain without exposing the upstream status', async () => {
+    await expect(validateThroughRpc()).rejects.toThrow(/RPC request failed/)
     expect(received).toContain('eth_call')
   })
 })
@@ -117,8 +117,8 @@ describe('when the RPC answers 200 with a body that is not JSON', () => {
     }
   })
 
-  it('should reject the chain, reporting the unreadable body', async () => {
-    await expect(validateThroughRpc()).rejects.toThrow(/is not valid JSON/)
+  it('should reject the chain without exposing the unreadable body', async () => {
+    await expect(validateThroughRpc()).rejects.toThrow(/RPC request failed/)
     expect(received).toContain('eth_call')
   })
 })
@@ -131,8 +131,8 @@ describe('when the RPC sends its headers and then stalls the body', () => {
     }
   })
 
-  it('should give up at the deadline and reject the chain as timed out', async () => {
-    await expect(validateThroughRpc()).rejects.toThrow(/RPC request timed out/)
+  it('should give up at the RPC deadline and reject the chain', async () => {
+    await expect(validateThroughRpc()).rejects.toThrow(/RPC request failed/)
     expect(received).toContain('eth_call')
   })
 })
@@ -143,8 +143,8 @@ describe('when the RPC answers with a JSON-RPC error', () => {
       respondJson(response, JSON.stringify({ id: rpc.id, jsonrpc: '2.0', error: { code: -32000, message: 'execution reverted' } }))
   })
 
-  it("should reject the chain, reporting the RPC's message", async () => {
-    await expect(validateThroughRpc()).rejects.toThrow(/execution reverted/)
+  it('should reject the chain without exposing the RPC message', async () => {
+    await expect(validateThroughRpc()).rejects.toThrow(/RPC request failed/)
   })
 })
 
@@ -160,8 +160,8 @@ describe('when the RPC answers with a JSON-RPC error that is not shaped like one
       )
   })
 
-  it('should reject the chain with a generic JSON-RPC error rather than fail on it', async () => {
-    await expect(validateThroughRpc()).rejects.toThrow(/JSON-RPC error/)
+  it('should reject the chain with a generic RPC failure', async () => {
+    await expect(validateThroughRpc()).rejects.toThrow(/RPC request failed/)
   })
 })
 
@@ -178,7 +178,7 @@ describe('when the RPC answers 200 with JSON that is not a JSON-RPC response', (
   it.each(bodies)('should reject the chain when it is %s', async (_shape, body) => {
     answer = (_request, response) => respondJson(response, body)
 
-    await expect(validateThroughRpc()).rejects.toThrow(/Invalid JSON-RPC response/)
+    await expect(validateThroughRpc()).rejects.toThrow(/RPC request failed/)
     expect(received).toContain('eth_call')
   })
 })

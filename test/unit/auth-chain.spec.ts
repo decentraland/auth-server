@@ -174,7 +174,7 @@ describe('validateAuthChain', () => {
 
     describe('and the provider cannot be reached', () => {
       it('should reject the chain rather than let it through', async () => {
-        await expect(validateAuthChain(authChain, l1Provider)).rejects.toThrow(/No RPC in tests/)
+        await expect(validateAuthChain(authChain, l1Provider)).rejects.toThrow(/RPC request failed/)
       })
     })
   })
