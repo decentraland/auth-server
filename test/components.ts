@@ -23,6 +23,7 @@ import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
 import { GlobalContext, TestComponents } from '../src/types'
 import { createMockDbComponent, createMockLogs } from './mocks'
+import type { IL1Provider } from '../src/adapters/l1-provider'
 
 export { createMockDbComponent, createMockLogs }
 
@@ -73,6 +74,17 @@ export function createMockMagicAdapter(): IMagicAdapter {
 }
 
 /**
+ * Creates a mock Ethereum provider, so no test reaches a real node. The integration config sets
+ * `resetMocks`, which clears this implementation before every test: a spec that exercises the
+ * on-chain path must program `args.components.l1Provider.sendAsync` in its own `beforeEach`.
+ */
+export function createMockL1Provider(): IL1Provider {
+  return {
+    sendAsync: jest.fn((_payload: unknown, callback: (error: Error | null) => void) => callback(new Error('No RPC in tests')))
+  }
+}
+
+/**
  * Behaves like Jest "describe" function, used to describe a test for a
  * use case, it creates a whole new program and components to run an
  * isolated test.
@@ -116,6 +128,7 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
   const storage = createStorageComponent({ cache })
   const onboarding = createOnboardingComponent({ db, logs })
   const magic = createMockMagicAdapter()
+  const l1Provider = createMockL1Provider()
   const accountDeletion = createAccountDeletionComponent({
     magic,
     storage,
@@ -152,7 +165,7 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
   await instrumentHttpServerWithPromClientRegistry({ metrics, server, config, registry: metrics.registry })
 
   const socketServer = await createSocketServerComponent(
-    { logs, storage, tracer, server },
+    { logs, storage, tracer, server, l1Provider },
     {
       requestExpirationInSeconds: overrides.requestExpirationInSeconds ?? 5 * 60, // 5 Minutes
       cors: { origin: cors.origin, methods: await config.requireString('CORS_METHODS') }
@@ -165,6 +178,7 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     features,
     featureFlags,
     magic,
+    l1Provider,
     accountDeletion,
     nudgeJob,
     db,

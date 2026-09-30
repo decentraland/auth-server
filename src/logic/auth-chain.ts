@@ -1,5 +1,12 @@
 import { Authenticator, parseEmphemeralPayload } from '@dcl/crypto'
 import { AuthChain } from '@dcl/schemas'
+import type { IL1Provider } from '../adapters/l1-provider'
+
+/**
+ * Deadline for validating one auth chain. Checking an ERC-1271 signature can take several RPC calls
+ * in sequence, each with its own timeout, so the whole check is bounded as well.
+ */
+const SIGNATURE_VALIDATION_TIMEOUT_IN_MILLISECONDS = 15_000
 
 /**
  * Whether `value` is a Decentraland ephemeral message — the payload whose signature mints an auth
@@ -48,8 +55,14 @@ function decodeHexMessage(value: string): string | undefined {
  * socket `request` handler. Throws on any validation failure; the `Ephemeral
  * payload has expired` error is re-thrown verbatim so callers can surface the
  * upstream "expired" status.
+ *
+ * `l1Provider` is only used for signatures from accounts with code behind them (ERC-1271), which
+ * have to be checked on chain; EOA signatures are verified offline.
  */
-export async function validateAuthChain(authChain: AuthChain): Promise<{ sender: string; finalAuthority: string }> {
+export async function validateAuthChain(
+  authChain: AuthChain,
+  l1Provider: IL1Provider
+): Promise<{ sender: string; finalAuthority: string }> {
   if (!authChain.length) {
     throw new Error('Auth chain is required')
   }
@@ -69,7 +82,14 @@ export async function validateAuthChain(authChain: AuthChain): Promise<{ sender:
     throw new Error('Could not get final authority from auth chain')
   }
 
-  const validationResult = await Authenticator.validateSignature(finalAuthority, authChain, null)
+  let timer: NodeJS.Timeout | undefined
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error('Signature validation timed out')), SIGNATURE_VALIDATION_TIMEOUT_IN_MILLISECONDS)
+  })
+
+  const validationResult = await Promise.race([Authenticator.validateSignature(finalAuthority, authChain, l1Provider), deadline]).finally(
+    () => clearTimeout(timer)
+  )
 
   if (!validationResult.ok) {
     throw new Error(validationResult.message ?? 'Signature validation failed')

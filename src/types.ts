@@ -2,6 +2,7 @@ import type { ICacheStorageComponent, IFetchComponent, IHttpServerComponent } fr
 import type { IFeaturesComponent } from '@dcl/features-component'
 import type { ISlackComponent } from '@dcl/slack-component'
 import type { IFeatureFlagsAdapter } from './adapters/feature-flags'
+import type { IL1Provider } from './adapters/l1-provider'
 import type { IMagicAdapter } from './adapters/magic'
 import type { IAccountDeletionComponent } from './logic/account-deletion'
 import type { ISocketServerComponent } from './logic/socket-server'
@@ -24,6 +25,7 @@ export type BaseComponents = {
   features: IFeaturesComponent
   featureFlags: IFeatureFlagsAdapter
   magic: IMagicAdapter
+  l1Provider: IL1Provider
   accountDeletion: IAccountDeletionComponent
   nudgeJob: INudgeJobComponent
   db: IPgComponent
