@@ -1,4 +1,4 @@
-import { rejectIfSigner, wellKnownComponents } from '@dcl/crypto-middleware'
+import { MAX_AUTH_CHAIN_LENGTH, rejectIfSigner, wellKnownComponents } from '@dcl/crypto-middleware'
 import { bearerTokenMiddleware, errorHandler } from '@dcl/http-commons'
 import { Router } from '@dcl/http-server'
 import { GlobalContext } from '../types'
@@ -46,7 +46,7 @@ const ACCOUNT_DELETION_CANONICAL_METADATA_KEYS = ['signer', 'didToken']
 // We return the entire router because it will be easier to test than a whole server
 export async function setupRouter(globalContext: GlobalContext): Promise<Router<GlobalContext>> {
   const router = new Router<GlobalContext>()
-  const { config } = globalContext.components
+  const { config, l1Provider } = globalContext.components
 
   const onboardingApiKey = await config.requireString('ONBOARDING_API_KEY')
   const adminEnabled = (await config.getString('ONBOARDING_ADMIN_ENABLED')) === 'true'
@@ -69,6 +69,8 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
    */
   const createSignedFetchMiddleware = (canonicalMetadataKeys?: string[]) =>
     wellKnownComponents({
+      provider: l1Provider,
+      maxChainLength: MAX_AUTH_CHAIN_LENGTH,
       optional: false,
       onError: err => ({
         error: err.message,
