@@ -19,7 +19,7 @@ export type SocketServerOptions = {
 }
 
 export async function createSocketServerComponent(
-  { logs, storage, tracer, server }: Pick<AppComponents, 'logs' | 'storage' | 'tracer' | 'server'>,
+  { logs, storage, tracer, server, l1Provider }: Pick<AppComponents, 'logs' | 'storage' | 'tracer' | 'server' | 'l1Provider'>,
   { requestExpirationInSeconds, cors }: SocketServerOptions
 ): Promise<ISocketServerComponent> {
   const logger = logs.getLogger('websocket-server')
@@ -80,7 +80,7 @@ export async function createSocketServerComponent(
         )
 
       const handlerContext: SocketHandlerContext = {
-        components: { storage },
+        components: { storage, l1Provider },
         logger,
         socket,
         emitToSocket,

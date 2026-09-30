@@ -12,10 +12,10 @@ import { formatIpHeaders, getClientIp, ipsMatch } from '../utils'
 
 // POST /identities — store identity (protected by signed-fetch middleware)
 export async function createIdentityHandler(
-  context: HandlerContextWithPath<'storage' | 'logs', '/identities'> & DecentralandSignatureContext
+  context: HandlerContextWithPath<'storage' | 'logs' | 'l1Provider', '/identities'> & DecentralandSignatureContext
 ) {
   const {
-    components: { storage, logs },
+    components: { storage, logs, l1Provider },
     request,
     verification
   } = context
@@ -38,7 +38,7 @@ export async function createIdentityHandler(
     // Validate auth chain using the same logic as /requests endpoint
     let identitySender: string
     try {
-      const { sender, finalAuthority } = await validateAuthChain(identity.authChain)
+      const { sender, finalAuthority } = await validateAuthChain(identity.authChain, l1Provider)
       identitySender = sender
       // Verify that the ephemeral wallet address matches the finalAuthority from auth chain
       if (identity.ephemeralIdentity.address.toLowerCase() !== finalAuthority.toLowerCase()) {

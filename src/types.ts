@@ -12,6 +12,7 @@ import type { INudgeJobComponent } from './ports/nudge-job/types'
 import type { IOnboardingComponent } from './ports/onboarding/types'
 import type { IStorageComponent } from './ports/storage/types'
 import type { IConfigComponent, ILoggerComponent, IMetricsComponent, ITracerComponent } from '@well-known-components/interfaces'
+import type { HTTPProvider } from 'eth-connect'
 
 export type GlobalContext = {
   components: BaseComponents
@@ -24,6 +25,7 @@ export type BaseComponents = {
   features: IFeaturesComponent
   featureFlags: IFeatureFlagsAdapter
   magic: IMagicAdapter
+  l1Provider: HTTPProvider
   accountDeletion: IAccountDeletionComponent
   nudgeJob: INudgeJobComponent
   db: IPgComponent
