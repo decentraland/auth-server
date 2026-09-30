@@ -2,6 +2,7 @@ import type { ICacheStorageComponent, IFetchComponent, IHttpServerComponent } fr
 import type { IFeaturesComponent } from '@dcl/features-component'
 import type { ISlackComponent } from '@dcl/slack-component'
 import type { IFeatureFlagsAdapter } from './adapters/feature-flags'
+import type { IL1Provider } from './adapters/l1-provider'
 import type { IMagicAdapter } from './adapters/magic'
 import type { IAccountDeletionComponent } from './logic/account-deletion'
 import type { ISocketServerComponent } from './logic/socket-server'
@@ -12,7 +13,6 @@ import type { INudgeJobComponent } from './ports/nudge-job/types'
 import type { IOnboardingComponent } from './ports/onboarding/types'
 import type { IStorageComponent } from './ports/storage/types'
 import type { IConfigComponent, ILoggerComponent, IMetricsComponent, ITracerComponent } from '@well-known-components/interfaces'
-import type { HTTPProvider } from 'eth-connect'
 
 export type GlobalContext = {
   components: BaseComponents
@@ -25,7 +25,7 @@ export type BaseComponents = {
   features: IFeaturesComponent
   featureFlags: IFeatureFlagsAdapter
   magic: IMagicAdapter
-  l1Provider: HTTPProvider
+  l1Provider: IL1Provider
   accountDeletion: IAccountDeletionComponent
   nudgeJob: INudgeJobComponent
   db: IPgComponent

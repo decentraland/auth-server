@@ -1,6 +1,6 @@
 import { Authenticator, parseEmphemeralPayload } from '@dcl/crypto'
 import { AuthChain } from '@dcl/schemas'
-import type { HTTPProvider } from 'eth-connect'
+import type { IL1Provider } from '../adapters/l1-provider'
 
 /**
  * Deadline for validating one auth chain. Checking an ERC-1271 signature can take several RPC calls
@@ -61,7 +61,7 @@ function decodeHexMessage(value: string): string | undefined {
  */
 export async function validateAuthChain(
   authChain: AuthChain,
-  l1Provider: HTTPProvider
+  l1Provider: IL1Provider
 ): Promise<{ sender: string; finalAuthority: string }> {
   if (!authChain.length) {
     throw new Error('Auth chain is required')

@@ -23,7 +23,7 @@ import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
 import { GlobalContext, TestComponents } from '../src/types'
 import { createMockDbComponent, createMockLogs } from './mocks'
-import type { HTTPProvider } from 'eth-connect'
+import type { IL1Provider } from '../src/adapters/l1-provider'
 
 export { createMockDbComponent, createMockLogs }
 
@@ -78,10 +78,10 @@ export function createMockMagicAdapter(): IMagicAdapter {
  * `resetMocks`, which clears this implementation before every test: a spec that exercises the
  * on-chain path must program `args.components.l1Provider.sendAsync` in its own `beforeEach`.
  */
-export function createMockL1Provider(): HTTPProvider {
+export function createMockL1Provider(): IL1Provider {
   return {
     sendAsync: jest.fn((_payload: unknown, callback: (error: Error | null) => void) => callback(new Error('No RPC in tests')))
-  } as unknown as HTTPProvider
+  }
 }
 
 /**

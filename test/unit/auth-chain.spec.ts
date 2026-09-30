@@ -3,16 +3,16 @@ import { AuthChain } from '@dcl/schemas'
 import { validateAuthChain } from '../../src/logic/auth-chain'
 import { asContractAccountChain, contractAccountThat } from '../utils/l1-provider'
 import { createTestIdentity } from '../utils/test-identity'
-import type { HTTPProvider } from 'eth-connect'
+import type { IL1Provider } from '../../src/adapters/l1-provider'
 
 let identity: AuthIdentity
 let sendAsync: jest.Mock
-let l1Provider: HTTPProvider
+let l1Provider: IL1Provider
 
 beforeEach(async () => {
   identity = await createTestIdentity()
   sendAsync = jest.fn((_payload, callback) => callback(new Error('No RPC in tests')))
-  l1Provider = { sendAsync } as unknown as HTTPProvider
+  l1Provider = { sendAsync } as unknown as IL1Provider
 })
 
 describe('validateAuthChain', () => {
@@ -52,8 +52,9 @@ describe('validateAuthChain', () => {
         sendAsync.mockImplementation(contractAccountThat('rejects'))
       })
 
-      it('should reject the chain', async () => {
-        await expect(validateAuthChain(authChain, l1Provider)).rejects.toThrow()
+      it('should reject the chain, since the account did not confirm it', async () => {
+        await expect(validateAuthChain(authChain, l1Provider)).rejects.toThrow(/Invalid validation/)
+        expect(sendAsync).toHaveBeenCalledWith(expect.objectContaining({ method: 'eth_call' }), expect.any(Function))
       })
     })
 
@@ -79,7 +80,7 @@ describe('validateAuthChain', () => {
 
     describe('and the provider cannot be reached', () => {
       it('should reject the chain rather than let it through', async () => {
-        await expect(validateAuthChain(authChain, l1Provider)).rejects.toThrow()
+        await expect(validateAuthChain(authChain, l1Provider)).rejects.toThrow(/No RPC in tests/)
       })
     })
   })
