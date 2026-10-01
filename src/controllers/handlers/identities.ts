@@ -1,7 +1,7 @@
 import { ethers } from 'ethers'
 import { v4 as uuid } from 'uuid'
 import { Authenticator } from '@dcl/crypto'
-import { DecentralandSignatureContext } from '@dcl/crypto-middleware'
+import { DecentralandSignatureContext, SignatureValidationInfrastructureError } from '@dcl/crypto-middleware'
 import { validateAuthChain } from '../../logic/auth-chain'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { ONE_HOUR_IN_MILLISECONDS } from '../../ports/server/constants'
@@ -70,9 +70,9 @@ export async function createIdentityHandler(
       }
     } catch (e) {
       const errorMessage = isErrorWithMessage(e) ? e.message : 'Unknown error'
-      identityLogger.log(`Received a request to create identity with invalid auth chain: ${errorMessage}`)
+      identityLogger.log(`Could not validate identity auth chain: ${errorMessage}`)
       return {
-        status: 400,
+        status: e instanceof SignatureValidationInfrastructureError ? 503 : 400,
         body: { error: errorMessage } satisfies InvalidResponseMessage
       }
     }

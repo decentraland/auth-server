@@ -1,5 +1,6 @@
 import { randomInt } from 'crypto'
 import { v4 as uuid } from 'uuid'
+import { SignatureValidationInfrastructureError } from '@dcl/crypto-middleware'
 import { validateAuthChain } from '../../logic/auth-chain'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { loadActiveRequest, logInboundRequestStateError, RequestStateError, requestStateErrorToHttpResponse } from '../../logic/requests'
@@ -49,7 +50,7 @@ export function createRequestHandler({ requestExpirationInSeconds }: RequestExpi
       sender = (await validateAuthChain(msg.authChain, l1Provider)).sender
     } catch (e) {
       return {
-        status: 400,
+        status: e instanceof SignatureValidationInfrastructureError ? 503 : 400,
         body: { error: isErrorWithMessage(e) ? e.message : 'Unknown error' } satisfies InvalidResponseMessage
       }
     }

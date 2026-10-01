@@ -1,7 +1,8 @@
 import { AuthIdentity } from '@dcl/crypto'
 import { AuthChain } from '@dcl/schemas'
+import { signedHeaderFactory } from 'decentraland-crypto-fetch'
 import { test } from '../components'
-import { createAuthWsClient, createHttpClient } from '../utils'
+import { createAuthWsClient, createHttpClient, HttpPollingClient } from '../utils'
 import { asContractAccountChain, contractAccountThat } from '../utils/l1-provider'
 import { createSignedFetchRequest } from '../utils/signed-request'
 import { createTestIdentity } from '../utils/test-identity'
@@ -23,13 +24,24 @@ test('when an account with code behind it signs in', args => {
     sendAsync.mockImplementation((_payload, callback) => callback(new Error('No RPC in tests')))
   })
 
+  afterEach(() => {
+    jest.clearAllMocks()
+  })
+
   describe('and it stores its identity', () => {
+    let contractIdentity: AuthIdentity
+    let response: Response
+
+    beforeEach(() => {
+      contractIdentity = { ...identity, authChain }
+    })
+
     const storeIdentity = () =>
       createSignedFetchRequest(`http://localhost:${port}`, {
         method: 'POST',
         path: '/identities',
-        body: { identity: { ...identity, authChain } },
-        identity
+        body: { identity: contractIdentity },
+        identity: contractIdentity
       })
 
     describe('and the account accepts the signature', () => {
@@ -38,9 +50,38 @@ test('when an account with code behind it signs in', args => {
       })
 
       it('should store it', async () => {
-        const response = await storeIdentity()
+        response = await storeIdentity()
 
         expect(response.status).toBe(201)
+      })
+
+      it('should validate both the signed-fetch headers and the identity body on the configured provider', async () => {
+        await storeIdentity()
+
+        expect(sendAsync).toHaveBeenCalledTimes(2)
+      })
+
+      describe('and the ephemeral signed-fetch signature is tampered with', () => {
+        let headers: Headers
+        let entityLink: { type: string; payload: string; signature: string }
+
+        beforeEach(() => {
+          headers = signedHeaderFactory()(contractIdentity, 'POST', '/identities', {})
+          entityLink = JSON.parse(headers.get('x-identity-auth-chain-2') ?? '{}')
+          entityLink.signature = '0x' + '00'.repeat(65)
+          headers.set('x-identity-auth-chain-2', JSON.stringify(entityLink))
+          headers.set('content-type', 'application/json')
+        })
+
+        it('should reject the request even though the contract accepts its delegation signature', async () => {
+          response = await fetch(`http://localhost:${port}/identities`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ identity: contractIdentity })
+          })
+
+          expect(response.status).toBe(401)
+        })
       })
     })
 
@@ -50,22 +91,59 @@ test('when an account with code behind it signs in', args => {
       })
 
       it('should refuse it', async () => {
-        const response = await storeIdentity()
+        response = await storeIdentity()
 
-        expect(response.status).toBe(400)
+        expect(response.status).toBe(401)
+      })
+    })
+
+    describe('and the provider cannot be reached', () => {
+      it('should report signature verification as unavailable', async () => {
+        response = await storeIdentity()
+
+        expect(response.status).toBe(503)
+      })
+
+      it('should also report an outage during body validation after valid EOA headers', async () => {
+        response = await createSignedFetchRequest(`http://localhost:${port}`, {
+          method: 'POST',
+          path: '/identities',
+          body: { identity: contractIdentity },
+          identity
+        })
+
+        expect(response.status).toBe(503)
+      })
+    })
+
+    describe('and the identity was signed by a plain EOA instead', () => {
+      beforeEach(() => {
+        contractIdentity = identity
+      })
+
+      it('should store it without calling the provider', async () => {
+        response = await storeIdentity()
+
+        expect(response.status).toBe(201)
+        expect(sendAsync).not.toHaveBeenCalled()
       })
     })
   })
 
   describe('and it registers a request over HTTP', () => {
+    let client: HttpPollingClient
+    let response: Response
+
+    beforeEach(async () => {
+      client = await createHttpClient(port)
+    })
+
     describe('and the account accepts the signature', () => {
       beforeEach(() => {
         sendAsync.mockImplementation(contractAccountThat('accepts'))
       })
 
       it('should register it', async () => {
-        const client = await createHttpClient(port)
-
         await expect(client.request({ method: 'eth_sendTransaction', params: [], authChain })).resolves.toEqual({
           requestId: expect.any(String),
           expiration: expect.any(String),
@@ -76,40 +154,57 @@ test('when an account with code behind it signs in', args => {
 
     describe('and the provider cannot be reached', () => {
       it('should refuse it', async () => {
-        const client = await createHttpClient(port)
-
         await expect(client.request({ method: 'eth_sendTransaction', params: [], authChain })).resolves.toEqual({
           error: expect.any(String)
         })
+      })
+
+      it('should return a retryable service-unavailable status', async () => {
+        response = await fetch(`http://localhost:${port}/requests`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ method: 'eth_sendTransaction', params: [], authChain })
+        })
+
+        expect(response.status).toBe(503)
       })
     })
   })
 
   describe('and it registers a request over the socket', () => {
+    let socket: Awaited<ReturnType<typeof createAuthWsClient>>
+
+    beforeEach(async () => {
+      socket = await createAuthWsClient(port)
+    })
+
+    afterEach(() => {
+      socket.disconnect()
+    })
+
     describe('and the account accepts the signature', () => {
       beforeEach(() => {
         sendAsync.mockImplementation(contractAccountThat('accepts'))
       })
 
       it('should register it', async () => {
-        const socket = await createAuthWsClient(port)
-        try {
-          await expect(socket.emitWithAck('request', { method: 'eth_sendTransaction', params: [], authChain })).resolves.toEqual({
-            requestId: expect.any(String),
-            expiration: expect.any(String),
-            code: expect.any(Number)
-          })
-        } finally {
-          socket.disconnect()
-        }
+        await expect(socket.emitWithAck('request', { method: 'eth_sendTransaction', params: [], authChain })).resolves.toEqual({
+          requestId: expect.any(String),
+          expiration: expect.any(String),
+          code: expect.any(Number)
+        })
       })
     })
   })
 
   describe('and every link was signed by a plain EOA instead', () => {
-    it('should validate it without calling the provider', async () => {
-      const client = await createHttpClient(port)
+    let client: HttpPollingClient
 
+    beforeEach(async () => {
+      client = await createHttpClient(port)
+    })
+
+    it('should validate it without calling the provider', async () => {
       await expect(client.request({ method: 'eth_sendTransaction', params: [], authChain: identity.authChain })).resolves.toEqual({
         requestId: expect.any(String),
         expiration: expect.any(String),
