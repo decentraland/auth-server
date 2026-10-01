@@ -4,6 +4,7 @@ import { IStorageComponent, StorageRequest, StorageIdentity, IdentityStatus } fr
 const REQUESTS_CACHE_KEY_PREFIX = 'request:'
 const REQUEST_IDS_BY_SOCKET_ID_CACHE_KEY_PREFIX = 'requestIdsBySocketId:'
 const IDENTITIES_BY_ID_CACHE_KEY_PREFIX = 'identity:'
+const IDENTITY_CONSUMPTION_LOCK_CACHE_KEY_PREFIX = 'identity-consumption-lock:'
 const IDENTITY_STATUS_CACHE_KEY_PREFIX = 'identity-status:'
 const DID_TOKEN_ID_CACHE_KEY_PREFIX = 'magic-did-tid:'
 const TWO_WEEKS_IN_SECONDS = 14 * 24 * 60 * 60
@@ -93,6 +94,26 @@ export function createStorageComponent({ cache }: Pick<AppComponents, 'cache'>):
     await cache.remove(getIdentityCacheKey(identityId))
   }
 
+  /**
+   * Removes and returns one identity while holding the cache's distributed lock. The lock covers the
+   * read and removal together, so two server instances cannot both return the same ephemeral private key.
+   * @param identityId Identity capability to consume.
+   * @returns The identity for the first caller, or null for every caller after it.
+   */
+  const takeIdentity = async (identityId: string): Promise<StorageIdentity | null> => {
+    const lockKey = `${IDENTITY_CONSUMPTION_LOCK_CACHE_KEY_PREFIX}${identityId}`
+    await cache.acquireLock(lockKey)
+    try {
+      const identity = await getIdentity(identityId)
+      if (identity) {
+        await cache.remove(getIdentityCacheKey(identityId))
+      }
+      return identity
+    } finally {
+      await cache.tryReleaseLock(lockKey)
+    }
+  }
+
   const getIdentityStatusCacheKey = (identityId: string) => {
     return `${IDENTITY_STATUS_CACHE_KEY_PREFIX}${identityId}`
   }
@@ -134,6 +155,7 @@ export function createStorageComponent({ cache }: Pick<AppComponents, 'cache'>):
     getIdentity,
     setIdentity,
     deleteIdentity,
+    takeIdentity,
     getIdentityStatus,
     setIdentityStatus,
     updateIdentityStatus,

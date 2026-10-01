@@ -82,6 +82,27 @@ describe('when using the storage component', () => {
       })
     })
 
+    describe('and concurrent callers take the same identity', () => {
+      let results: Array<StorageIdentity | null>
+
+      beforeEach(async () => {
+        await storage.setIdentity(identityId, identityData)
+        results = await Promise.all([storage.takeIdentity(identityId), storage.takeIdentity(identityId)])
+      })
+
+      afterEach(() => {
+        results = []
+      })
+
+      it('should return the private identity to exactly one caller', () => {
+        expect(results.filter(result => result !== null)).toEqual([identityData])
+      })
+
+      it('should leave the identity consumed', async () => {
+        expect(await storage.getIdentity(identityId)).toBeNull()
+      })
+    })
+
     describe('and storing multiple identities', () => {
       let identityId1: string
       let identityId2: string
