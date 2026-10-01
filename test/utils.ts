@@ -1,11 +1,13 @@
 import { DefaultEventsMap } from 'socket.io/dist/typed-events'
 import { io, Socket } from 'socket.io-client'
+import { AuthIdentity } from '@dcl/crypto'
 import {
   OutcomeResponseMessage,
   RecoverResponseMessage,
   RequestResponseMessage,
   RequestValidationStatusMessage
 } from '../src/ports/server/types'
+import { signTestOutcome } from './utils/outcome'
 
 export type HttpPollingClient = {
   request(data: unknown): Promise<RequestResponseMessage | { error: string }>
@@ -17,7 +19,7 @@ export type HttpPollingClient = {
   recover(requestId: string): Promise<RecoverResponseMessage>
 }
 
-export async function createHttpClient(port: number | string): Promise<HttpPollingClient> {
+export async function createHttpClient(port: number | string, getIdentity?: () => AuthIdentity): Promise<HttpPollingClient> {
   const url = `http://localhost:${port}`
 
   return {
@@ -37,7 +39,7 @@ export async function createHttpClient(port: number | string): Promise<HttpPolli
     async sendSuccessfulOutcome(requestId: string, sender: string, result: unknown): Promise<{ error: string } | undefined> {
       const response = await fetch(`${url}/v2/requests/${requestId}/outcome`, {
         method: 'POST',
-        body: JSON.stringify({ sender, result }),
+        body: JSON.stringify(getIdentity ? signTestOutcome(getIdentity(), { requestId, sender, result }) : { sender, result }),
         headers: [['Content-Type', 'application/json']]
       })
       let body: { error: string } | undefined
@@ -57,7 +59,7 @@ export async function createHttpClient(port: number | string): Promise<HttpPolli
     ): Promise<{ error: string } | undefined> {
       const response = await fetch(`${url}/v2/requests/${requestId}/outcome`, {
         method: 'POST',
-        body: JSON.stringify({ sender, error }),
+        body: JSON.stringify(getIdentity ? signTestOutcome(getIdentity(), { requestId, sender, error }) : { sender, error }),
         headers: [['Content-Type', 'application/json']]
       })
       let body: { error: string } | undefined

@@ -225,6 +225,7 @@ paths:
       summary: Poll for request outcome
       description: |
         Polls for the outcome of an authentication request. 
+        Reading an available outcome is non-consuming; the same result can be read again until expiration.
 
         This endpoint can be used as an alternative to WebSocket for receiving request outcomes.
         The client should poll this endpoint periodically until a result is returned.
@@ -286,7 +287,11 @@ paths:
         - Requests
       summary: Submit request outcome
       description: |
-        Submits the outcome of a previously created request. If the request originated from a WebSocket client, the server will immediately emit the `outcome` event to that client and delete the request. Otherwise, the outcome is stored for later retrieval via polling.
+        Requires a delegated-identity signature over the exact outcome body, request ID and
+        expiration. Both the chain owner and sender must match the request's stored sender.
+        Unsigned outcomes are rejected. See docs/authenticated-outcomes.md for the signing protocol.
+        The server reserves a single outcome and persists it before attempting socket delivery.
+        If socket delivery is unavailable, the outcome remains available for polling.
       operationId: submitOutcome
       security: []
       parameters:
@@ -305,20 +310,28 @@ paths:
               $ref: '#/components/schemas/OutcomeMessageInput'
             examples:
               success:
-                summary: Successful outcome
+                summary: Successful outcome (add a valid authChain over these fields)
                 value:
                   sender: '0x1234567890123456789012345678901234567890'
                   result: '0xabcdef1234567890...'
+                  expiresAt: 1788786000000
               failure:
-                summary: Failed outcome
+                summary: Failed outcome (add a valid authChain over these fields)
                 value:
                   sender: '0x1234567890123456789012345678901234567890'
+                  expiresAt: 1788786000000
                   error:
                     code: 4001
                     message: 'User rejected the request'
       responses:
         '200':
           description: Outcome accepted
+        '403':
+          description: Invalid, expired, mismatched or unauthorized outcome proof
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
         '400':
           description: Bad request (invalid body or request already has a response)
           content:
@@ -846,6 +859,16 @@ components:
     OutcomeMessageInput:
       type: object
       properties:
+        authChain:
+          allOf:
+            - $ref: '#/components/schemas/AuthChain'
+            - minItems: 3
+              maxItems: 8
+          description: Delegation chain followed by an ECDSA_SIGNED_ENTITY link signing the v1 outcome payload.
+        expiresAt:
+          type: integer
+          format: int64
+          description: Unix milliseconds; future timestamp no more than 65 seconds ahead of server time.
         sender:
           type: string
           description: Address that executed the request
@@ -857,6 +880,8 @@ components:
           description: Error details. Required if result is not present.
       required:
         - sender
+        - authChain
+        - expiresAt
       oneOf:
         - required: [result]
         - required: [error]
@@ -1071,7 +1096,9 @@ x-websocket:
 
         **Sending Outcome (auth dapp → server):**
         The auth dapp sends the outcome after executing the request.
-        The message should include either `result` (success) or `error` (failure).
+        The message must include either `result` (success) or `error` (failure), plus
+        `authChain` and `expiresAt` using the same signed-body protocol as HTTP outcomes.
+        Unsigned submissions and proofs from another wallet are rejected.
 
         **Receiving Outcome (server → desktop client):**
         After receiving an outcome, if the original request was made via WebSocket, 
@@ -1081,6 +1108,11 @@ x-websocket:
       message:
         type: object
         properties:
+          authChain:
+            $ref: '#/components/schemas/AuthChain'
+          expiresAt:
+            type: integer
+            format: int64
           requestId:
             type: string
             format: uuid
@@ -1096,6 +1128,8 @@ x-websocket:
         required:
           - requestId
           - sender
+          - authChain
+          - expiresAt
         oneOf:
           - required: [result]
           - required: [error]

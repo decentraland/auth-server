@@ -6,6 +6,7 @@ import { MessageType, RequestResponseMessage, RequestValidationMessage } from '.
 import { BaseComponents } from '../../src/types'
 import { test, testWithOverrides } from '../components'
 import { createAuthWsClient } from '../utils'
+import { signTestOutcome } from '../utils/outcome'
 import { createTestIdentity, generateRandomIdentityId } from '../utils/test-identity'
 
 /**
@@ -52,6 +53,7 @@ function useTestIdentity() {
   })
 
   return {
+    signOutcome: (message: Parameters<typeof signTestOutcome>[1]) => signTestOutcome(identity, message),
     get authChain(): AuthIdentity['authChain'] {
       return identity.authChain
     },
@@ -441,20 +443,24 @@ test('when sending an outcome message with an invalid schema', args => {
 
 test('when sending an outcome message but the request does not exist', args => {
   const clients = connectClients(args)
+  const identity = useTestIdentity()
   let requestId: string
   let sender: string
 
   beforeEach(() => {
     requestId = generateRandomIdentityId()
-    sender = createUnsafeIdentity().address
+    sender = identity.owner
   })
 
   it('should respond with an invalid response message', async () => {
-    const response = await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
-      requestId,
-      sender,
-      result: 'result'
-    })
+    const response = await clients.authDapp.emitWithAck(
+      MessageType.OUTCOME,
+      identity.signOutcome({
+        requestId,
+        sender,
+        result: 'result'
+      })
+    )
 
     expect(response).toEqual({
       error: `Request with id "${requestId}" not found`
@@ -468,7 +474,7 @@ testWithOverrides({ requestExpirationInSeconds: -1 })('when sending an outcome m
   let sender: string
 
   beforeEach(() => {
-    sender = createUnsafeIdentity().address
+    sender = identity.owner
   })
 
   it('should respond with an invalid response message', async () => {
@@ -478,11 +484,14 @@ testWithOverrides({ requestExpirationInSeconds: -1 })('when sending an outcome m
       authChain: identity.authChain
     })
 
-    const outcomeResponse = await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
-      requestId: requestResponse.requestId,
-      sender,
-      result: 'result'
-    })
+    const outcomeResponse = await clients.authDapp.emitWithAck(
+      MessageType.OUTCOME,
+      identity.signOutcome({
+        requestId: requestResponse.requestId,
+        sender,
+        result: 'result'
+      })
+    )
 
     expect(outcomeResponse).toEqual({
       error: `Request with id "${requestResponse.requestId}" has expired`
@@ -496,7 +505,7 @@ test('when sending an outcome message but the socket that created the request di
   let sender: string
 
   beforeEach(() => {
-    sender = createUnsafeIdentity().address
+    sender = identity.owner
   })
 
   it('should accept the outcome and store it for polling (requests survive socket disconnect)', async () => {
@@ -508,11 +517,14 @@ test('when sending an outcome message but the socket that created the request di
 
     clients.desktop.disconnect()
 
-    const outcomeResponse = await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
-      requestId: requestResponse.requestId,
-      sender,
-      result: 'result'
-    })
+    const outcomeResponse = await clients.authDapp.emitWithAck(
+      MessageType.OUTCOME,
+      identity.signOutcome({
+        requestId: requestResponse.requestId,
+        sender,
+        result: 'result'
+      })
+    )
 
     expect(outcomeResponse).toEqual({})
   })
@@ -524,7 +536,7 @@ test('when the auth dapp sends an outcome message', args => {
   let sender: string
 
   beforeEach(() => {
-    sender = createUnsafeIdentity().address
+    sender = identity.owner
   })
 
   it('should respond with an empty object as ack', async () => {
@@ -534,11 +546,14 @@ test('when the auth dapp sends an outcome message', args => {
       authChain: identity.authChain
     })
 
-    const outcomeResponse = await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
-      requestId: requestResponse.requestId,
-      sender,
-      result: 'result'
-    })
+    const outcomeResponse = await clients.authDapp.emitWithAck(
+      MessageType.OUTCOME,
+      identity.signOutcome({
+        requestId: requestResponse.requestId,
+        sender,
+        result: 'result'
+      })
+    )
 
     expect(outcomeResponse).toEqual({})
   })
@@ -556,11 +571,14 @@ test('when the auth dapp sends an outcome message', args => {
       })
     })
 
-    await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
-      requestId: requestResponse.requestId,
-      sender,
-      result: 'result'
-    })
+    await clients.authDapp.emitWithAck(
+      MessageType.OUTCOME,
+      identity.signOutcome({
+        requestId: requestResponse.requestId,
+        sender,
+        result: 'result'
+      })
+    )
 
     const outcomeResponse = await outcomeResponsePromise
 
@@ -584,14 +602,17 @@ test('when the auth dapp sends an outcome message', args => {
       })
     })
 
-    await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
-      requestId: requestResponse.requestId,
-      sender,
-      error: {
-        code: 1233,
-        message: 'anErrorOcurred'
-      }
-    })
+    await clients.authDapp.emitWithAck(
+      MessageType.OUTCOME,
+      identity.signOutcome({
+        requestId: requestResponse.requestId,
+        sender,
+        error: {
+          code: 1233,
+          message: 'anErrorOcurred'
+        }
+      })
+    )
 
     const outcomeResponse = await outcomeResponsePromise
 
@@ -612,17 +633,23 @@ test('when the auth dapp sends an outcome message', args => {
       authChain: identity.authChain
     })
 
-    await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
-      requestId: requestResponse.requestId,
-      sender,
-      result: 'result'
-    })
+    await clients.authDapp.emitWithAck(
+      MessageType.OUTCOME,
+      identity.signOutcome({
+        requestId: requestResponse.requestId,
+        sender,
+        result: 'result'
+      })
+    )
 
-    const outcomeResponse = await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
-      requestId: requestResponse.requestId,
-      sender,
-      result: 'result'
-    })
+    const outcomeResponse = await clients.authDapp.emitWithAck(
+      MessageType.OUTCOME,
+      identity.signOutcome({
+        requestId: requestResponse.requestId,
+        sender,
+        result: 'result'
+      })
+    )
 
     expect(outcomeResponse).toEqual({
       error: `Request with id "${requestResponse.requestId}" has already been fulfilled`

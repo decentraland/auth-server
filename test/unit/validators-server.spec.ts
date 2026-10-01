@@ -1,6 +1,7 @@
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
 import { OutcomeResponseMessage } from '../../src/ports/server/types'
 import { validateOutcomeMessage } from '../../src/ports/server/validations'
+import { createStubOutcomeProof } from '../utils/outcome'
 import { generateRandomIdentityId } from '../utils/test-identity'
 
 describe('when validating the outcome', () => {
@@ -11,10 +12,7 @@ describe('when validating the outcome', () => {
 
     beforeEach(() => {
       requestId = generateRandomIdentityId()
-      outcome = {
-        requestId,
-        result: 'result'
-      } as OutcomeResponseMessage
+      outcome = { ...createStubOutcomeProof(), requestId, result: 'result' } as unknown as OutcomeResponseMessage
     })
 
     it('should throw a validation error', () => {
@@ -27,10 +25,7 @@ describe('when validating the outcome', () => {
 
     beforeEach(() => {
       sender = createUnsafeIdentity().address
-      outcome = {
-        sender,
-        result: 'result'
-      } as OutcomeResponseMessage
+      outcome = { ...createStubOutcomeProof(), sender, result: 'result' } as unknown as OutcomeResponseMessage
     })
 
     it('should throw a validation error', () => {
@@ -45,11 +40,7 @@ describe('when validating the outcome', () => {
     beforeEach(() => {
       requestId = generateRandomIdentityId()
       sender = createUnsafeIdentity().address
-      outcome = {
-        requestId,
-        sender,
-        result: 'result'
-      } as OutcomeResponseMessage
+      outcome = { ...createStubOutcomeProof(), requestId, sender, result: 'result' } as OutcomeResponseMessage
     })
 
     it('should return the outcome unchanged', () => {
@@ -64,11 +55,7 @@ describe('when validating the outcome', () => {
     beforeEach(() => {
       requestId = generateRandomIdentityId()
       sender = createUnsafeIdentity().address
-      outcome = {
-        requestId,
-        sender,
-        error: {}
-      } as OutcomeResponseMessage
+      outcome = { ...createStubOutcomeProof(), requestId, sender, error: {} } as unknown as OutcomeResponseMessage
     })
 
     describe('and the error is missing a code', () => {
@@ -115,6 +102,7 @@ describe('when validating the outcome', () => {
       requestId = generateRandomIdentityId()
       sender = createUnsafeIdentity().address
       outcome = {
+        ...createStubOutcomeProof(),
         requestId,
         sender,
         result: 'result',
