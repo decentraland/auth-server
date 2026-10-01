@@ -218,6 +218,12 @@ paths:
                   summary: Invalid request payload
                   value:
                     error: '[{"instancePath":"/method","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"method"},"message":"must have required property ''method''"}]'
+        '503':
+          description: Signature verification is temporarily unavailable (RPC failure or validation timeout)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
   /requests/{requestId}:
     get:
       tags:
@@ -455,6 +461,12 @@ paths:
                 $ref: '#/components/schemas/InvalidResponseMessage'
         '403':
           description: Authorization mismatch or invalid signer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+        '503':
+          description: Signature verification is temporarily unavailable (RPC failure or validation timeout)
           content:
             application/json:
               schema:

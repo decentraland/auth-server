@@ -98,10 +98,21 @@ test('when an account with code behind it signs in', args => {
     })
 
     describe('and the provider cannot be reached', () => {
-      it('should refuse it', async () => {
+      it('should report signature verification as unavailable', async () => {
         response = await storeIdentity()
 
-        expect(response.status).toBe(401)
+        expect(response.status).toBe(503)
+      })
+
+      it('should also report an outage during body validation after valid EOA headers', async () => {
+        response = await createSignedFetchRequest(`http://localhost:${port}`, {
+          method: 'POST',
+          path: '/identities',
+          body: { identity: contractIdentity },
+          identity
+        })
+
+        expect(response.status).toBe(503)
       })
     })
 
@@ -121,6 +132,7 @@ test('when an account with code behind it signs in', args => {
 
   describe('and it registers a request over HTTP', () => {
     let client: HttpPollingClient
+    let response: Response
 
     beforeEach(async () => {
       client = await createHttpClient(port)
@@ -145,6 +157,16 @@ test('when an account with code behind it signs in', args => {
         await expect(client.request({ method: 'eth_sendTransaction', params: [], authChain })).resolves.toEqual({
           error: expect.any(String)
         })
+      })
+
+      it('should return a retryable service-unavailable status', async () => {
+        response = await fetch(`http://localhost:${port}/requests`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ method: 'eth_sendTransaction', params: [], authChain })
+        })
+
+        expect(response.status).toBe(503)
       })
     })
   })
