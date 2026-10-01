@@ -1,6 +1,6 @@
 import { randomInt } from 'crypto'
-import { SignatureValidationInfrastructureError } from '@dcl/crypto-middleware'
 import { v4 as uuid } from 'uuid'
+import { SignatureValidationInfrastructureError } from '@dcl/crypto-middleware'
 import { validateAuthChain } from '../../logic/auth-chain'
 import { isErrorWithMessage } from '../../logic/error-handling'
 import { loadActiveRequest, logInboundRequestStateError, RequestStateError, requestStateErrorToHttpResponse } from '../../logic/requests'
