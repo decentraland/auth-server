@@ -1,3 +1,4 @@
+import { isIPv4, isIPv6 } from 'net'
 import { InvalidRequestError } from '@dcl/http-commons'
 
 /**
@@ -84,7 +85,7 @@ export function getClientIp(headers: Headers): string {
 }
 
 // Checks if two IPs match, considering subnet/region matching.
-// For IPv4, this can match by subnet (e.g., 10.0.16.* matches 10.0.16.*).
+// IPv4 matches by /24 subnet and IPv6 by /64 prefix; an IPv4 never matches an IPv6.
 export function ipsMatch(ip1: string, ip2: string): boolean {
   if (!ip1 || !ip2 || ip1 === 'unknown' || ip2 === 'unknown') {
     return false
@@ -117,7 +118,43 @@ export function ipsMatch(ip1: string, ip2: string): boolean {
     }
   }
 
+  // IPv6 /64 matching: hosts rotate temporary (privacy) addresses inside the same /64 prefix
+  const hextets1 = expandIpv6(normalizedIp1)
+  const hextets2 = expandIpv6(normalizedIp2)
+
+  if (hextets1 && hextets2) {
+    return hextets1.slice(0, 4).every((hextet, i) => hextet === hextets2[i])
+  }
+
   return false
+}
+
+// Expands an IPv6 address into its 8 hextets as numbers, or returns null if it is not IPv6.
+export function expandIpv6(ip: string): number[] | null {
+  const address = ip.split('%')[0]
+  if (!isIPv6(address)) {
+    return null
+  }
+
+  const [head, tail] = address.includes('::') ? address.split('::') : [address, undefined]
+  const toHextets = (part: string): number[] =>
+    part
+      ? part.split(':').flatMap(group => {
+          if (isIPv4(group)) {
+            const [a, b, c, d] = group.split('.').map(Number)
+            return [(a << 8) | b, (c << 8) | d]
+          }
+          return [parseInt(group, 16)]
+        })
+      : []
+
+  const headHextets = toHextets(head)
+  if (tail === undefined) {
+    return headHextets
+  }
+
+  const tailHextets = toHextets(tail)
+  return [...headHextets, ...new Array(8 - headHextets.length - tailHextets.length).fill(0), ...tailHextets]
 }
 
 // Formats IP-related headers for logging.

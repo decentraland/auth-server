@@ -467,7 +467,9 @@ paths:
       description: |
         Retrieves an identity by ID for auto-login.  
         The identity is deleted after a successful retrieval.  
-        The request must originate from the same IP (flexible matching) used when creating the identity.
+        When the identity was created with an `authRequestId` and the request carries the `x-identity-verifier`
+        header, the verifier must hash to that `authRequestId` and the IP is not checked. Otherwise the request
+        must originate from the same IP used when creating the identity (same IPv4 /24 or IPv6 /64).
       operationId: getIdentity
       security: []
       parameters:
@@ -478,6 +480,15 @@ paths:
             type: string
             format: uuid
           description: Identity ID
+        - name: x-identity-verifier
+          in: header
+          required: false
+          schema:
+            type: string
+            pattern: '^[A-Za-z0-9_-]{43}$'
+          description: |
+            Secret the client derived its `authRequestId` from: base64url (no padding) of 32 random bytes.
+            The `authRequestId` is the first 16 bytes of SHA-256(verifier) with the UUID v4 version and variant bits set.
       responses:
         '200':
           description: Identity retrieved
@@ -487,6 +498,12 @@ paths:
                 $ref: '#/components/schemas/IdentityIdValidationResponse'
         '400':
           description: Invalid identity format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
+        '401':
+          description: Invalid identity verifier (the identity is kept)
           content:
             application/json:
               schema:
@@ -895,6 +912,12 @@ components:
       properties:
         identity:
           $ref: '#/components/schemas/AuthIdentity'
+        isMobile:
+          type: boolean
+        authRequestId:
+          type: string
+          format: uuid
+          description: Deep-link client's request UUID, derived from the verifier it presents on retrieval
       required:
         - identity
       additionalProperties: false

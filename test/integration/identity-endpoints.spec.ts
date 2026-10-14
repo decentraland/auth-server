@@ -3,6 +3,9 @@ import { test } from '../components'
 import { createSignedFetchRequest } from '../utils/signed-request'
 import { createTestIdentity, generateRandomIdentityId } from '../utils/test-identity'
 
+const VERIFIER = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'
+const AUTH_REQUEST_ID = '13d31e96-1a1a-48ec-af16-b10c4c982e08'
+
 test('when testing identity endpoints', args => {
   let port: string
   let baseUrl: string
@@ -160,6 +163,24 @@ test('when testing identity endpoints', args => {
           error: 'Ephemeral private key does not match the provided address'
         })
       })
+    })
+  })
+
+  describe('and creating an identity with an authRequestId that is not a UUID v4', () => {
+    let response: Response
+
+    beforeEach(async () => {
+      const testIdentity = await createTestIdentity()
+      response = await createSignedFetchRequest(baseUrl, {
+        method: 'POST',
+        path: '/identities',
+        body: { identity: testIdentity, authRequestId: 'not-a-uuid' },
+        identity: testIdentity
+      })
+    })
+
+    it('should respond with a 400 status', () => {
+      expect(response.status).toBe(400)
     })
   })
 
@@ -505,6 +526,190 @@ test('when testing identity endpoints', args => {
 
         const responseBody = await response.json()
         expect(responseBody).toHaveProperty('identity')
+      })
+    })
+
+    describe('and the IP is in the same IPv6 /64 prefix', () => {
+      let response: Response
+
+      beforeEach(async () => {
+        const prefixTestIdentity = await createTestIdentity()
+        const createResponse = await createSignedFetchRequest(baseUrl, {
+          method: 'POST',
+          path: '/identities',
+          body: { identity: prefixTestIdentity },
+          identity: prefixTestIdentity,
+          headers: {
+            'X-Real-IP': '2001:db8:1:2::1'
+          }
+        })
+        const { identityId: prefixIdentityId } = await createResponse.json()
+
+        response = await fetch(`${baseUrl}/identities/${prefixIdentityId}`, {
+          method: 'GET',
+          headers: {
+            'X-Real-IP': '2001:db8:1:2:abcd:ef01:2345:6789'
+          }
+        })
+      })
+
+      it('should respond with a 200 status', () => {
+        expect(response.status).toBe(200)
+      })
+    })
+
+    describe('and the identity was created with an authRequestId', () => {
+      let verifiedTestIdentity: AuthIdentity
+      let verifiedIdentityId: string
+
+      beforeEach(async () => {
+        verifiedTestIdentity = await createTestIdentity()
+        const createResponse = await createSignedFetchRequest(baseUrl, {
+          method: 'POST',
+          path: '/identities',
+          body: { identity: verifiedTestIdentity, authRequestId: AUTH_REQUEST_ID },
+          identity: verifiedTestIdentity,
+          headers: {
+            'X-Real-IP': '2001:db8:1:2::1'
+          }
+        })
+        verifiedIdentityId = (await createResponse.json()).identityId
+      })
+
+      describe('and the request carries the matching verifier from an IPv4 address', () => {
+        let response: Response
+        let responseBody: { identity: AuthIdentity }
+
+        beforeEach(async () => {
+          response = await fetch(`${baseUrl}/identities/${verifiedIdentityId}`, {
+            method: 'GET',
+            headers: {
+              'X-Real-IP': '203.0.113.7',
+              'x-identity-verifier': VERIFIER
+            }
+          })
+          responseBody = await response.json()
+        })
+
+        it('should respond with a 200 status', () => {
+          expect(response.status).toBe(200)
+        })
+
+        it('should return the stored identity', () => {
+          expect(responseBody.identity).toEqual({
+            ...verifiedTestIdentity,
+            expiration: verifiedTestIdentity.expiration.toISOString()
+          })
+        })
+      })
+
+      describe('and the request carries a wrong verifier', () => {
+        let response: Response
+        let responseBody: { error: string }
+        let retryResponse: Response
+
+        beforeEach(async () => {
+          response = await fetch(`${baseUrl}/identities/${verifiedIdentityId}`, {
+            method: 'GET',
+            headers: {
+              'X-Real-IP': '2001:db8:1:2::1',
+              'x-identity-verifier': `${VERIFIER.slice(0, 42)}A`
+            }
+          })
+          responseBody = await response.json()
+          retryResponse = await fetch(`${baseUrl}/identities/${verifiedIdentityId}`, {
+            method: 'GET',
+            headers: {
+              'X-Real-IP': '203.0.113.7',
+              'x-identity-verifier': VERIFIER
+            }
+          })
+        })
+
+        it('should respond with a 401 status and an invalid verifier error', () => {
+          expect({ status: response.status, body: responseBody }).toEqual({
+            status: 401,
+            body: { error: 'Invalid identity verifier' }
+          })
+        })
+
+        it('should keep the identity so the matching verifier can still retrieve it', () => {
+          expect(retryResponse.status).toBe(200)
+        })
+      })
+
+      describe('and the request carries no verifier from a different IP', () => {
+        let response: Response
+        let responseBody: { error: string }
+
+        beforeEach(async () => {
+          response = await fetch(`${baseUrl}/identities/${verifiedIdentityId}`, {
+            method: 'GET',
+            headers: {
+              'X-Real-IP': '203.0.113.7'
+            }
+          })
+          responseBody = await response.json()
+        })
+
+        it('should respond with a 403 status and an IP mismatch error', () => {
+          expect({ status: response.status, body: responseBody }).toEqual({
+            status: 403,
+            body: { error: 'IP address mismatch' }
+          })
+        })
+      })
+
+      describe('and the request carries no verifier from the same IP', () => {
+        let response: Response
+
+        beforeEach(async () => {
+          response = await fetch(`${baseUrl}/identities/${verifiedIdentityId}`, {
+            method: 'GET',
+            headers: {
+              'X-Real-IP': '2001:db8:1:2::1'
+            }
+          })
+        })
+
+        it('should respond with a 200 status', () => {
+          expect(response.status).toBe(200)
+        })
+      })
+    })
+
+    describe('and the identity was created without an authRequestId and the request carries a verifier from a different IP', () => {
+      let response: Response
+      let responseBody: { error: string }
+
+      beforeEach(async () => {
+        const unboundTestIdentity = await createTestIdentity()
+        const createResponse = await createSignedFetchRequest(baseUrl, {
+          method: 'POST',
+          path: '/identities',
+          body: { identity: unboundTestIdentity },
+          identity: unboundTestIdentity,
+          headers: {
+            'X-Real-IP': '10.0.0.1'
+          }
+        })
+        const { identityId: unboundIdentityId } = await createResponse.json()
+
+        response = await fetch(`${baseUrl}/identities/${unboundIdentityId}`, {
+          method: 'GET',
+          headers: {
+            'X-Real-IP': '203.0.113.7',
+            'x-identity-verifier': VERIFIER
+          }
+        })
+        responseBody = await response.json()
+      })
+
+      it('should ignore the verifier and respond with a 403 status and an IP mismatch error', () => {
+        expect({ status: response.status, body: responseBody }).toEqual({
+          status: 403,
+          body: { error: 'IP address mismatch' }
+        })
       })
     })
   })
