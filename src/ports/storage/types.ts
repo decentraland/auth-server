@@ -45,5 +45,5 @@ export type IdentityStatus = {
   createdAt: Date
   consumed: boolean
   signer: string
-  deletionReason?: 'consumed' | 'expired' | 'ip_mismatch'
+  deletionReason?: 'consumed' | 'expired'
 }

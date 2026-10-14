@@ -1,4 +1,3 @@
-import { isIPv4, isIPv6 } from 'net'
 import { InvalidRequestError } from '@dcl/http-commons'
 
 /**
@@ -27,11 +26,10 @@ export async function parseJsonBody(request: Request): Promise<unknown> {
 // Normalizes an IP address (converts IPv6-mapped IPv4 to IPv4).
 export function normalizeIp(ip: string): string {
   // Convert IPv6-mapped IPv4 (::ffff:xxx.xxx.xxx.xxx) to IPv4
-  const lowercased = ip.trim().toLowerCase()
-  if (lowercased.startsWith('::ffff:')) {
-    return lowercased.substring(7)
+  if (ip.startsWith('::ffff:')) {
+    return ip.substring(7)
   }
-  return lowercased
+  return ip.trim()
 }
 
 /**
@@ -83,84 +81,6 @@ export function getClientIp(headers: Headers): string {
   // Fallback to the Node socket remote address (stamped onto a header by main()).
   const fallbackIp = headers.get(SOCKET_REMOTE_ADDRESS_HEADER) || 'unknown'
   return normalizeIp(fallbackIp)
-}
-
-// Checks if two IPs match, considering subnet/region matching.
-// IPv4 matches by /24 subnet and IPv6 by /64 prefix; an IPv4 never matches an IPv6.
-export function ipsMatch(ip1: string, ip2: string): boolean {
-  if (!ip1 || !ip2 || ip1 === 'unknown' || ip2 === 'unknown') {
-    return false
-  }
-
-  // Exact match
-  if (ip1 === ip2) {
-    return true
-  }
-
-  // Normalize both IPs
-  const normalizedIp1 = normalizeIp(ip1)
-  const normalizedIp2 = normalizeIp(ip2)
-
-  // Exact match after normalization
-  if (normalizedIp1 === normalizedIp2) {
-    return true
-  }
-
-  // IPv4 subnet matching: check if they're in the same /24 subnet (first 3 octets)
-  // This helps with VPNs that might use different edge servers but same region
-  const ipv4Regex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
-  const match1 = normalizedIp1.match(ipv4Regex)
-  const match2 = normalizedIp2.match(ipv4Regex)
-
-  if (match1 && match2) {
-    // Match by /24 subnet (first 3 octets)
-    if (match1[1] === match2[1] && match1[2] === match2[2] && match1[3] === match2[3]) {
-      return true
-    }
-  }
-
-  // IPv6 /64 matching: hosts rotate temporary (privacy) addresses inside the same /64 prefix
-  const hextets1 = expandIpv6(normalizedIp1)
-  const hextets2 = expandIpv6(normalizedIp2)
-
-  if (hextets1 && hextets2 && !isSharedIpv6Prefix(hextets1)) {
-    return hextets1.slice(0, 4).every((hextet, i) => hextet === hextets2[i])
-  }
-
-  return false
-}
-
-// Whether the /64 is shared by unrelated hosts: the zero prefix (::, ::1, IPv4-mapped/compatible) or NAT64 (64:ff9b::/32).
-function isSharedIpv6Prefix(hextets: number[]): boolean {
-  return hextets.slice(0, 4).every(hextet => hextet === 0) || (hextets[0] === 0x64 && hextets[1] === 0xff9b)
-}
-
-// Expands an IPv6 address into its 8 hextets as numbers, or returns null if it is not IPv6.
-export function expandIpv6(ip: string): number[] | null {
-  const address = ip.split('%')[0]
-  if (!isIPv6(address)) {
-    return null
-  }
-
-  const [head, tail] = address.includes('::') ? address.split('::') : [address, undefined]
-  const toHextets = (part: string): number[] =>
-    part
-      ? part.split(':').flatMap(group => {
-          if (isIPv4(group)) {
-            const [a, b, c, d] = group.split('.').map(Number)
-            return [(a << 8) | b, (c << 8) | d]
-          }
-          return [parseInt(group, 16)]
-        })
-      : []
-
-  const headHextets = toHextets(head)
-  if (tail === undefined) {
-    return headHextets
-  }
-
-  const tailHextets = toHextets(tail)
-  return [...headHextets, ...new Array(8 - headHextets.length - tailHextets.length).fill(0), ...tailHextets]
 }
 
 // Formats IP-related headers for logging.

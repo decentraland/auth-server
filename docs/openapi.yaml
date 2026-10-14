@@ -467,10 +467,8 @@ paths:
       description: |
         Retrieves an identity by ID for auto-login.  
         The identity is deleted after a successful retrieval.  
-        When the identity was created with an `authRequestId` and the request carries the `x-identity-verifier`
-        header, the verifier must hash to that `authRequestId` and the IP is not checked. Otherwise the request
-        must originate from the same IP used when creating the identity (same IPv4 /24 or IPv6 /64).
-        A mismatching IP deletes the identity, unless it was created with an `authRequestId`.
+        When the identity was created with an `authRequestId`, the request must carry the `x-identity-verifier`
+        header and the verifier must hash to that `authRequestId`; otherwise it gets a 401 and the identity is kept.
       operationId: getIdentity
       security: []
       parameters:
@@ -504,13 +502,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/InvalidResponseMessage'
         '401':
-          description: Invalid identity verifier (the identity is kept)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/InvalidResponseMessage'
-        '403':
-          description: IP address mismatch
+          description: Missing or invalid identity verifier (the identity is kept)
           content:
             application/json:
               schema:
