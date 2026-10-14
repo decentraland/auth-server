@@ -470,6 +470,7 @@ paths:
         When the identity was created with an `authRequestId` and the request carries the `x-identity-verifier`
         header, the verifier must hash to that `authRequestId` and the IP is not checked. Otherwise the request
         must originate from the same IP used when creating the identity (same IPv4 /24 or IPv6 /64).
+        A mismatching IP deletes the identity, unless it was created with an `authRequestId`.
       operationId: getIdentity
       security: []
       parameters:

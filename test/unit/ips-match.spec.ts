@@ -58,6 +58,50 @@ describe('when matching IPs', () => {
       expect(ipsMatch(storedIp, requestIp)).toBe(true)
     })
   })
+
+  describe('and one is the uppercase IPv6-mapped form of the other IPv4', () => {
+    beforeEach(() => {
+      storedIp = '203.0.113.7'
+      requestIp = '::FFFF:203.0.113.7'
+    })
+
+    it('should match', () => {
+      expect(ipsMatch(storedIp, requestIp)).toBe(true)
+    })
+  })
+
+  describe('and both are uppercase IPv6-mapped forms of IPv4 addresses in different /24 subnets', () => {
+    beforeEach(() => {
+      storedIp = '::FFFF:203.0.113.7'
+      requestIp = '::FFFF:198.51.100.7'
+    })
+
+    it('should not match', () => {
+      expect(ipsMatch(storedIp, requestIp)).toBe(false)
+    })
+  })
+
+  describe('and both are different NAT64 addresses', () => {
+    beforeEach(() => {
+      storedIp = '64:ff9b::203.0.113.7'
+      requestIp = '64:ff9b::198.51.100.7'
+    })
+
+    it('should not match', () => {
+      expect(ipsMatch(storedIp, requestIp)).toBe(false)
+    })
+  })
+
+  describe('and they are the unspecified and loopback IPv6 addresses', () => {
+    beforeEach(() => {
+      storedIp = '::'
+      requestIp = '::1'
+    })
+
+    it('should not match', () => {
+      expect(ipsMatch(storedIp, requestIp)).toBe(false)
+    })
+  })
 })
 
 describe('when expanding an IPv6 address', () => {

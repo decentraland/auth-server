@@ -638,9 +638,45 @@ test('when testing identity endpoints', args => {
         })
       })
 
+      describe('and the request carries a malformed verifier', () => {
+        let response: Response
+        let responseBody: { error: string }
+        let retryResponse: Response
+
+        beforeEach(async () => {
+          response = await fetch(`${baseUrl}/identities/${verifiedIdentityId}`, {
+            method: 'GET',
+            headers: {
+              'X-Real-IP': '2001:db8:1:2::1',
+              'x-identity-verifier': VERIFIER.slice(0, 42)
+            }
+          })
+          responseBody = await response.json()
+          retryResponse = await fetch(`${baseUrl}/identities/${verifiedIdentityId}`, {
+            method: 'GET',
+            headers: {
+              'X-Real-IP': '203.0.113.7',
+              'x-identity-verifier': VERIFIER
+            }
+          })
+        })
+
+        it('should respond with a 401 status and an invalid verifier error', () => {
+          expect({ status: response.status, body: responseBody }).toEqual({
+            status: 401,
+            body: { error: 'Invalid identity verifier' }
+          })
+        })
+
+        it('should keep the identity so the matching verifier can still retrieve it', () => {
+          expect(retryResponse.status).toBe(200)
+        })
+      })
+
       describe('and the request carries no verifier from a different IP', () => {
         let response: Response
         let responseBody: { error: string }
+        let retryResponse: Response
 
         beforeEach(async () => {
           response = await fetch(`${baseUrl}/identities/${verifiedIdentityId}`, {
@@ -650,6 +686,13 @@ test('when testing identity endpoints', args => {
             }
           })
           responseBody = await response.json()
+          retryResponse = await fetch(`${baseUrl}/identities/${verifiedIdentityId}`, {
+            method: 'GET',
+            headers: {
+              'X-Real-IP': '203.0.113.7',
+              'x-identity-verifier': VERIFIER
+            }
+          })
         })
 
         it('should respond with a 403 status and an IP mismatch error', () => {
@@ -657,6 +700,10 @@ test('when testing identity endpoints', args => {
             status: 403,
             body: { error: 'IP address mismatch' }
           })
+        })
+
+        it('should keep the identity so the matching verifier can still retrieve it', () => {
+          expect(retryResponse.status).toBe(200)
         })
       })
 
@@ -675,6 +722,35 @@ test('when testing identity endpoints', args => {
         it('should respond with a 200 status', () => {
           expect(response.status).toBe(200)
         })
+      })
+    })
+
+    describe('and a mobile identity was created with an authRequestId and the request carries no verifier from a different IP', () => {
+      let response: Response
+
+      beforeEach(async () => {
+        const mobileTestIdentity = await createTestIdentity()
+        const createResponse = await createSignedFetchRequest(baseUrl, {
+          method: 'POST',
+          path: '/identities',
+          body: { identity: mobileTestIdentity, isMobile: true, authRequestId: AUTH_REQUEST_ID },
+          identity: mobileTestIdentity,
+          headers: {
+            'X-Real-IP': '10.0.0.1'
+          }
+        })
+        const { identityId: mobileIdentityId } = await createResponse.json()
+
+        response = await fetch(`${baseUrl}/identities/${mobileIdentityId}`, {
+          method: 'GET',
+          headers: {
+            'X-Real-IP': '203.0.113.7'
+          }
+        })
+      })
+
+      it('should respond with a 200 status', () => {
+        expect(response.status).toBe(200)
       })
     })
 

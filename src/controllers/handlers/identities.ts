@@ -209,6 +209,13 @@ export async function getIdentityHandler(context: HandlerContextWithPath<'storag
     }
     // Continue without blocking for mobile
   } else if (!ipsMatch(identity.ipAddress, clientIp)) {
+    if (identity.authRequestId) {
+      // Kept so a caller omitting the verifier cannot burn a login its client can still verify.
+      identityLogger.log(
+        `[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve identity from different IP without a verifier. Stored: ${identity.ipAddress}, Request: ${clientIp}. Identity kept.`
+      )
+      return { status: 403, body: { error: 'IP address mismatch' } satisfies InvalidResponseMessage }
+    }
     // Non-mobile: delete identity and return 403
     await storage.deleteIdentity(identityId)
     await storage.updateIdentityStatus(identityId, { consumed: false, deletionReason: 'ip_mismatch' })

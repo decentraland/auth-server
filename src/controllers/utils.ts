@@ -27,10 +27,11 @@ export async function parseJsonBody(request: Request): Promise<unknown> {
 // Normalizes an IP address (converts IPv6-mapped IPv4 to IPv4).
 export function normalizeIp(ip: string): string {
   // Convert IPv6-mapped IPv4 (::ffff:xxx.xxx.xxx.xxx) to IPv4
-  if (ip.startsWith('::ffff:')) {
-    return ip.substring(7)
+  const lowercased = ip.trim().toLowerCase()
+  if (lowercased.startsWith('::ffff:')) {
+    return lowercased.substring(7)
   }
-  return ip.trim()
+  return lowercased
 }
 
 /**
@@ -122,11 +123,16 @@ export function ipsMatch(ip1: string, ip2: string): boolean {
   const hextets1 = expandIpv6(normalizedIp1)
   const hextets2 = expandIpv6(normalizedIp2)
 
-  if (hextets1 && hextets2) {
+  if (hextets1 && hextets2 && !isSharedIpv6Prefix(hextets1)) {
     return hextets1.slice(0, 4).every((hextet, i) => hextet === hextets2[i])
   }
 
   return false
+}
+
+// Whether the /64 is shared by unrelated hosts: the zero prefix (::, ::1, IPv4-mapped/compatible) or NAT64 (64:ff9b::/32).
+function isSharedIpv6Prefix(hextets: number[]): boolean {
+  return hextets.slice(0, 4).every(hextet => hextet === 0) || (hextets[0] === 0x64 && hextets[1] === 0xff9b)
 }
 
 // Expands an IPv6 address into its 8 hextets as numbers, or returns null if it is not IPv6.
