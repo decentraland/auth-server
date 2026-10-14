@@ -467,8 +467,9 @@ paths:
       description: |
         Retrieves an identity by ID for auto-login.  
         The identity is deleted after a successful retrieval.  
-        When the identity was created with an `authRequestId`, the request must carry the `x-identity-verifier`
-        header and the verifier must hash to that `authRequestId`; otherwise it gets a 401 and the identity is kept.
+        When the identity was created with an `authRequestId` and the request carries the `x-identity-verifier`
+        header, the verifier must hash to that `authRequestId`; otherwise it gets a 401 and the identity is kept.
+        A missing header is only rejected when `REQUIRE_IDENTITY_VERIFIER` is enabled.
       operationId: getIdentity
       security: []
       parameters:

@@ -120,92 +120,102 @@ export async function createIdentityHandler(
   }
 }
 
+export type GetIdentityOptions = {
+  /** Rejects identities bound to an authRequestId when the request has no verifier. Off while older clients don't send one. */
+  requireIdentityVerifier: boolean
+}
+
 // GET /identities/:id — returns identity for auto-login
-export async function getIdentityHandler(context: HandlerContextWithPath<'storage' | 'logs', '/identities/:id'>) {
-  const {
-    params: { id: identityId },
-    components: { storage, logs },
-    request
-  } = context
+export function createGetIdentityHandler({ requireIdentityVerifier }: GetIdentityOptions) {
+  return async function getIdentityHandler(context: HandlerContextWithPath<'storage' | 'logs', '/identities/:id'>) {
+    const {
+      params: { id: identityId },
+      components: { storage, logs },
+      request
+    } = context
 
-  const identityLogger = logs.getLogger('identity-endpoints')
-  identityLogger.log(`Received a request to retrieve identity: ${identityId}`)
+    const identityLogger = logs.getLogger('identity-endpoints')
+    identityLogger.log(`Received a request to retrieve identity: ${identityId}`)
 
-  if (!validateIdentityId(identityId)) {
-    identityLogger.log(`[IID:${identityId}] Received a request to retrieve identity with invalid format`)
-    return { status: 400, body: { error: 'Invalid identity format' } satisfies InvalidResponseMessage }
-  }
+    if (!validateIdentityId(identityId)) {
+      identityLogger.log(`[IID:${identityId}] Received a request to retrieve identity with invalid format`)
+      return { status: 400, body: { error: 'Invalid identity format' } satisfies InvalidResponseMessage }
+    }
 
-  const identity = await storage.getIdentity(identityId)
+    const identity = await storage.getIdentity(identityId)
 
-  if (!identity) {
-    const status = await storage.getIdentityStatus(identityId)
-    if (status) {
-      if (status.deletionReason === 'consumed') {
-        identityLogger.log(`[IID:${identityId}][SIGNER:${status.signer}] Received a request to retrieve an already consumed identity`)
-        return { status: 404, body: { error: 'Identity was already consumed' } satisfies InvalidResponseMessage }
+    if (!identity) {
+      const status = await storage.getIdentityStatus(identityId)
+      if (status) {
+        if (status.deletionReason === 'consumed') {
+          identityLogger.log(`[IID:${identityId}][SIGNER:${status.signer}] Received a request to retrieve an already consumed identity`)
+          return { status: 404, body: { error: 'Identity was already consumed' } satisfies InvalidResponseMessage }
+        }
+        if (status.deletionReason === 'expired') {
+          identityLogger.log(`[IID:${identityId}][SIGNER:${status.signer}] Received a request to retrieve an expired identity`)
+          return { status: 404, body: { error: 'Identity has expired' } satisfies InvalidResponseMessage }
+        }
+        // Tombstone exists but no deletion reason → identity was evicted from cache by Redis TTL
+        identityLogger.log(
+          `[IID:${identityId}][SIGNER:${
+            status.signer
+          }][CREATED:${status.createdAt.toISOString()}] Received a request to retrieve an identity evicted by TTL`
+        )
+        return {
+          status: 404,
+          body: { error: 'Identity was evicted', createdAt: status.createdAt.toISOString() }
+        }
       }
-      if (status.deletionReason === 'expired') {
-        identityLogger.log(`[IID:${identityId}][SIGNER:${status.signer}] Received a request to retrieve an expired identity`)
-        return { status: 404, body: { error: 'Identity has expired' } satisfies InvalidResponseMessage }
+      identityLogger.log(`[IID:${identityId}] Received a request to retrieve a non-existent identity`)
+      return { status: 404, body: { error: 'Identity not found' } satisfies InvalidResponseMessage }
+    }
+
+    const signer = Authenticator.ownerAddress(identity.identity.authChain)
+
+    if (identity.expiration < new Date()) {
+      await storage.deleteIdentity(identityId)
+      await storage.updateIdentityStatus(identityId, { consumed: false, deletionReason: 'expired' })
+      identityLogger.log(`[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve an expired identity`)
+      return { status: 410, body: { error: 'Identity has expired' } satisfies InvalidResponseMessage }
+    }
+
+    const clientIp = getClientIp(request.headers)
+
+    // Identities bound to an authRequestId are only served to the client holding the verifier it was derived from.
+    // A failed check keeps the identity, so a leaked id cannot burn the real login.
+    if (identity.authRequestId) {
+      const verifier = request.headers.get(IDENTITY_VERIFIER_HEADER)
+      if (verifier ? !isValidIdentityVerifier(verifier, identity.authRequestId) : requireIdentityVerifier) {
+        identityLogger.log(
+          `[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve identity with a ${
+            verifier ? 'invalid' : 'missing'
+          } verifier from IP: ${clientIp}`
+        )
+        return { status: 401, body: { error: 'Invalid identity verifier' } satisfies InvalidResponseMessage }
       }
-      // Tombstone exists but no deletion reason → identity was evicted from cache by Redis TTL
+      if (!verifier) {
+        identityLogger.log(`[IID:${identityId}][SIGNER:${signer}] Serving identity without a verifier (not yet required)`)
+      }
+    }
+
+    try {
+      // Delete the identity from the storage
+      await storage.deleteIdentity(identityId)
+      await storage.updateIdentityStatus(identityId, { consumed: true, deletionReason: 'consumed' })
+
       identityLogger.log(
-        `[IID:${identityId}][SIGNER:${
-          status.signer
-        }][CREATED:${status.createdAt.toISOString()}] Received a request to retrieve an identity evicted by TTL`
+        `[IID:${identityId}][SIGNER:${signer}][EXP:${identity.expiration.getTime()}] Successfully served identity to IP: ${clientIp}`
       )
+
+      // Return the identity for auto-login
       return {
-        status: 404,
-        body: { error: 'Identity was evicted', createdAt: status.createdAt.toISOString() }
+        status: 200,
+        body: { identity: identity.identity } satisfies IdentityIdValidationResponse
       }
+    } catch (error) {
+      const errorMessage = isErrorWithMessage(error) ? error.message : 'Unknown error'
+      identityLogger.error(`[IID:${identityId}][SIGNER:${signer}] Error serving identity: ${errorMessage}`)
+      return { status: 500, body: { error: 'Internal server error' } satisfies InvalidResponseMessage }
     }
-    identityLogger.log(`[IID:${identityId}] Received a request to retrieve a non-existent identity`)
-    return { status: 404, body: { error: 'Identity not found' } satisfies InvalidResponseMessage }
-  }
-
-  const signer = Authenticator.ownerAddress(identity.identity.authChain)
-
-  if (identity.expiration < new Date()) {
-    await storage.deleteIdentity(identityId)
-    await storage.updateIdentityStatus(identityId, { consumed: false, deletionReason: 'expired' })
-    identityLogger.log(`[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve an expired identity`)
-    return { status: 410, body: { error: 'Identity has expired' } satisfies InvalidResponseMessage }
-  }
-
-  const clientIp = getClientIp(request.headers)
-
-  // Identities bound to an authRequestId are only served to the client holding the verifier it was derived from.
-  // A failed check keeps the identity, so a leaked id cannot burn the real login.
-  if (identity.authRequestId) {
-    const verifier = request.headers.get(IDENTITY_VERIFIER_HEADER)
-    if (!verifier || !isValidIdentityVerifier(verifier, identity.authRequestId)) {
-      identityLogger.log(
-        `[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve identity with a ${
-          verifier ? 'invalid' : 'missing'
-        } verifier from IP: ${clientIp}`
-      )
-      return { status: 401, body: { error: 'Invalid identity verifier' } satisfies InvalidResponseMessage }
-    }
-  }
-
-  try {
-    // Delete the identity from the storage
-    await storage.deleteIdentity(identityId)
-    await storage.updateIdentityStatus(identityId, { consumed: true, deletionReason: 'consumed' })
-
-    identityLogger.log(
-      `[IID:${identityId}][SIGNER:${signer}][EXP:${identity.expiration.getTime()}] Successfully served identity to IP: ${clientIp}`
-    )
-
-    // Return the identity for auto-login
-    return {
-      status: 200,
-      body: { identity: identity.identity } satisfies IdentityIdValidationResponse
-    }
-  } catch (error) {
-    const errorMessage = isErrorWithMessage(error) ? error.message : 'Unknown error'
-    identityLogger.error(`[IID:${identityId}][SIGNER:${signer}] Error serving identity: ${errorMessage}`)
-    return { status: 500, body: { error: 'Internal server error' } satisfies InvalidResponseMessage }
   }
 }

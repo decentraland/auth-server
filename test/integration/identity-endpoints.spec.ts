@@ -1,5 +1,5 @@
 import { AuthIdentity } from '@dcl/crypto'
-import { test } from '../components'
+import { test, testWithOverrides } from '../components'
 import { createSignedFetchRequest } from '../utils/signed-request'
 import { createTestIdentity, generateRandomIdentityId } from '../utils/test-identity'
 
@@ -508,37 +508,20 @@ test('when testing identity endpoints', args => {
         })
       })
 
-      describe('and the request carries no verifier from the IP that created it', () => {
+      describe('and the request carries no verifier from a different IP', () => {
         let response: Response
-        let responseBody: { error: string }
-        let retryResponse: Response
 
         beforeEach(async () => {
           response = await fetch(`${baseUrl}/identities/${verifiedIdentityId}`, {
             method: 'GET',
             headers: {
-              'X-Real-IP': '2001:db8:1:2::1'
-            }
-          })
-          responseBody = await response.json()
-          retryResponse = await fetch(`${baseUrl}/identities/${verifiedIdentityId}`, {
-            method: 'GET',
-            headers: {
-              'X-Real-IP': '203.0.113.7',
-              'x-identity-verifier': VERIFIER
+              'X-Real-IP': '203.0.113.7'
             }
           })
         })
 
-        it('should respond with a 401 status and an invalid verifier error', () => {
-          expect({ status: response.status, body: responseBody }).toEqual({
-            status: 401,
-            body: { error: 'Invalid identity verifier' }
-          })
-        })
-
-        it('should keep the identity so the matching verifier can still retrieve it', () => {
-          expect(retryResponse.status).toBe(200)
+        it('should respond with a 200 status while the verifier is not required', () => {
+          expect(response.status).toBe(200)
         })
       })
     })
@@ -571,6 +554,60 @@ test('when testing identity endpoints', args => {
       it('should ignore the verifier and respond with a 200 status', () => {
         expect(response.status).toBe(200)
       })
+    })
+  })
+})
+
+testWithOverrides({ requireIdentityVerifier: true })('when retrieving an identity while the verifier is required', args => {
+  let baseUrl: string
+  let verifiedIdentityId: string
+
+  beforeEach(async () => {
+    baseUrl = `http://localhost:${await args.components.config.requireString('HTTP_SERVER_PORT')}`
+    const verifiedTestIdentity = await createTestIdentity()
+    const createResponse = await createSignedFetchRequest(baseUrl, {
+      method: 'POST',
+      path: '/identities',
+      body: { identity: verifiedTestIdentity, authRequestId: AUTH_REQUEST_ID },
+      identity: verifiedTestIdentity,
+      headers: {
+        'X-Real-IP': '2001:db8:1:2::1'
+      }
+    })
+    verifiedIdentityId = (await createResponse.json()).identityId
+  })
+
+  describe('and the request carries no verifier', () => {
+    let response: Response
+    let responseBody: { error: string }
+    let retryResponse: Response
+
+    beforeEach(async () => {
+      response = await fetch(`${baseUrl}/identities/${verifiedIdentityId}`, {
+        method: 'GET',
+        headers: {
+          'X-Real-IP': '2001:db8:1:2::1'
+        }
+      })
+      responseBody = await response.json()
+      retryResponse = await fetch(`${baseUrl}/identities/${verifiedIdentityId}`, {
+        method: 'GET',
+        headers: {
+          'X-Real-IP': '203.0.113.7',
+          'x-identity-verifier': VERIFIER
+        }
+      })
+    })
+
+    it('should respond with a 401 status and an invalid verifier error', () => {
+      expect({ status: response.status, body: responseBody }).toEqual({
+        status: 401,
+        body: { error: 'Invalid identity verifier' }
+      })
+    })
+
+    it('should keep the identity so the matching verifier can still retrieve it', () => {
+      expect(retryResponse.status).toBe(200)
     })
   })
 })

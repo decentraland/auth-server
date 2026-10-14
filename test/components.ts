@@ -30,6 +30,7 @@ export { createMockDbComponent, createMockLogs }
 type TestOverrides = {
   requestExpirationInSeconds?: number
   didTokenMaxAgeSeconds?: number
+  requireIdentityVerifier?: boolean
 }
 
 /**
@@ -116,7 +117,8 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
       ACCOUNT_DELETION_ALLOWED_ORIGINS: 'https://account.decentraland.org',
       // The expiration value is read from config by both the HTTP request handlers and the
       // socket-server, so per-test overrides are injected here as config defaults.
-      REQUEST_EXPIRATION_IN_SECONDS: String(overrides.requestExpirationInSeconds ?? 5 * 60) // 5 Minutes
+      REQUEST_EXPIRATION_IN_SECONDS: String(overrides.requestExpirationInSeconds ?? 5 * 60), // 5 Minutes
+      REQUIRE_IDENTITY_VERIFIER: String(overrides.requireIdentityVerifier ?? false)
     }
   )
 
