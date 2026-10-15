@@ -5,6 +5,7 @@ import type { IFeatureFlagsAdapter } from './adapters/feature-flags'
 import type { IL1Provider } from './adapters/l1-provider'
 import type { IMagicAdapter } from './adapters/magic'
 import type { IAccountDeletionComponent } from './logic/account-deletion'
+import type { IIdentityVerifierComponent } from './logic/identity-verifier'
 import type { ISocketServerComponent } from './logic/socket-server'
 import type { metricDeclarations } from './metrics'
 import type { IPgComponent } from './ports/db/types'
@@ -27,6 +28,7 @@ export type BaseComponents = {
   magic: IMagicAdapter
   l1Provider: IL1Provider
   accountDeletion: IAccountDeletionComponent
+  identityVerifier: IIdentityVerifierComponent
   nudgeJob: INudgeJobComponent
   db: IPgComponent
   email: IEmailComponent

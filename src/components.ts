@@ -13,6 +13,7 @@ import { createL1Provider } from './adapters/l1-provider'
 import { createMagicAdapter } from './adapters/magic'
 import { createAccountDeletionComponent } from './logic/account-deletion'
 import { parseCorsOrigins } from './logic/cors'
+import { createIdentityVerifierComponent } from './logic/identity-verifier'
 import { createSocketServerComponent } from './logic/socket-server'
 import { metricDeclarations } from './metrics'
 import { createPgComponent } from './ports/db/component'
@@ -67,6 +68,7 @@ export async function initComponents(): Promise<AppComponents> {
   const featureFlags = createFeatureFlagsAdapter({ logs, features })
   const onboarding = createOnboardingComponent({ db, logs })
   const accountDeletion = createAccountDeletionComponent({ magic, storage, logs, didTokenMaxAgeSeconds })
+  const identityVerifier = await createIdentityVerifierComponent({ config })
   const email = await createEmailComponent({ config, logs })
   const slackToken = await config.getString('SLACK_BOT_TOKEN')
   const slack = createSlackComponent({ logs }, { token: slackToken ?? '' })
@@ -91,6 +93,7 @@ export async function initComponents(): Promise<AppComponents> {
     magic,
     l1Provider,
     accountDeletion,
+    identityVerifier,
     nudgeJob,
     db,
     email,
