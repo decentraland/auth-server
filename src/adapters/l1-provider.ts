@@ -1,8 +1,6 @@
-import { createRpcProvider } from '@dcl/crypto-middleware'
+import { createSignatureRpcProvider } from '@dcl/crypto-middleware'
 import type { AuthChainProvider } from '@dcl/crypto-middleware'
 import type { IConfigComponent } from '@well-known-components/interfaces'
-
-const DEFAULT_ETH_RPC_URL = 'https://rpc.decentraland.org/mainnet?project=auth-server'
 
 export type IL1Provider = AuthChainProvider
 
@@ -17,5 +15,5 @@ export async function createL1Provider(
   { config }: { config: IConfigComponent },
   options: { timeoutInMilliseconds?: number } = {}
 ): Promise<IL1Provider> {
-  return createRpcProvider((await config.getString('ETH_RPC_URL')) || DEFAULT_ETH_RPC_URL, options)
+  return createSignatureRpcProvider(await config.requireString('ETH_RPC_URL'), options)
 }
