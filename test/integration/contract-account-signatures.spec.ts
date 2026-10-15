@@ -1,7 +1,7 @@
 import { AuthIdentity } from '@dcl/crypto'
 import { AuthChain } from '@dcl/schemas'
 import { signedHeaderFactory } from 'decentraland-crypto-fetch'
-import { SIGNATURE_VERIFICATION_UNAVAILABLE } from '../../src/logic/auth-chain'
+import { CONTRACT_SIGNATURE_NOT_CONFIRMED, SIGNATURE_VERIFICATION_UNAVAILABLE } from '../../src/logic/auth-chain'
 import { test } from '../components'
 import { createAuthWsClient, createHttpClient, HttpPollingClient } from '../utils'
 import { asContractAccountChain, contractAccountThat } from '../utils/l1-provider'
@@ -91,6 +91,19 @@ test('when an account with code behind it signs in', args => {
         response = await storeIdentity()
 
         expect(response.status).toBe(401)
+      })
+
+      describe('and the refusal is read', () => {
+        let body: { error?: string }
+
+        beforeEach(async () => {
+          response = await storeIdentity()
+          body = await response.json()
+        })
+
+        it('should explain the rejection without exposing the RPC budget', () => {
+          expect(body.error).toBe(`Invalid signature: ${CONTRACT_SIGNATURE_NOT_CONFIRMED}`)
+        })
       })
     })
 

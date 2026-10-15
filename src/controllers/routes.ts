@@ -1,7 +1,7 @@
 import { rejectIfSigner, wellKnownComponents } from '@dcl/crypto-middleware'
 import { bearerTokenMiddleware, errorHandler } from '@dcl/http-commons'
 import { Router } from '@dcl/http-server'
-import { AUTH_CHAIN_VALIDATION_LIMITS } from '../logic/auth-chain'
+import { AUTH_CHAIN_VALIDATION_LIMITS, toClientSignatureError } from '../logic/auth-chain'
 import { GlobalContext } from '../types'
 import { createDeleteAccountHandler } from './handlers/accounts'
 import { getPendingNudgesForSequenceHandler, runEvaluatorHandler, sendTestEmailHandler } from './handlers/admin'
@@ -74,7 +74,7 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
       ...AUTH_CHAIN_VALIDATION_LIMITS,
       optional: false,
       onError: err => ({
-        error: err.message,
+        error: toClientSignatureError(err.message),
         message: 'This endpoint requires a signed fetch request. See ADR-44.'
       }),
       metadataValidator: rejectIfSigner('decentraland-kernel-scene'), // prevent requests from scenes

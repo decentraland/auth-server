@@ -7,8 +7,20 @@ import type { IL1Provider } from '../adapters/l1-provider'
  * RPC calls one signature validation may make. A contract signature valid at the latest block needs at
  * most two (unprefixed, then prefixed hash), and real chains carry one contract link; the default of 16
  * would let an unauthenticated junk signature cost up to 16 calls.
+ * Deliberately too low for crypto's historical-block retry: it validates at `Date.now()`, so that retry
+ * re-checks roughly the latest block and only adds calls. Do not raise this to make it fit.
  */
 export const MAX_RPC_CALLS_PER_VALIDATION = 4
+
+const RPC_BUDGET_EXCEEDED = `Auth chain validation exceeded ${MAX_RPC_CALLS_PER_VALIDATION} RPC calls`
+
+/** What clients see when a contract account rejects a signature, instead of the RPC budget detail. */
+export const CONTRACT_SIGNATURE_NOT_CONFIRMED = 'Contract account did not confirm the signature'
+
+/** Rewrites validation messages that would expose internal limits. */
+export function toClientSignatureError(message: string): string {
+  return message.replace(RPC_BUDGET_EXCEEDED, CONTRACT_SIGNATURE_NOT_CONFIRMED)
+}
 
 /** The single message every transport returns when signatures cannot be checked right now. */
 export const SIGNATURE_VERIFICATION_UNAVAILABLE = 'Signature verification unavailable'
@@ -92,7 +104,14 @@ export async function validateAuthChain(
     throw new Error('Could not get final authority from auth chain')
   }
 
-  await validateAuthChainSignature(authChain, finalAuthority, l1Provider, AUTH_CHAIN_VALIDATION_LIMITS)
+  try {
+    await validateAuthChainSignature(authChain, finalAuthority, l1Provider, AUTH_CHAIN_VALIDATION_LIMITS)
+  } catch (e) {
+    if (e instanceof Error && e.message === RPC_BUDGET_EXCEEDED) {
+      throw new Error(CONTRACT_SIGNATURE_NOT_CONFIRMED)
+    }
+    throw e
+  }
 
   return { sender, finalAuthority }
 }

@@ -1,7 +1,12 @@
 import { AuthIdentity } from '@dcl/crypto'
 import { validateAuthChainSignature } from '@dcl/crypto-middleware'
 import { AuthChain } from '@dcl/schemas'
-import { MAX_RPC_CALLS_PER_VALIDATION, validateAuthChain } from '../../src/logic/auth-chain'
+import {
+  CONTRACT_SIGNATURE_NOT_CONFIRMED,
+  MAX_RPC_CALLS_PER_VALIDATION,
+  toClientSignatureError,
+  validateAuthChain
+} from '../../src/logic/auth-chain'
 import { asContractAccountChain, contractAccountThat } from '../utils/l1-provider'
 import { createTestIdentity } from '../utils/test-identity'
 import type { IL1Provider } from '../../src/adapters/l1-provider'
@@ -63,9 +68,7 @@ describe('validateAuthChain', () => {
       })
 
       it('should reject the chain, since the account did not confirm it', async () => {
-        await expect(validateAuthChain(authChain, l1Provider)).rejects.toThrow(
-          `Auth chain validation exceeded ${MAX_RPC_CALLS_PER_VALIDATION} RPC calls`
-        )
+        await expect(validateAuthChain(authChain, l1Provider)).rejects.toThrow(CONTRACT_SIGNATURE_NOT_CONFIRMED)
         expect(sendAsync).toHaveBeenCalledWith(
           expect.objectContaining({ method: 'eth_call' }),
           expect.any(Function),
@@ -190,6 +193,33 @@ describe('validateAuthChain', () => {
 
     it('should reject it', async () => {
       await expect(validateAuthChain(authChain, l1Provider)).rejects.toThrow('Auth chain is required')
+    })
+  })
+})
+
+describe('when preparing a signature validation message for a client', () => {
+  let message: string
+  let clientMessage: string
+
+  describe('and the message reports the RPC budget being exceeded', () => {
+    beforeEach(() => {
+      message = `Invalid signature: Auth chain validation exceeded ${MAX_RPC_CALLS_PER_VALIDATION} RPC calls`
+      clientMessage = toClientSignatureError(message)
+    })
+
+    it('should replace the budget detail with the contract rejection', () => {
+      expect(clientMessage).toBe(`Invalid signature: ${CONTRACT_SIGNATURE_NOT_CONFIRMED}`)
+    })
+  })
+
+  describe('and the message reports another failure', () => {
+    beforeEach(() => {
+      message = 'Invalid signature: ERROR. Link type: ECDSA_EPHEMERAL. Ephemeral key expired.'
+      clientMessage = toClientSignatureError(message)
+    })
+
+    it('should keep the message unchanged', () => {
+      expect(clientMessage).toBe(message)
     })
   })
 })
