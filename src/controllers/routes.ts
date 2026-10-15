@@ -1,6 +1,7 @@
 import { rejectIfSigner, wellKnownComponents } from '@dcl/crypto-middleware'
 import { bearerTokenMiddleware, errorHandler } from '@dcl/http-commons'
 import { Router } from '@dcl/http-server'
+import { AUTH_CHAIN_VALIDATION_LIMITS, toClientSignatureError } from '../logic/auth-chain'
 import { GlobalContext } from '../types'
 import { createDeleteAccountHandler } from './handlers/accounts'
 import { getPendingNudgesForSequenceHandler, runEvaluatorHandler, sendTestEmailHandler } from './handlers/admin'
@@ -46,7 +47,7 @@ const ACCOUNT_DELETION_CANONICAL_METADATA_KEYS = ['signer', 'didToken']
 // We return the entire router because it will be easier to test than a whole server
 export async function setupRouter(globalContext: GlobalContext): Promise<Router<GlobalContext>> {
   const router = new Router<GlobalContext>()
-  const { config } = globalContext.components
+  const { config, l1Provider } = globalContext.components
 
   const onboardingApiKey = await config.requireString('ONBOARDING_API_KEY')
   const adminEnabled = (await config.getString('ONBOARDING_ADMIN_ENABLED')) === 'true'
@@ -69,9 +70,11 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
    */
   const createSignedFetchMiddleware = (canonicalMetadataKeys?: string[]) =>
     wellKnownComponents({
+      provider: l1Provider,
+      ...AUTH_CHAIN_VALIDATION_LIMITS,
       optional: false,
       onError: err => ({
-        error: err.message,
+        error: toClientSignatureError(err.message),
         message: 'This endpoint requires a signed fetch request. See ADR-44.'
       }),
       metadataValidator: rejectIfSigner('decentraland-kernel-scene'), // prevent requests from scenes

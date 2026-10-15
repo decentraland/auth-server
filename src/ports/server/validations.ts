@@ -1,5 +1,6 @@
 import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
+import { MAX_AUTH_CHAIN_LENGTH } from '@dcl/crypto-middleware'
 import { AuthChain } from '@dcl/schemas'
 import { isEphemeralMessage } from '../../logic/auth-chain'
 import { DISALLOWED_METHODS, MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from './constants'
@@ -29,7 +30,7 @@ const requestMessageSchema = {
       type: 'array',
       maxItems: MAX_PARAMS_ITEMS
     },
-    authChain: AuthChain.schema
+    authChain: { ...AuthChain.schema, maxItems: MAX_AUTH_CHAIN_LENGTH }
   },
   // `authChain` is required on every request, but deliberately not listed here: presence is checked
   // right after this schema runs so a client gets `Auth chain is required` instead of an Ajv error
@@ -122,6 +123,7 @@ const identityRequestSchema = {
         },
         authChain: {
           type: 'array',
+          maxItems: MAX_AUTH_CHAIN_LENGTH,
           items: {
             type: 'object',
             properties: {

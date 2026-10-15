@@ -1,12 +1,34 @@
 import { Authenticator, parseEmphemeralPayload } from '@dcl/crypto'
+import { MAX_AUTH_CHAIN_LENGTH, validateAuthChainSignature } from '@dcl/crypto-middleware'
 import { AuthChain } from '@dcl/schemas'
 import type { IL1Provider } from '../adapters/l1-provider'
 
 /**
- * Deadline for validating one auth chain. Checking an ERC-1271 signature can take several RPC calls
- * in sequence, each with its own timeout, so the whole check is bounded as well.
+ * RPC calls one signature validation may make. A contract signature valid at the latest block needs at
+ * most two (unprefixed, then prefixed hash), and real chains carry one contract link; the default of 16
+ * would let an unauthenticated junk signature cost up to 16 calls.
+ * Deliberately too low for crypto's historical-block retry: it validates at `Date.now()`, so that retry
+ * re-checks roughly the latest block and only adds calls. Do not raise this to make it fit.
  */
-const SIGNATURE_VALIDATION_TIMEOUT_IN_MILLISECONDS = 15_000
+export const MAX_RPC_CALLS_PER_VALIDATION = 4
+
+const RPC_BUDGET_EXCEEDED = `Auth chain validation exceeded ${MAX_RPC_CALLS_PER_VALIDATION} RPC calls`
+
+/** What clients see when a contract account rejects a signature, instead of the RPC budget detail. */
+export const CONTRACT_SIGNATURE_NOT_CONFIRMED = 'Contract account did not confirm the signature'
+
+/** Rewrites validation messages that would expose internal limits. */
+export function toClientSignatureError(message: string): string {
+  return message.replace(RPC_BUDGET_EXCEEDED, CONTRACT_SIGNATURE_NOT_CONFIRMED)
+}
+
+/** The single message every transport returns when signatures cannot be checked right now. */
+export const SIGNATURE_VERIFICATION_UNAVAILABLE = 'Signature verification unavailable'
+
+export const AUTH_CHAIN_VALIDATION_LIMITS = {
+  maxChainLength: MAX_AUTH_CHAIN_LENGTH,
+  maxRpcCalls: MAX_RPC_CALLS_PER_VALIDATION
+}
 
 /**
  * Whether `value` is a Decentraland ephemeral message — the payload whose signature mints an auth
@@ -82,17 +104,13 @@ export async function validateAuthChain(
     throw new Error('Could not get final authority from auth chain')
   }
 
-  let timer: NodeJS.Timeout | undefined
-  const deadline = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error('Signature validation timed out')), SIGNATURE_VALIDATION_TIMEOUT_IN_MILLISECONDS)
-  })
-
-  const validationResult = await Promise.race([Authenticator.validateSignature(finalAuthority, authChain, l1Provider), deadline]).finally(
-    () => clearTimeout(timer)
-  )
-
-  if (!validationResult.ok) {
-    throw new Error(validationResult.message ?? 'Signature validation failed')
+  try {
+    await validateAuthChainSignature(authChain, finalAuthority, l1Provider, AUTH_CHAIN_VALIDATION_LIMITS)
+  } catch (e) {
+    if (e instanceof Error && e.message === RPC_BUDGET_EXCEEDED) {
+      throw new Error(CONTRACT_SIGNATURE_NOT_CONFIRMED)
+    }
+    throw e
   }
 
   return { sender, finalAuthority }

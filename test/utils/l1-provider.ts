@@ -3,7 +3,7 @@ import { AuthChain, AuthLinkType } from '@dcl/schemas'
 /** What an ERC-1271 account answers from `isValidSignature` when it accepts the signature. */
 const ERC1271_MAGIC_VALUE = '0x1626ba7e' + '0'.repeat(56)
 
-type RpcPayload = { id: number; method: string }
+type RpcPayload = { id: number; method: string; params?: unknown[] }
 type RpcCallback = (error: Error | null, response?: unknown) => void
 
 /**
@@ -13,6 +13,19 @@ type RpcCallback = (error: Error | null, response?: unknown) => void
 export const contractAccountThat =
   (verdict: 'accepts' | 'rejects') =>
   (payload: RpcPayload, callback: RpcCallback): void => {
+    if (payload.method === 'eth_getBlockByNumber') {
+      const latest = payload.params?.[0] === 'latest'
+      callback(null, {
+        id: payload.id,
+        jsonrpc: '2.0',
+        result: { number: latest ? '0x64' : '0x1', timestamp: latest ? '0x' + (Math.floor(Date.now() / 1000) - 12).toString(16) : '0x1' }
+      })
+      return
+    }
+    if (payload.method === 'eth_blockNumber') {
+      callback(null, { id: payload.id, jsonrpc: '2.0', result: '0x64' })
+      return
+    }
     if (payload.method !== 'eth_call') {
       callback(new Error(`Unexpected RPC method ${payload.method}`))
       return
