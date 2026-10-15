@@ -1,6 +1,7 @@
 import { AuthIdentity } from '@dcl/crypto'
 import { AuthChain } from '@dcl/schemas'
 import { signedHeaderFactory } from 'decentraland-crypto-fetch'
+import { SIGNATURE_VERIFICATION_UNAVAILABLE } from '../../src/logic/auth-chain'
 import { test } from '../components'
 import { createAuthWsClient, createHttpClient, HttpPollingClient } from '../utils'
 import { asContractAccountChain, contractAccountThat } from '../utils/l1-provider'
@@ -22,10 +23,6 @@ test('when an account with code behind it signs in', args => {
     // `resetMocks` clears the mock's implementation before every test, so the default — every RPC
     // call fails — is restored here; each case that needs an answer programs its own.
     sendAsync.mockImplementation((_payload, callback) => callback(new Error('No RPC in tests')))
-  })
-
-  afterEach(() => {
-    jest.clearAllMocks()
   })
 
   describe('and it stores its identity', () => {
@@ -114,6 +111,24 @@ test('when an account with code behind it signs in', args => {
 
         expect(response.status).toBe(503)
       })
+
+      describe('and the body validation is the one that fails', () => {
+        let body: unknown
+
+        beforeEach(async () => {
+          response = await createSignedFetchRequest(`http://localhost:${port}`, {
+            method: 'POST',
+            path: '/identities',
+            body: { identity: contractIdentity },
+            identity
+          })
+          body = await response.json()
+        })
+
+        it('should respond with the same message as the signed-fetch middleware', () => {
+          expect(body).toEqual({ error: SIGNATURE_VERIFICATION_UNAVAILABLE })
+        })
+      })
     })
 
     describe('and the identity was signed by a plain EOA instead', () => {
@@ -168,6 +183,23 @@ test('when an account with code behind it signs in', args => {
 
         expect(response.status).toBe(503)
       })
+
+      describe('and the response body is read', () => {
+        let body: unknown
+
+        beforeEach(async () => {
+          response = await fetch(`http://localhost:${port}/requests`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ method: 'eth_sendTransaction', params: [], authChain })
+          })
+          body = await response.json()
+        })
+
+        it('should respond with the shared unavailable message', () => {
+          expect(body).toEqual({ error: SIGNATURE_VERIFICATION_UNAVAILABLE })
+        })
+      })
     })
   })
 
@@ -193,6 +225,18 @@ test('when an account with code behind it signs in', args => {
           expiration: expect.any(String),
           code: expect.any(Number)
         })
+      })
+    })
+
+    describe('and the provider cannot be reached', () => {
+      let reply: unknown
+
+      beforeEach(async () => {
+        reply = await socket.emitWithAck('request', { method: 'eth_sendTransaction', params: [], authChain })
+      })
+
+      it('should reply with the same unavailable message as the HTTP endpoints, so the client can retry', () => {
+        expect(reply).toEqual({ error: SIGNATURE_VERIFICATION_UNAVAILABLE })
       })
     })
   })

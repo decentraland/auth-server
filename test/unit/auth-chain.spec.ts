@@ -1,7 +1,7 @@
 import { AuthIdentity } from '@dcl/crypto'
 import { validateAuthChainSignature } from '@dcl/crypto-middleware'
 import { AuthChain } from '@dcl/schemas'
-import { validateAuthChain } from '../../src/logic/auth-chain'
+import { MAX_RPC_CALLS_PER_VALIDATION, validateAuthChain } from '../../src/logic/auth-chain'
 import { asContractAccountChain, contractAccountThat } from '../utils/l1-provider'
 import { createTestIdentity } from '../utils/test-identity'
 import type { IL1Provider } from '../../src/adapters/l1-provider'
@@ -63,7 +63,9 @@ describe('validateAuthChain', () => {
       })
 
       it('should reject the chain, since the account did not confirm it', async () => {
-        await expect(validateAuthChain(authChain, l1Provider)).rejects.toThrow(/Invalid validation/)
+        await expect(validateAuthChain(authChain, l1Provider)).rejects.toThrow(
+          `Auth chain validation exceeded ${MAX_RPC_CALLS_PER_VALIDATION} RPC calls`
+        )
         expect(sendAsync).toHaveBeenCalledWith(
           expect.objectContaining({ method: 'eth_call' }),
           expect.any(Function),

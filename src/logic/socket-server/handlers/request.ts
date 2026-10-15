@@ -1,8 +1,9 @@
 import { randomInt } from 'crypto'
 import { v4 as uuid } from 'uuid'
+import { SignatureValidationInfrastructureError } from '@dcl/crypto-middleware'
 import { InvalidResponseMessage, RequestResponseMessage, ValidatedRequestMessage } from '../../../ports/server/types'
 import { validateRequestMessage } from '../../../ports/server/validations'
-import { validateAuthChain } from '../../auth-chain'
+import { SIGNATURE_VERIFICATION_UNAVAILABLE, validateAuthChain } from '../../auth-chain'
 import { isErrorWithMessage } from '../../error-handling'
 import { SocketHandlerContext, SocketMessageHandler } from '../types'
 
@@ -35,6 +36,11 @@ export function createRequestSocketHandler(options: SocketRequestExpirationOptio
     try {
       sender = (await validateAuthChain(msg.authChain, l1Provider)).sender
     } catch (e) {
+      // Same message as the HTTP 503, so clients can retry an outage instead of re-signing.
+      if (e instanceof SignatureValidationInfrastructureError) {
+        logger.warn(`Could not verify a request auth chain: ${e.message}`)
+        return { error: SIGNATURE_VERIFICATION_UNAVAILABLE } satisfies InvalidResponseMessage
+      }
       logger.log('Received a request with an invalid auth chain')
       return { error: isErrorWithMessage(e) ? e.message : 'Unknown error' } satisfies InvalidResponseMessage
     }

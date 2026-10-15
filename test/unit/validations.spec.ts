@@ -1,5 +1,6 @@
 import { Authenticator } from '@dcl/crypto'
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
+import { MAX_AUTH_CHAIN_LENGTH } from '@dcl/crypto-middleware'
 import { AuthChain, AuthLinkType } from '@dcl/schemas'
 import { isEphemeralMessage } from '../../src/logic/auth-chain'
 import { MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from '../../src/ports/server/constants'
@@ -59,6 +60,22 @@ describe('when validating request messages', () => {
 
     it('should throw a validation error', () => {
       expect(() => validateRequestMessage(invalidRequestMessage)).toThrow()
+    })
+  })
+
+  describe('and the auth chain exceeds the maximum length', () => {
+    let messageWithLongChain: RequestMessage
+
+    beforeEach(() => {
+      messageWithLongChain = {
+        method: 'eth_sendTransaction',
+        params: [],
+        authChain: Array.from({ length: MAX_AUTH_CHAIN_LENGTH + 1 }, () => createStubAuthChain()[0])
+      }
+    })
+
+    it('should throw a validation error before any signature is checked', () => {
+      expect(() => validateRequestMessage(messageWithLongChain)).toThrow()
     })
   })
 
@@ -818,6 +835,25 @@ describe('when validating identity requests', () => {
 
     it('should return the validated message', () => {
       expect(validateIdentityRequest(validIdentityRequest)).toEqual(validIdentityRequest)
+    })
+  })
+
+  describe('and the identity auth chain exceeds the maximum length', () => {
+    let identityRequestWithLongChain: unknown
+
+    beforeEach(async () => {
+      const testIdentity = await createTestIdentity()
+      identityRequestWithLongChain = {
+        identity: {
+          ...testIdentity,
+          expiration: testIdentity.expiration.toISOString(),
+          authChain: Array.from({ length: MAX_AUTH_CHAIN_LENGTH + 1 }, () => testIdentity.authChain[0])
+        }
+      }
+    })
+
+    it('should throw a validation error before any signature is checked', () => {
+      expect(() => validateIdentityRequest(identityRequestWithLongChain)).toThrow()
     })
   })
 

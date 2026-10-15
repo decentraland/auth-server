@@ -1,6 +1,7 @@
-import { MAX_AUTH_CHAIN_LENGTH, rejectIfSigner, wellKnownComponents } from '@dcl/crypto-middleware'
+import { rejectIfSigner, wellKnownComponents } from '@dcl/crypto-middleware'
 import { bearerTokenMiddleware, errorHandler } from '@dcl/http-commons'
 import { Router } from '@dcl/http-server'
+import { AUTH_CHAIN_VALIDATION_LIMITS } from '../logic/auth-chain'
 import { GlobalContext } from '../types'
 import { createDeleteAccountHandler } from './handlers/accounts'
 import { getPendingNudgesForSequenceHandler, runEvaluatorHandler, sendTestEmailHandler } from './handlers/admin'
@@ -70,7 +71,7 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
   const createSignedFetchMiddleware = (canonicalMetadataKeys?: string[]) =>
     wellKnownComponents({
       provider: l1Provider,
-      maxChainLength: MAX_AUTH_CHAIN_LENGTH,
+      ...AUTH_CHAIN_VALIDATION_LIMITS,
       optional: false,
       onError: err => ({
         error: err.message,

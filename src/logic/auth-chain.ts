@@ -1,7 +1,22 @@
 import { Authenticator, parseEmphemeralPayload } from '@dcl/crypto'
-import { validateAuthChainSignature } from '@dcl/crypto-middleware'
+import { MAX_AUTH_CHAIN_LENGTH, validateAuthChainSignature } from '@dcl/crypto-middleware'
 import { AuthChain } from '@dcl/schemas'
 import type { IL1Provider } from '../adapters/l1-provider'
+
+/**
+ * RPC calls one signature validation may make. A contract signature valid at the latest block needs at
+ * most two (unprefixed, then prefixed hash), and real chains carry one contract link; the default of 16
+ * would let an unauthenticated junk signature cost up to 16 calls.
+ */
+export const MAX_RPC_CALLS_PER_VALIDATION = 4
+
+/** The single message every transport returns when signatures cannot be checked right now. */
+export const SIGNATURE_VERIFICATION_UNAVAILABLE = 'Signature verification unavailable'
+
+export const AUTH_CHAIN_VALIDATION_LIMITS = {
+  maxChainLength: MAX_AUTH_CHAIN_LENGTH,
+  maxRpcCalls: MAX_RPC_CALLS_PER_VALIDATION
+}
 
 /**
  * Whether `value` is a Decentraland ephemeral message — the payload whose signature mints an auth
@@ -77,7 +92,7 @@ export async function validateAuthChain(
     throw new Error('Could not get final authority from auth chain')
   }
 
-  await validateAuthChainSignature(authChain, finalAuthority, l1Provider)
+  await validateAuthChainSignature(authChain, finalAuthority, l1Provider, AUTH_CHAIN_VALIDATION_LIMITS)
 
   return { sender, finalAuthority }
 }

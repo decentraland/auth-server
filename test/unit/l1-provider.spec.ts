@@ -4,7 +4,7 @@ import { AuthIdentity } from '@dcl/crypto'
 import { SignatureValidationInfrastructureError } from '@dcl/crypto-middleware'
 import type { JsonRpcCallback } from '@dcl/crypto-middleware'
 import { createL1Provider, IL1Provider } from '../../src/adapters/l1-provider'
-import { validateAuthChain } from '../../src/logic/auth-chain'
+import { MAX_RPC_CALLS_PER_VALIDATION, validateAuthChain } from '../../src/logic/auth-chain'
 import { asContractAccountChain } from '../utils/l1-provider'
 import { createTestIdentity } from '../utils/test-identity'
 import type { IConfigComponent } from '@well-known-components/interfaces'
@@ -108,7 +108,11 @@ describe('when validating a contract-account chain through the L1 provider', () 
     })
 
     it('should reject the chain as an invalid signature rather than an outage', () => {
-      expect(outcome).not.toBeInstanceOf(SignatureValidationInfrastructureError)
+      expect(outcome).toEqual(new Error(`Auth chain validation exceeded ${MAX_RPC_CALLS_PER_VALIDATION} RPC calls`))
+    })
+
+    it('should stop asking the RPC once the validation budget is spent', () => {
+      expect(received).toHaveLength(MAX_RPC_CALLS_PER_VALIDATION)
     })
 
     it('should reject the chain without exposing the revert message', () => {
