@@ -13,6 +13,7 @@ import { createTracerComponent } from '@dcl/tracer-component'
 import { IMagicAdapter } from '../src/adapters/magic'
 import { createAccountDeletionComponent } from '../src/logic/account-deletion'
 import { parseCorsOrigins } from '../src/logic/cors'
+import { createIdentityVerifierComponent } from '../src/logic/identity-verifier'
 import { createSocketServerComponent } from '../src/logic/socket-server'
 import { metricDeclarations } from '../src/metrics'
 import { IEmailComponent } from '../src/ports/email/types'
@@ -137,6 +138,7 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     logs,
     didTokenMaxAgeSeconds: overrides.didTokenMaxAgeSeconds ?? 120
   })
+  const identityVerifier = await createIdentityVerifierComponent({ config })
   const email = createMockEmailComponent()
   const slack: ISlackComponent = {
     sendMessage: jest.fn().mockResolvedValue(undefined)
@@ -182,6 +184,7 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     magic,
     l1Provider,
     accountDeletion,
+    identityVerifier,
     nudgeJob,
     db,
     email,

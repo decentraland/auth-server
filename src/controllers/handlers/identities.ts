@@ -4,7 +4,7 @@ import { Authenticator } from '@dcl/crypto'
 import { DecentralandSignatureContext } from '@dcl/crypto-middleware'
 import { validateAuthChain } from '../../logic/auth-chain'
 import { isErrorWithMessage } from '../../logic/error-handling'
-import { IDENTITY_VERIFIER_HEADER, isValidIdentityVerifier } from '../../logic/identity-verifier'
+import { IDENTITY_VERIFIER_HEADER, InvalidIdentityVerifierError } from '../../logic/identity-verifier'
 import { ONE_HOUR_IN_MILLISECONDS } from '../../ports/server/constants'
 import { IdentityIdValidationResponse, IdentityResponse, InvalidResponseMessage } from '../../ports/server/types'
 import { validateIdentityId, validateIdentityRequest } from '../../ports/server/validations'
@@ -120,138 +120,135 @@ export async function createIdentityHandler(
   }
 }
 
-export type GetIdentityOptions = {
-  /** Rejects identities bound to an authRequestId when the request has no verifier. Off while older clients don't send one. */
-  requireIdentityVerifier: boolean
-}
-
 // GET /identities/:id — returns identity for auto-login
-export function createGetIdentityHandler({ requireIdentityVerifier }: GetIdentityOptions) {
-  return async function getIdentityHandler(context: HandlerContextWithPath<'storage' | 'logs', '/identities/:id'>) {
-    const {
-      params: { id: identityId },
-      components: { storage, logs },
-      request
-    } = context
+export async function getIdentityHandler(context: HandlerContextWithPath<'storage' | 'logs' | 'identityVerifier', '/identities/:id'>) {
+  const {
+    params: { id: identityId },
+    components: { storage, logs, identityVerifier },
+    request
+  } = context
 
-    const identityLogger = logs.getLogger('identity-endpoints')
-    identityLogger.log(`Received a request to retrieve identity: ${identityId}`)
+  const identityLogger = logs.getLogger('identity-endpoints')
+  identityLogger.log(`Received a request to retrieve identity: ${identityId}`)
 
-    if (!validateIdentityId(identityId)) {
-      identityLogger.log(`[IID:${identityId}] Received a request to retrieve identity with invalid format`)
-      return { status: 400, body: { error: 'Invalid identity format' } satisfies InvalidResponseMessage }
-    }
+  if (!validateIdentityId(identityId)) {
+    identityLogger.log(`[IID:${identityId}] Received a request to retrieve identity with invalid format`)
+    return { status: 400, body: { error: 'Invalid identity format' } satisfies InvalidResponseMessage }
+  }
 
-    const identity = await storage.getIdentity(identityId)
+  const identity = await storage.getIdentity(identityId)
 
-    if (!identity) {
-      const status = await storage.getIdentityStatus(identityId)
-      if (status) {
-        if (status.deletionReason === 'consumed') {
-          identityLogger.log(`[IID:${identityId}][SIGNER:${status.signer}] Received a request to retrieve an already consumed identity`)
-          return { status: 404, body: { error: 'Identity was already consumed' } satisfies InvalidResponseMessage }
-        }
-        if (status.deletionReason === 'expired') {
-          identityLogger.log(`[IID:${identityId}][SIGNER:${status.signer}] Received a request to retrieve an expired identity`)
-          return { status: 404, body: { error: 'Identity has expired' } satisfies InvalidResponseMessage }
-        }
-        if (status.deletionReason === 'ip_mismatch') {
-          identityLogger.log(
-            `[IID:${identityId}][SIGNER:${status.signer}] Received a request to retrieve an identity deleted due to IP mismatch`
-          )
-          return { status: 404, body: { error: 'Identity was deleted due to IP mismatch' } satisfies InvalidResponseMessage }
-        }
-        // Tombstone exists but no deletion reason → identity was evicted from cache by Redis TTL
+  if (!identity) {
+    const status = await storage.getIdentityStatus(identityId)
+    if (status) {
+      if (status.deletionReason === 'consumed') {
+        identityLogger.log(`[IID:${identityId}][SIGNER:${status.signer}] Received a request to retrieve an already consumed identity`)
+        return { status: 404, body: { error: 'Identity was already consumed' } satisfies InvalidResponseMessage }
+      }
+      if (status.deletionReason === 'expired') {
+        identityLogger.log(`[IID:${identityId}][SIGNER:${status.signer}] Received a request to retrieve an expired identity`)
+        return { status: 404, body: { error: 'Identity has expired' } satisfies InvalidResponseMessage }
+      }
+      if (status.deletionReason === 'ip_mismatch') {
         identityLogger.log(
-          `[IID:${identityId}][SIGNER:${
-            status.signer
-          }][CREATED:${status.createdAt.toISOString()}] Received a request to retrieve an identity evicted by TTL`
+          `[IID:${identityId}][SIGNER:${status.signer}] Received a request to retrieve an identity deleted due to IP mismatch`
         )
-        return {
-          status: 404,
-          body: { error: 'Identity was evicted', createdAt: status.createdAt.toISOString() }
-        }
+        return { status: 404, body: { error: 'Identity was deleted due to IP mismatch' } satisfies InvalidResponseMessage }
       }
-      identityLogger.log(`[IID:${identityId}] Received a request to retrieve a non-existent identity`)
-      return { status: 404, body: { error: 'Identity not found' } satisfies InvalidResponseMessage }
-    }
-
-    const signer = Authenticator.ownerAddress(identity.identity.authChain)
-
-    if (identity.expiration < new Date()) {
-      await storage.deleteIdentity(identityId)
-      await storage.updateIdentityStatus(identityId, { consumed: false, deletionReason: 'expired' })
-      identityLogger.log(`[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve an expired identity`)
-      return { status: 410, body: { error: 'Identity has expired' } satisfies InvalidResponseMessage }
-    }
-
-    // A verifier replaces the IP check, which fails on dual-stack networks. Requests without one keep the IP check
-    // (flexible matching for Cloudflare and VPN edge differences) until REQUIRE_IDENTITY_VERIFIER is enabled.
-    const clientIp = getClientIp(request.headers)
-    const verifier = request.headers.get(IDENTITY_VERIFIER_HEADER)
-
-    if (verifier && identity.authRequestId) {
-      // The verifier proves the caller is the client that started the login, so the IP is only logged.
-      // A wrong verifier does not delete the identity, so a leaked id cannot burn the real login.
-      if (!isValidIdentityVerifier(verifier, identity.authRequestId)) {
-        identityLogger.log(`[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve identity with an invalid verifier`)
-        return { status: 401, body: { error: 'Invalid identity verifier' } satisfies InvalidResponseMessage }
-      }
-      if (!ipsMatch(identity.ipAddress, clientIp)) {
-        identityLogger.log(
-          `[IID:${identityId}][SIGNER:${signer}] Verified IP mismatch (allowed). Stored: ${
-            identity.ipAddress
-          }, Request: ${clientIp}. Headers: ${formatIpHeaders(request.headers)}`
-        )
-      }
-    } else if (identity.authRequestId && requireIdentityVerifier) {
-      identityLogger.log(`[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve identity without a verifier`)
-      return { status: 401, body: { error: 'Invalid identity verifier' } satisfies InvalidResponseMessage }
-    } else if (identity.isMobile) {
-      // Log header details if IPs differ (for debugging), but allow the request
-      if (!ipsMatch(identity.ipAddress, clientIp)) {
-        identityLogger.log(
-          `[IID:${identityId}][SIGNER:${signer}] Mobile IP mismatch (allowed). Stored: ${
-            identity.ipAddress
-          }, Request: ${clientIp}. Headers: ${formatIpHeaders(request.headers)}`
-        )
-      }
-      // Continue without blocking for mobile
-    } else if (!ipsMatch(identity.ipAddress, clientIp)) {
-      if (identity.authRequestId) {
-        // Kept so a caller omitting the verifier cannot burn a login its client can still verify.
-        identityLogger.log(
-          `[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve identity from different IP without a verifier. Stored: ${identity.ipAddress}, Request: ${clientIp}. Identity kept.`
-        )
-        return { status: 403, body: { error: 'IP address mismatch' } satisfies InvalidResponseMessage }
-      }
-      // Non-mobile: delete identity and return 403
-      await storage.deleteIdentity(identityId)
-      await storage.updateIdentityStatus(identityId, { consumed: false, deletionReason: 'ip_mismatch' })
+      // Tombstone exists but no deletion reason → identity was evicted from cache by Redis TTL
       identityLogger.log(
-        `[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve identity from different IP. Stored: ${identity.ipAddress}, Request: ${clientIp}. Identity deleted.`
+        `[IID:${identityId}][SIGNER:${
+          status.signer
+        }][CREATED:${status.createdAt.toISOString()}] Received a request to retrieve an identity evicted by TTL`
+      )
+      return {
+        status: 404,
+        body: { error: 'Identity was evicted', createdAt: status.createdAt.toISOString() }
+      }
+    }
+    identityLogger.log(`[IID:${identityId}] Received a request to retrieve a non-existent identity`)
+    return { status: 404, body: { error: 'Identity not found' } satisfies InvalidResponseMessage }
+  }
+
+  const signer = Authenticator.ownerAddress(identity.identity.authChain)
+
+  if (identity.expiration < new Date()) {
+    await storage.deleteIdentity(identityId)
+    await storage.updateIdentityStatus(identityId, { consumed: false, deletionReason: 'expired' })
+    identityLogger.log(`[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve an expired identity`)
+    return { status: 410, body: { error: 'Identity has expired' } satisfies InvalidResponseMessage }
+  }
+
+  // A verifier replaces the IP check, which fails on dual-stack networks. Requests without one keep the IP check
+  // (flexible matching for Cloudflare and VPN edge differences) until REQUIRE_IDENTITY_VERIFIER is enabled.
+  const clientIp = getClientIp(request.headers)
+  let verified: boolean
+  try {
+    verified = identityVerifier.verifyRetrieval(identity.authRequestId, request.headers.get(IDENTITY_VERIFIER_HEADER))
+  } catch (e) {
+    if (e instanceof InvalidIdentityVerifierError) {
+      // The identity is kept, so a leaked id cannot burn the real login.
+      identityLogger.log(
+        `[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve identity with a ${e.reason} verifier from IP: ${clientIp}`
+      )
+      return { status: 401, body: { error: 'Invalid identity verifier' } satisfies InvalidResponseMessage }
+    }
+    throw e
+  }
+
+  if (verified) {
+    // The verifier proves the caller is the client that started the login, so the IP is only logged.
+    if (!ipsMatch(identity.ipAddress, clientIp)) {
+      identityLogger.log(
+        `[IID:${identityId}][SIGNER:${signer}] Verified IP mismatch (allowed). Stored: ${
+          identity.ipAddress
+        }, Request: ${clientIp}. Headers: ${formatIpHeaders(request.headers)}`
+      )
+    }
+  } else if (identity.isMobile) {
+    // Log header details if IPs differ (for debugging), but allow the request
+    if (!ipsMatch(identity.ipAddress, clientIp)) {
+      identityLogger.log(
+        `[IID:${identityId}][SIGNER:${signer}] Mobile IP mismatch (allowed). Stored: ${
+          identity.ipAddress
+        }, Request: ${clientIp}. Headers: ${formatIpHeaders(request.headers)}`
+      )
+    }
+    // Continue without blocking for mobile
+  } else if (!ipsMatch(identity.ipAddress, clientIp)) {
+    if (identity.authRequestId) {
+      // Kept so a caller omitting the verifier cannot burn a login its client can still verify.
+      identityLogger.log(
+        `[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve identity from different IP without a verifier. Stored: ${identity.ipAddress}, Request: ${clientIp}. Identity kept.`
       )
       return { status: 403, body: { error: 'IP address mismatch' } satisfies InvalidResponseMessage }
     }
+    // Non-mobile: delete identity and return 403
+    await storage.deleteIdentity(identityId)
+    await storage.updateIdentityStatus(identityId, { consumed: false, deletionReason: 'ip_mismatch' })
+    identityLogger.log(
+      `[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve identity from different IP. Stored: ${identity.ipAddress}, Request: ${clientIp}. Identity deleted.`
+    )
+    return { status: 403, body: { error: 'IP address mismatch' } satisfies InvalidResponseMessage }
+  }
 
-    try {
-      // Delete the identity from the storage
-      await storage.deleteIdentity(identityId)
-      await storage.updateIdentityStatus(identityId, { consumed: true, deletionReason: 'consumed' })
+  try {
+    // Delete the identity from the storage
+    await storage.deleteIdentity(identityId)
+    await storage.updateIdentityStatus(identityId, { consumed: true, deletionReason: 'consumed' })
 
-      identityLogger.log(
-        `[IID:${identityId}][SIGNER:${signer}][EXP:${identity.expiration.getTime()}] Successfully served identity to IP: ${clientIp}`
-      )
+    identityLogger.log(
+      `[IID:${identityId}][SIGNER:${signer}][EXP:${identity.expiration.getTime()}] Successfully served identity to IP: ${clientIp}`
+    )
 
-      // Return the identity for auto-login
-      return {
-        status: 200,
-        body: { identity: identity.identity } satisfies IdentityIdValidationResponse
-      }
-    } catch (error) {
-      const errorMessage = isErrorWithMessage(error) ? error.message : 'Unknown error'
-      identityLogger.error(`[IID:${identityId}][SIGNER:${signer}] Error serving identity: ${errorMessage}`)
-      return { status: 500, body: { error: 'Internal server error' } satisfies InvalidResponseMessage }
+    // Return the identity for auto-login
+    return {
+      status: 200,
+      body: { identity: identity.identity } satisfies IdentityIdValidationResponse
     }
+  } catch (error) {
+    const errorMessage = isErrorWithMessage(error) ? error.message : 'Unknown error'
+    identityLogger.error(`[IID:${identityId}][SIGNER:${signer}] Error serving identity: ${errorMessage}`)
+    return { status: 500, body: { error: 'Internal server error' } satisfies InvalidResponseMessage }
   }
 }

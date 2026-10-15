@@ -5,7 +5,7 @@ import { GlobalContext } from '../types'
 import { createDeleteAccountHandler } from './handlers/accounts'
 import { getPendingNudgesForSequenceHandler, runEvaluatorHandler, sendTestEmailHandler } from './handlers/admin'
 import { liveHandler, readyHandler, startupHandler } from './handlers/health'
-import { createGetIdentityHandler, createIdentityHandler } from './handlers/identities'
+import { createIdentityHandler, getIdentityHandler } from './handlers/identities'
 import { createCheckpointHandler, getPendingNudgesDashboardHandler } from './handlers/onboarding'
 import {
   createOutcomeHandler,
@@ -51,7 +51,6 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
   const onboardingApiKey = await config.requireString('ONBOARDING_API_KEY')
   const adminEnabled = (await config.getString('ONBOARDING_ADMIN_ENABLED')) === 'true'
   const requestExpirationInSeconds = await config.requireNumber('REQUEST_EXPIRATION_IN_SECONDS')
-  const requireIdentityVerifier = (await config.getString('REQUIRE_IDENTITY_VERIFIER')) === 'true'
 
   // Exact-match allowlist of browser Origins permitted to call the account
   // deletion endpoint (defense-in-depth on top of CORS). Empty disables the check.
@@ -107,7 +106,7 @@ export async function setupRouter(globalContext: GlobalContext): Promise<Router<
 
   // Identity endpoints
   router.post('/identities', signedFetchMiddleware, createIdentityHandler)
-  router.get('/identities/:id', createGetIdentityHandler({ requireIdentityVerifier }))
+  router.get('/identities/:id', getIdentityHandler)
 
   // Account deletion endpoint — DCL signed-fetch + a fresh Magic DID token.
   router.delete('/accounts', accountDeletionSignedFetchMiddleware, createDeleteAccountHandler(accountDeletionAllowedOrigins))

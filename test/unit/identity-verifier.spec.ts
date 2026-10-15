@@ -1,87 +1,124 @@
-import { deriveAuthRequestId, isValidIdentityVerifier } from '../../src/logic/identity-verifier'
+import { IConfigComponent } from '@well-known-components/interfaces'
+import {
+  createIdentityVerifierComponent,
+  IIdentityVerifierComponent,
+  InvalidIdentityVerifierError
+} from '../../src/logic/identity-verifier'
 
+// Shared with the Explorer and the auth web app tests.
 const VERIFIER = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'
 const AUTH_REQUEST_ID = '13d31e96-1a1a-48ec-af16-b10c4c982e08'
 
-describe('when deriving an auth request id from a verifier', () => {
-  let verifier: string
+function createMockConfig(requireIdentityVerifier?: string): IConfigComponent {
+  return { getString: jest.fn().mockResolvedValue(requireIdentityVerifier) } as unknown as IConfigComponent
+}
 
-  describe('and the verifier is well formed', () => {
+describe('when verifying an identity retrieval', () => {
+  let identityVerifier: IIdentityVerifierComponent
+  let authRequestId: string | undefined
+  let verifier: string | null
+
+  beforeEach(async () => {
+    identityVerifier = await createIdentityVerifierComponent({ config: createMockConfig() })
+  })
+
+  describe('and the identity has no authRequestId', () => {
     beforeEach(() => {
+      authRequestId = undefined
       verifier = VERIFIER
     })
 
-    it('should return the UUID v4 matching the shared test vector', () => {
-      expect(deriveAuthRequestId(verifier)).toBe(AUTH_REQUEST_ID)
+    it('should return false so the caller keeps the IP check', () => {
+      expect(identityVerifier.verifyRetrieval(authRequestId, verifier)).toBe(false)
     })
   })
 
-  describe('and the verifier is too short', () => {
+  describe('and the identity has an authRequestId', () => {
     beforeEach(() => {
-      verifier = VERIFIER.slice(0, 42)
-    })
-
-    it('should return null', () => {
-      expect(deriveAuthRequestId(verifier)).toBeNull()
-    })
-  })
-
-  describe('and the verifier has characters outside base64url', () => {
-    beforeEach(() => {
-      verifier = `${VERIFIER.slice(0, 42)}+`
-    })
-
-    it('should return null', () => {
-      expect(deriveAuthRequestId(verifier)).toBeNull()
-    })
-  })
-})
-
-describe('when validating an identity verifier', () => {
-  let verifier: string
-  let authRequestId: string
-
-  describe('and the verifier derives the stored auth request id', () => {
-    beforeEach(() => {
-      verifier = VERIFIER
       authRequestId = AUTH_REQUEST_ID
     })
 
-    it('should be valid', () => {
-      expect(isValidIdentityVerifier(verifier, authRequestId)).toBe(true)
-    })
-  })
+    describe('and the verifier matches the shared test vector', () => {
+      beforeEach(() => {
+        verifier = VERIFIER
+      })
 
-  describe('and the stored auth request id is uppercased', () => {
-    beforeEach(() => {
-      verifier = VERIFIER
-      authRequestId = AUTH_REQUEST_ID.toUpperCase()
-    })
-
-    it('should be valid', () => {
-      expect(isValidIdentityVerifier(verifier, authRequestId)).toBe(true)
-    })
-  })
-
-  describe('and the verifier derives a different auth request id', () => {
-    beforeEach(() => {
-      verifier = `${VERIFIER.slice(0, 42)}A`
-      authRequestId = AUTH_REQUEST_ID
+      it('should return true', () => {
+        expect(identityVerifier.verifyRetrieval(authRequestId, verifier)).toBe(true)
+      })
     })
 
-    it('should be invalid', () => {
-      expect(isValidIdentityVerifier(verifier, authRequestId)).toBe(false)
-    })
-  })
+    describe('and the stored authRequestId is uppercase', () => {
+      beforeEach(() => {
+        authRequestId = AUTH_REQUEST_ID.toUpperCase()
+        verifier = VERIFIER
+      })
 
-  describe('and the verifier is malformed', () => {
-    beforeEach(() => {
-      verifier = 'not-a-verifier'
-      authRequestId = AUTH_REQUEST_ID
+      it('should return true', () => {
+        expect(identityVerifier.verifyRetrieval(authRequestId, verifier)).toBe(true)
+      })
     })
 
-    it('should be invalid', () => {
-      expect(isValidIdentityVerifier(verifier, authRequestId)).toBe(false)
+    describe('and the verifier is well formed but does not match', () => {
+      beforeEach(() => {
+        verifier = `${VERIFIER.slice(0, 42)}A`
+      })
+
+      it('should throw an invalid verifier error', () => {
+        expect(() => identityVerifier.verifyRetrieval(authRequestId, verifier)).toThrow(new InvalidIdentityVerifierError('invalid'))
+      })
+    })
+
+    describe('and the verifier is too short', () => {
+      beforeEach(() => {
+        verifier = VERIFIER.slice(0, 42)
+      })
+
+      it('should throw an invalid verifier error', () => {
+        expect(() => identityVerifier.verifyRetrieval(authRequestId, verifier)).toThrow(new InvalidIdentityVerifierError('invalid'))
+      })
+    })
+
+    describe('and the verifier has characters outside base64url', () => {
+      beforeEach(() => {
+        verifier = `${VERIFIER.slice(0, 42)}+`
+      })
+
+      it('should throw an invalid verifier error', () => {
+        expect(() => identityVerifier.verifyRetrieval(authRequestId, verifier)).toThrow(new InvalidIdentityVerifierError('invalid'))
+      })
+    })
+
+    describe('and no verifier is sent', () => {
+      beforeEach(() => {
+        verifier = null
+      })
+
+      describe('and the verifier is not required', () => {
+        it('should return false so the caller keeps the IP check', () => {
+          expect(identityVerifier.verifyRetrieval(authRequestId, verifier)).toBe(false)
+        })
+      })
+
+      describe('and the verifier is required', () => {
+        beforeEach(async () => {
+          identityVerifier = await createIdentityVerifierComponent({ config: createMockConfig('true') })
+        })
+
+        it('should throw a missing verifier error', () => {
+          expect(() => identityVerifier.verifyRetrieval(authRequestId, verifier)).toThrow(new InvalidIdentityVerifierError('missing'))
+        })
+      })
+    })
+
+    describe('and an empty verifier is sent while the verifier is not required', () => {
+      beforeEach(() => {
+        verifier = ''
+      })
+
+      it('should treat it as missing and return false', () => {
+        expect(identityVerifier.verifyRetrieval(authRequestId, verifier)).toBe(false)
+      })
     })
   })
 })
