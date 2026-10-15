@@ -9,7 +9,7 @@ import { ONE_HOUR_IN_MILLISECONDS } from '../../ports/server/constants'
 import { IdentityIdValidationResponse, IdentityResponse, InvalidResponseMessage } from '../../ports/server/types'
 import { validateIdentityId, validateIdentityRequest } from '../../ports/server/validations'
 import { HandlerContextWithPath } from '../../types'
-import { formatIpHeaders, getClientIp } from '../utils'
+import { formatIpHeaders, getClientIp, ipsMatch } from '../utils'
 
 // POST /identities — store identity (protected by signed-fetch middleware)
 export async function createIdentityHandler(
@@ -155,6 +155,12 @@ export function createGetIdentityHandler({ requireIdentityVerifier }: GetIdentit
           identityLogger.log(`[IID:${identityId}][SIGNER:${status.signer}] Received a request to retrieve an expired identity`)
           return { status: 404, body: { error: 'Identity has expired' } satisfies InvalidResponseMessage }
         }
+        if (status.deletionReason === 'ip_mismatch') {
+          identityLogger.log(
+            `[IID:${identityId}][SIGNER:${status.signer}] Received a request to retrieve an identity deleted due to IP mismatch`
+          )
+          return { status: 404, body: { error: 'Identity was deleted due to IP mismatch' } satisfies InvalidResponseMessage }
+        }
         // Tombstone exists but no deletion reason → identity was evicted from cache by Redis TTL
         identityLogger.log(
           `[IID:${identityId}][SIGNER:${
@@ -179,23 +185,53 @@ export function createGetIdentityHandler({ requireIdentityVerifier }: GetIdentit
       return { status: 410, body: { error: 'Identity has expired' } satisfies InvalidResponseMessage }
     }
 
+    // A verifier replaces the IP check, which fails on dual-stack networks. Requests without one keep the IP check
+    // (flexible matching for Cloudflare and VPN edge differences) until REQUIRE_IDENTITY_VERIFIER is enabled.
     const clientIp = getClientIp(request.headers)
+    const verifier = request.headers.get(IDENTITY_VERIFIER_HEADER)
 
-    // Identities bound to an authRequestId are only served to the client holding the verifier it was derived from.
-    // A failed check keeps the identity, so a leaked id cannot burn the real login.
-    if (identity.authRequestId) {
-      const verifier = request.headers.get(IDENTITY_VERIFIER_HEADER)
-      if (verifier ? !isValidIdentityVerifier(verifier, identity.authRequestId) : requireIdentityVerifier) {
-        identityLogger.log(
-          `[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve identity with a ${
-            verifier ? 'invalid' : 'missing'
-          } verifier from IP: ${clientIp}`
-        )
+    if (verifier && identity.authRequestId) {
+      // The verifier proves the caller is the client that started the login, so the IP is only logged.
+      // A wrong verifier does not delete the identity, so a leaked id cannot burn the real login.
+      if (!isValidIdentityVerifier(verifier, identity.authRequestId)) {
+        identityLogger.log(`[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve identity with an invalid verifier`)
         return { status: 401, body: { error: 'Invalid identity verifier' } satisfies InvalidResponseMessage }
       }
-      if (!verifier) {
-        identityLogger.log(`[IID:${identityId}][SIGNER:${signer}] Serving identity without a verifier (not yet required)`)
+      if (!ipsMatch(identity.ipAddress, clientIp)) {
+        identityLogger.log(
+          `[IID:${identityId}][SIGNER:${signer}] Verified IP mismatch (allowed). Stored: ${
+            identity.ipAddress
+          }, Request: ${clientIp}. Headers: ${formatIpHeaders(request.headers)}`
+        )
       }
+    } else if (identity.authRequestId && requireIdentityVerifier) {
+      identityLogger.log(`[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve identity without a verifier`)
+      return { status: 401, body: { error: 'Invalid identity verifier' } satisfies InvalidResponseMessage }
+    } else if (identity.isMobile) {
+      // Log header details if IPs differ (for debugging), but allow the request
+      if (!ipsMatch(identity.ipAddress, clientIp)) {
+        identityLogger.log(
+          `[IID:${identityId}][SIGNER:${signer}] Mobile IP mismatch (allowed). Stored: ${
+            identity.ipAddress
+          }, Request: ${clientIp}. Headers: ${formatIpHeaders(request.headers)}`
+        )
+      }
+      // Continue without blocking for mobile
+    } else if (!ipsMatch(identity.ipAddress, clientIp)) {
+      if (identity.authRequestId) {
+        // Kept so a caller omitting the verifier cannot burn a login its client can still verify.
+        identityLogger.log(
+          `[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve identity from different IP without a verifier. Stored: ${identity.ipAddress}, Request: ${clientIp}. Identity kept.`
+        )
+        return { status: 403, body: { error: 'IP address mismatch' } satisfies InvalidResponseMessage }
+      }
+      // Non-mobile: delete identity and return 403
+      await storage.deleteIdentity(identityId)
+      await storage.updateIdentityStatus(identityId, { consumed: false, deletionReason: 'ip_mismatch' })
+      identityLogger.log(
+        `[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve identity from different IP. Stored: ${identity.ipAddress}, Request: ${clientIp}. Identity deleted.`
+      )
+      return { status: 403, body: { error: 'IP address mismatch' } satisfies InvalidResponseMessage }
     }
 
     try {

@@ -83,6 +83,43 @@ export function getClientIp(headers: Headers): string {
   return normalizeIp(fallbackIp)
 }
 
+// Checks if two IPs match, considering subnet/region matching.
+// For IPv4, this can match by subnet (e.g., 10.0.16.* matches 10.0.16.*).
+export function ipsMatch(ip1: string, ip2: string): boolean {
+  if (!ip1 || !ip2 || ip1 === 'unknown' || ip2 === 'unknown') {
+    return false
+  }
+
+  // Exact match
+  if (ip1 === ip2) {
+    return true
+  }
+
+  // Normalize both IPs
+  const normalizedIp1 = normalizeIp(ip1)
+  const normalizedIp2 = normalizeIp(ip2)
+
+  // Exact match after normalization
+  if (normalizedIp1 === normalizedIp2) {
+    return true
+  }
+
+  // IPv4 subnet matching: check if they're in the same /24 subnet (first 3 octets)
+  // This helps with VPNs that might use different edge servers but same region
+  const ipv4Regex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
+  const match1 = normalizedIp1.match(ipv4Regex)
+  const match2 = normalizedIp2.match(ipv4Regex)
+
+  if (match1 && match2) {
+    // Match by /24 subnet (first 3 octets)
+    if (match1[1] === match2[1] && match1[2] === match2[2] && match1[3] === match2[3]) {
+      return true
+    }
+  }
+
+  return false
+}
+
 // Formats IP-related headers for logging.
 export function formatIpHeaders(headers: Headers): string {
   return `true-client-ip=${headers.get('true-client-ip')}, x-real-ip=${headers.get('x-real-ip')}, cf-connecting-ip=${headers.get(
