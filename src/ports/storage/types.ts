@@ -37,6 +37,7 @@ export type StorageIdentity = {
   createdAt: Date
   ipAddress: string
   isMobile?: boolean
+  authRequestId?: string
 }
 
 export type IdentityStatus = {

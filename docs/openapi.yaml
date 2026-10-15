@@ -479,7 +479,11 @@ paths:
       description: |
         Retrieves an identity by ID for auto-login.  
         The identity is deleted after a successful retrieval.  
-        The request must originate from the same IP (flexible matching) used when creating the identity.
+        When the identity was created with an `authRequestId` and the request carries the `x-identity-verifier`
+        header, the verifier must hash to that `authRequestId` (401 otherwise, identity kept) and the IP is not checked.
+        Without a verifier, the request must originate from the same IP used when creating the identity (same IPv4 /24);
+        identities with an `authRequestId` are kept on a mismatch, others are deleted. With `REQUIRE_IDENTITY_VERIFIER`
+        enabled, a missing verifier on an identity with an `authRequestId` is a 401.
       operationId: getIdentity
       security: []
       parameters:
@@ -490,6 +494,15 @@ paths:
             type: string
             format: uuid
           description: Identity ID
+        - name: x-identity-verifier
+          in: header
+          required: false
+          schema:
+            type: string
+            pattern: '^[A-Za-z0-9_-]{43}$'
+          description: |
+            Secret the client derived its `authRequestId` from: base64url (no padding) of 32 random bytes.
+            The `authRequestId` is the first 16 bytes of SHA-256(verifier) with the UUID v4 version and variant bits set.
       responses:
         '200':
           description: Identity retrieved
@@ -503,8 +516,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/InvalidResponseMessage'
+        '401':
+          description: Missing or invalid identity verifier (the identity is kept)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidResponseMessage'
         '403':
-          description: IP address mismatch
+          description: IP address mismatch (no verifier presented)
           content:
             application/json:
               schema:
@@ -909,6 +928,12 @@ components:
       properties:
         identity:
           $ref: '#/components/schemas/AuthIdentity'
+        isMobile:
+          type: boolean
+        authRequestId:
+          type: string
+          format: uuid
+          description: Deep-link client's request UUID, derived from the verifier it presents on retrieval
       required:
         - identity
       additionalProperties: false

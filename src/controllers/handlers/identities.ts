@@ -4,6 +4,7 @@ import { Authenticator } from '@dcl/crypto'
 import { DecentralandSignatureContext, SignatureValidationInfrastructureError } from '@dcl/crypto-middleware'
 import { validateAuthChain } from '../../logic/auth-chain'
 import { isErrorWithMessage } from '../../logic/error-handling'
+import { IDENTITY_VERIFIER_HEADER, InvalidIdentityVerifierError } from '../../logic/identity-verifier'
 import { ONE_HOUR_IN_MILLISECONDS } from '../../ports/server/constants'
 import { IdentityIdValidationResponse, IdentityResponse, InvalidResponseMessage } from '../../ports/server/types'
 import { validateIdentityId, validateIdentityRequest } from '../../ports/server/validations'
@@ -25,7 +26,7 @@ export async function createIdentityHandler(
 
   try {
     const body = await request.json()
-    const { identity, isMobile } = validateIdentityRequest(body)
+    const { identity, isMobile, authRequestId } = validateIdentityRequest(body)
 
     if (!identity) {
       identityLogger.log('Received a request to create identity without AuthIdentity in body')
@@ -88,7 +89,8 @@ export async function createIdentityHandler(
       expiration: storageExpiration,
       createdAt: new Date(),
       ipAddress: clientIp,
-      isMobile: isMobile === true
+      isMobile: isMobile === true,
+      ...(authRequestId ? { authRequestId: authRequestId.toLowerCase() } : {})
     })
 
     await storage.setIdentityStatus(identityId, {
@@ -119,10 +121,10 @@ export async function createIdentityHandler(
 }
 
 // GET /identities/:id — returns identity for auto-login
-export async function getIdentityHandler(context: HandlerContextWithPath<'storage' | 'logs', '/identities/:id'>) {
+export async function getIdentityHandler(context: HandlerContextWithPath<'storage' | 'logs' | 'identityVerifier', '/identities/:id'>) {
   const {
     params: { id: identityId },
-    components: { storage, logs },
+    components: { storage, logs, identityVerifier },
     request
   } = context
 
@@ -177,11 +179,33 @@ export async function getIdentityHandler(context: HandlerContextWithPath<'storag
     return { status: 410, body: { error: 'Identity has expired' } satisfies InvalidResponseMessage }
   }
 
-  // Validate that the IP address matches the one used when creating the identity
-  // Uses flexible matching to handle Cloudflare and VPN edge server differences
+  // A verifier replaces the IP check, which fails on dual-stack networks. Requests without one keep the IP check
+  // (flexible matching for Cloudflare and VPN edge differences) until REQUIRE_IDENTITY_VERIFIER is enabled.
   const clientIp = getClientIp(request.headers)
+  let verified: boolean
+  try {
+    verified = identityVerifier.verifyRetrieval(identity.authRequestId, request.headers.get(IDENTITY_VERIFIER_HEADER))
+  } catch (e) {
+    if (e instanceof InvalidIdentityVerifierError) {
+      // The identity is kept, so a leaked id cannot burn the real login.
+      identityLogger.log(
+        `[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve identity with a ${e.reason} verifier from IP: ${clientIp}`
+      )
+      return { status: 401, body: { error: 'Invalid identity verifier' } satisfies InvalidResponseMessage }
+    }
+    throw e
+  }
 
-  if (identity.isMobile) {
+  if (verified) {
+    // The verifier proves the caller is the client that started the login, so the IP is only logged.
+    if (!ipsMatch(identity.ipAddress, clientIp)) {
+      identityLogger.log(
+        `[IID:${identityId}][SIGNER:${signer}] Verified IP mismatch (allowed). Stored: ${
+          identity.ipAddress
+        }, Request: ${clientIp}. Headers: ${formatIpHeaders(request.headers)}`
+      )
+    }
+  } else if (identity.isMobile) {
     // Log header details if IPs differ (for debugging), but allow the request
     if (!ipsMatch(identity.ipAddress, clientIp)) {
       identityLogger.log(
@@ -192,6 +216,13 @@ export async function getIdentityHandler(context: HandlerContextWithPath<'storag
     }
     // Continue without blocking for mobile
   } else if (!ipsMatch(identity.ipAddress, clientIp)) {
+    if (identity.authRequestId) {
+      // Kept so a caller omitting the verifier cannot burn a login its client can still verify.
+      identityLogger.log(
+        `[IID:${identityId}][SIGNER:${signer}] Received a request to retrieve identity from different IP without a verifier. Stored: ${identity.ipAddress}, Request: ${clientIp}. Identity kept.`
+      )
+      return { status: 403, body: { error: 'IP address mismatch' } satisfies InvalidResponseMessage }
+    }
     // Non-mobile: delete identity and return 403
     await storage.deleteIdentity(identityId)
     await storage.updateIdentityStatus(identityId, { consumed: false, deletionReason: 'ip_mismatch' })

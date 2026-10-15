@@ -90,6 +90,8 @@ export type InvalidResponseMessage = {
 export type IdentityRequest = {
   identity: AuthIdentity
   isMobile?: boolean
+  /** Deep-link client's request UUID, derived from a secret it later presents on retrieval. */
+  authRequestId?: string
 }
 
 export type IdentityResponse = {
