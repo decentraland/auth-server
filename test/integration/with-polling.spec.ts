@@ -14,13 +14,16 @@ import { createTestIdentity, generateRandomIdentityId } from '../utils/test-iden
  * by the context that uses it rather than by module-level state. The HTTP client is a fetch
  * wrapper with no handle to release, so only the websocket is closed on teardown.
  */
-function usePollingClients(args: TestArguments<BaseComponents>, { withWebSocket = false }: { withWebSocket?: boolean } = {}) {
+function usePollingClients(
+  args: TestArguments<BaseComponents>,
+  { withWebSocket = false, getIdentity }: { withWebSocket?: boolean; getIdentity?: () => AuthIdentity } = {}
+) {
   let httpClient: HttpPollingClient
   let wsClient: Socket
 
   beforeEach(async () => {
     const port = await args.components.config.requireString('HTTP_SERVER_PORT')
-    httpClient = await createHttpClient(port)
+    httpClient = await createHttpClient(port, getIdentity)
     if (withWebSocket) {
       wsClient = await createAuthWsClient(port)
     }
@@ -58,6 +61,9 @@ function useTestIdentity() {
   })
 
   return {
+    get value(): AuthIdentity {
+      return identity
+    },
     get authChain(): AuthIdentity['authChain'] {
       return identity.authChain
     },
@@ -311,13 +317,14 @@ test('when sending an outcome message with an invalid schema', args => {
 })
 
 test('when sending an outcome message but the request does not exist', args => {
-  const clients = usePollingClients(args)
+  const clients = usePollingClients(args, { getIdentity: () => identity.value })
+  const identity = useTestIdentity()
   let requestId: string
   let sender: string
 
   beforeEach(() => {
     requestId = generateRandomIdentityId()
-    sender = createUnsafeIdentity().address
+    sender = identity.owner
   })
 
   it('should respond with an invalid response message', async () => {
@@ -330,12 +337,12 @@ test('when sending an outcome message but the request does not exist', args => {
 })
 
 testWithOverrides({ requestExpirationInSeconds: -1 })('when sending an outcome message but the request has expired', args => {
-  const clients = usePollingClients(args)
+  const clients = usePollingClients(args, { getIdentity: () => identity.value })
   const identity = useTestIdentity()
   let sender: string
 
   beforeEach(() => {
-    sender = createUnsafeIdentity().address
+    sender = identity.owner
   })
 
   it('should respond with an invalid response message', async () => {
@@ -354,12 +361,12 @@ testWithOverrides({ requestExpirationInSeconds: -1 })('when sending an outcome m
 })
 
 test('when sending a valid outcome message with the HTTP endpoints', args => {
-  const clients = usePollingClients(args, { withWebSocket: true })
+  const clients = usePollingClients(args, { withWebSocket: true, getIdentity: () => identity.value })
   const identity = useTestIdentity()
   let sender: string
 
   beforeEach(() => {
-    sender = createUnsafeIdentity().address
+    sender = identity.owner
   })
 
   it('should respond with the outcome response message', async () => {

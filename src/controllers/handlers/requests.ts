@@ -3,9 +3,10 @@ import { v4 as uuid } from 'uuid'
 import { SignatureValidationInfrastructureError } from '@dcl/crypto-middleware'
 import { SIGNATURE_VERIFICATION_UNAVAILABLE, validateAuthChain } from '../../logic/auth-chain'
 import { isErrorWithMessage } from '../../logic/error-handling'
+import { authenticateAndRecordOutcome, OutcomeAuthorizationError } from '../../logic/outcomes'
 import { loadActiveRequest, logInboundRequestStateError, RequestStateError, requestStateErrorToHttpResponse } from '../../logic/requests'
 import {
-  HttpOutcomeMessage,
+  SignedHttpOutcomeMessage,
   InvalidResponseMessage,
   MessageType,
   OutcomeResponseMessage,
@@ -193,17 +194,9 @@ export async function getOutcomeHandler(context: HandlerContextWithPath<Requests
 
   logger.log(`[RID:${requestId}] Successfully sent outcome message to the client via HTTP`)
 
-  // Mark as fulfilled instead of deleting — allows frontend to distinguish "consumed" from "never existed"
-  await storage.setRequest(requestId, {
-    requestId,
-    fulfilled: true,
-    expiration: request.expiration,
-    code: 0,
-    method: '',
-    params: [],
-    requiresValidation: false
-  })
-
+  // Polling is intentionally non-consuming. Knowing a request id must not let an unrelated
+  // reader steal the one opportunity to receive the result. The authenticated outcome claim
+  // prevents another submission; the same result remains readable until request expiration.
   return { status: 200, body: request.response satisfies OutcomeResponseMessage }
 }
 
@@ -217,7 +210,7 @@ export async function createOutcomeHandler(context: HandlerContextWithPath<Reque
   const logger = logs.getLogger('websocket-server')
 
   const data = await parseJsonBody(context.request)
-  let msg: HttpOutcomeMessage
+  let msg: SignedHttpOutcomeMessage
 
   try {
     msg = validateHttpOutcomeMessage(data)
@@ -230,8 +223,9 @@ export async function createOutcomeHandler(context: HandlerContextWithPath<Reque
 
   let request: StorageRequest
   try {
-    request = await loadActiveRequest(storage, requestId, { rejectIfHasResponse: true })
+    request = await authenticateAndRecordOutcome(storage, requestId, msg)
   } catch (e) {
+    if (e instanceof OutcomeAuthorizationError) return { status: 403, body: { error: e.message } }
     if (e instanceof RequestStateError) {
       logInboundRequestStateError(logger, requestId, 'an outcome message', e)
       return requestStateErrorToHttpResponse(e)
@@ -239,13 +233,7 @@ export async function createOutcomeHandler(context: HandlerContextWithPath<Reque
     throw e
   }
 
-  const outcomeMessage: OutcomeResponseMessage = {
-    ...msg,
-    requestId
-  }
-
-  if (request.socketId && socketServer.isSocketConnected(request.socketId)) {
-    socketServer.emitToSocket(request.socketId, MessageType.OUTCOME, outcomeMessage)
+  if (request.socketId && socketServer.emitToSocket(request.socketId, MessageType.OUTCOME, request.response)) {
     logger.log(
       `[METHOD:${request.method}][RID:${
         request.requestId
@@ -263,11 +251,7 @@ export async function createOutcomeHandler(context: HandlerContextWithPath<Reque
       requiresValidation: false
     })
   } else {
-    // Socket gone or HTTP-created request — persist response for polling via GET /requests/:requestId
-    await storage.setRequest(requestId, {
-      ...request,
-      response: outcomeMessage
-    })
+    // The authenticated outcome was already persisted before attempting notification.
     logger.log(
       `[METHOD:${request.method}][RID:${
         request.requestId

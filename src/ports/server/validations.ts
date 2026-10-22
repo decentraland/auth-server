@@ -5,15 +5,15 @@ import { AuthChain } from '@dcl/schemas'
 import { isEphemeralMessage } from '../../logic/auth-chain'
 import { DISALLOWED_METHODS, MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from './constants'
 import {
-  HttpOutcomeMessage,
-  OutcomeMessage,
   RecoverMessage,
   RequestMessage,
   RequestValidationMessage,
   IdentityRequest,
   CheckpointRequest,
   AccountDeletionMetadata,
-  ValidatedRequestMessage
+  ValidatedRequestMessage,
+  SignedHttpOutcomeMessage,
+  SignedOutcomeMessage
 } from './types'
 
 const ajv = new Ajv({ allowUnionTypes: true })
@@ -55,6 +55,8 @@ const recoverMessageSchema = {
 const outcomeMessageSchema = {
   type: 'object',
   properties: {
+    authChain: { ...AuthChain.schema, minItems: 3, maxItems: 8 },
+    expiresAt: { type: 'integer', minimum: 1 },
     requestId: {
       type: 'string',
       maxLength: MAX_REQUEST_ID_LENGTH
@@ -80,7 +82,7 @@ const outcomeMessageSchema = {
       additionalProperties: false
     }
   },
-  required: ['requestId', 'sender'],
+  required: ['requestId', 'sender', 'authChain', 'expiresAt'],
   oneOf: [
     {
       required: ['result']
@@ -94,7 +96,7 @@ const outcomeMessageSchema = {
 
 const httpOutcomeMessageSchema = {
   ...outcomeMessageSchema,
-  required: ['sender']
+  required: ['sender', 'authChain', 'expiresAt']
 }
 
 const requestValidationMessageSchema = {
@@ -256,7 +258,7 @@ export function validateOutcomeMessage(msg: unknown) {
     throw new Error(JSON.stringify(outcomeMessageValidator.errors))
   }
 
-  return msg as OutcomeMessage
+  return msg as SignedOutcomeMessage
 }
 
 export function validateRequestValidationMessage(msg: unknown) {
@@ -290,7 +292,7 @@ export function validateHttpOutcomeMessage(msg: unknown) {
     throw new Error(JSON.stringify(httpOutcomeMessageValidator.errors))
   }
 
-  return msg as HttpOutcomeMessage
+  return msg as SignedHttpOutcomeMessage
 }
 
 export function validateCheckpointRequest(msg: unknown) {
