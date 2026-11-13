@@ -7,9 +7,9 @@ import { MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQU
 import {
   RequestMessage,
   RecoverMessage,
-  OutcomeMessage,
+  SignedOutcomeMessage as OutcomeMessage,
   RequestValidationMessage,
-  HttpOutcomeMessage,
+  SignedHttpOutcomeMessage as HttpOutcomeMessage,
   IdentityRequest,
   ValidatedRequestMessage
 } from '../../src/ports/server/types'
@@ -23,6 +23,7 @@ import {
   validateIdentityRequest,
   isDisallowedMethod
 } from '../../src/ports/server/validations'
+import { createStubOutcomeProof } from '../utils/outcome'
 import { generateRandomIdentityId, createTestIdentity } from '../utils/test-identity'
 
 /**
@@ -430,7 +431,7 @@ describe('when validating outcome messages', () => {
     let validOutcomeMessageWithResult: OutcomeMessage
 
     beforeEach(() => {
-      validOutcomeMessageWithResult = { requestId, sender, result: { transactionHash: '0xabcdef' } }
+      validOutcomeMessageWithResult = { ...createStubOutcomeProof(), requestId, sender, result: { transactionHash: '0xabcdef' } }
     })
 
     it('should return the validated message', () => {
@@ -442,7 +443,12 @@ describe('when validating outcome messages', () => {
     let validOutcomeMessageWithError: OutcomeMessage
 
     beforeEach(() => {
-      validOutcomeMessageWithError = { requestId, sender, error: { code: 1233, message: 'Transaction failed' } }
+      validOutcomeMessageWithError = {
+        ...createStubOutcomeProof(),
+        requestId,
+        sender,
+        error: { code: 1233, message: 'Transaction failed' }
+      }
     })
 
     it('should return the validated message', () => {
@@ -454,7 +460,7 @@ describe('when validating outcome messages', () => {
     let invalidOutcomeMessage: Partial<OutcomeMessage>
 
     beforeEach(() => {
-      invalidOutcomeMessage = { requestId, sender }
+      invalidOutcomeMessage = { ...createStubOutcomeProof(), requestId, sender }
     })
 
     it('should throw a validation error', () => {
@@ -467,6 +473,7 @@ describe('when validating outcome messages', () => {
 
     beforeEach(() => {
       messageWithLongRequestId = {
+        ...createStubOutcomeProof(),
         requestId: 'a'.repeat(MAX_REQUEST_ID_LENGTH + 1),
         sender: '0x1234567890123456789012345678901234567890',
         result: { data: 'test' }
@@ -483,7 +490,12 @@ describe('when validating outcome messages', () => {
       let messageWithInvalidSender: Record<string, unknown>
 
       beforeEach(() => {
-        messageWithInvalidSender = { requestId: generateRandomIdentityId(), sender: 'invalid-sender-address', result: { data: 'test' } }
+        messageWithInvalidSender = {
+          ...createStubOutcomeProof(),
+          requestId: generateRandomIdentityId(),
+          sender: 'invalid-sender-address',
+          result: { data: 'test' }
+        }
       })
 
       it('should throw a validation error', () => {
@@ -496,6 +508,7 @@ describe('when validating outcome messages', () => {
 
       beforeEach(() => {
         messageWithoutPrefix = {
+          ...createStubOutcomeProof(),
           requestId: generateRandomIdentityId(),
           sender: '1234567890123456789012345678901234567890',
           result: { data: 'test' }
@@ -512,6 +525,7 @@ describe('when validating outcome messages', () => {
 
       beforeEach(() => {
         messageWithShortAddress = {
+          ...createStubOutcomeProof(),
           requestId: generateRandomIdentityId(),
           sender: '0x123456789012345678901234567890123456789', // 39 chars instead of 40
           result: { data: 'test' }
@@ -528,6 +542,7 @@ describe('when validating outcome messages', () => {
 
       beforeEach(() => {
         messageWithInvalidChars = {
+          ...createStubOutcomeProof(),
           requestId: generateRandomIdentityId(),
           sender: '0xGGGG567890123456789012345678901234567890', // G is not hex
           result: { data: 'test' }
@@ -546,6 +561,7 @@ describe('when validating outcome messages', () => {
 
       beforeEach(() => {
         messageWithLowercaseSender = {
+          ...createStubOutcomeProof(),
           requestId: generateRandomIdentityId(),
           sender: '0xabcdef7890123456789012345678901234567890',
           result: { data: 'test' }
@@ -562,6 +578,7 @@ describe('when validating outcome messages', () => {
 
       beforeEach(() => {
         messageWithUppercaseSender = {
+          ...createStubOutcomeProof(),
           requestId: generateRandomIdentityId(),
           sender: '0xABCDEF7890123456789012345678901234567890',
           result: { data: 'test' }
@@ -578,6 +595,7 @@ describe('when validating outcome messages', () => {
 
       beforeEach(() => {
         messageWithMixedCaseSender = {
+          ...createStubOutcomeProof(),
           requestId: generateRandomIdentityId(),
           sender: '0xAbCdEf7890123456789012345678901234567890',
           result: { data: 'test' }
@@ -595,6 +613,7 @@ describe('when validating outcome messages', () => {
 
     beforeEach(() => {
       messageWithLongErrorMessage = {
+        ...createStubOutcomeProof(),
         requestId: generateRandomIdentityId(),
         sender: '0x1234567890123456789012345678901234567890',
         error: { code: 1000, message: 'a'.repeat(MAX_ERROR_MESSAGE_LENGTH + 1) }
@@ -611,6 +630,7 @@ describe('when validating outcome messages', () => {
 
     beforeEach(() => {
       messageWithMaxErrorMessage = {
+        ...createStubOutcomeProof(),
         requestId: generateRandomIdentityId(),
         sender: '0x1234567890123456789012345678901234567890',
         error: { code: 1000, message: 'a'.repeat(MAX_ERROR_MESSAGE_LENGTH) }
@@ -730,7 +750,7 @@ describe('when validating HTTP outcome messages', () => {
 
     beforeEach(() => {
       sender = createUnsafeIdentity().address
-      validHttpOutcomeMessage = { sender, result: { transactionHash: '0xabcdef' } }
+      validHttpOutcomeMessage = { ...createStubOutcomeProof(), sender, result: { transactionHash: '0xabcdef' } }
     })
 
     it('should return the validated message', () => {
@@ -742,7 +762,7 @@ describe('when validating HTTP outcome messages', () => {
     let invalidHttpOutcomeMessage: Partial<HttpOutcomeMessage>
 
     beforeEach(() => {
-      invalidHttpOutcomeMessage = { result: { transactionHash: '0xabcdef' } }
+      invalidHttpOutcomeMessage = { ...createStubOutcomeProof(), result: { transactionHash: '0xabcdef' } }
     })
 
     it('should throw a validation error', () => {
@@ -755,7 +775,7 @@ describe('when validating HTTP outcome messages', () => {
       let messageWithInvalidSender: Record<string, unknown>
 
       beforeEach(() => {
-        messageWithInvalidSender = { sender: 'invalid-sender-address', result: { data: 'test' } }
+        messageWithInvalidSender = { ...createStubOutcomeProof(), sender: 'invalid-sender-address', result: { data: 'test' } }
       })
 
       it('should throw a validation error', () => {
@@ -767,7 +787,7 @@ describe('when validating HTTP outcome messages', () => {
       let messageWithoutPrefix: Record<string, unknown>
 
       beforeEach(() => {
-        messageWithoutPrefix = { sender: '1234567890123456789012345678901234567890', result: { data: 'test' } }
+        messageWithoutPrefix = { ...createStubOutcomeProof(), sender: '1234567890123456789012345678901234567890', result: { data: 'test' } }
       })
 
       it('should throw a validation error', () => {
@@ -780,7 +800,11 @@ describe('when validating HTTP outcome messages', () => {
     let messageWithValidSender: Record<string, unknown>
 
     beforeEach(() => {
-      messageWithValidSender = { sender: '0x1234567890123456789012345678901234567890', result: { data: 'test' } }
+      messageWithValidSender = {
+        ...createStubOutcomeProof(),
+        sender: '0x1234567890123456789012345678901234567890',
+        result: { data: 'test' }
+      }
     })
 
     it('should return the message with the valid sender', () => {
@@ -793,6 +817,7 @@ describe('when validating HTTP outcome messages', () => {
 
     beforeEach(() => {
       messageWithLongErrorMessage = {
+        ...createStubOutcomeProof(),
         sender: '0x1234567890123456789012345678901234567890',
         error: { code: 1000, message: 'a'.repeat(MAX_ERROR_MESSAGE_LENGTH + 1) }
       }
@@ -808,6 +833,7 @@ describe('when validating HTTP outcome messages', () => {
 
     beforeEach(() => {
       messageWithMaxErrorMessage = {
+        ...createStubOutcomeProof(),
         sender: '0x1234567890123456789012345678901234567890',
         error: { code: 1000, message: 'a'.repeat(MAX_ERROR_MESSAGE_LENGTH) }
       }

@@ -1,7 +1,11 @@
+import { RequestAlreadyHasResponseError, RequestExpiredError, loadActiveRequest } from '../../logic/requests'
 import { AppComponents } from '../../types'
+import { OutcomeResponseMessage } from '../server/types'
 import { IStorageComponent, StorageRequest, StorageIdentity, IdentityStatus } from './types'
 
 const REQUESTS_CACHE_KEY_PREFIX = 'request:'
+const OUTCOME_CACHE_KEY_PREFIX = 'request-outcome:'
+const OUTCOME_CLAIM_KEY_PREFIX = 'request-outcome-claim:'
 const REQUEST_IDS_BY_SOCKET_ID_CACHE_KEY_PREFIX = 'requestIdsBySocketId:'
 const IDENTITIES_BY_ID_CACHE_KEY_PREFIX = 'identity:'
 const IDENTITY_STATUS_CACHE_KEY_PREFIX = 'identity-status:'
@@ -20,6 +24,7 @@ function secondsUntilExpiration(expiration: Date): number {
   return Math.max(1, Math.ceil((expiration.getTime() - Date.now()) / 1000))
 }
 
+/** Creates cache-backed request storage, including single-writer outcome reservation. */
 export function createStorageComponent({ cache }: Pick<AppComponents, 'cache'>): IStorageComponent {
   const getRequestCacheKey = (requestId: string) => {
     return `${REQUESTS_CACHE_KEY_PREFIX}${requestId}`
@@ -38,6 +43,9 @@ export function createStorageComponent({ cache }: Pick<AppComponents, 'cache'>):
     if (!raw) return null
     return {
       ...raw,
+      // Separate, write-once outcome storage prevents a concurrent validation update (which
+      // writes an older request snapshot) from erasing or replacing the accepted answer.
+      response: (await cache.get<OutcomeResponseMessage>(`${OUTCOME_CACHE_KEY_PREFIX}${requestId}`)) ?? raw.response,
       expiration: toDate(raw.expiration)
     }
   }
@@ -70,6 +78,28 @@ export function createStorageComponent({ cache }: Pick<AppComponents, 'cache'>):
 
   const getRequestIdForSocketId = async (socketId: string): Promise<string | null> => {
     return (await cache.get<string>(getRequestIdsBySocketIdCacheKey(socketId))) ?? null
+  }
+
+  const recordOutcome = async (
+    requestId: string,
+    outcome: OutcomeResponseMessage,
+    authorizationExpiresAt: number
+  ): Promise<StorageRequest> => {
+    const request = await loadActiveRequest({ getRequest, setRequest }, requestId, { rejectIfHasResponse: true })
+    const remainingMs = request.expiration.getTime() - Date.now()
+    if (remainingMs <= 0 || authorizationExpiresAt <= Date.now()) throw new RequestExpiredError(requestId)
+    // One attempt, using the shared cache's atomic lock primitive (Redis SET NX in production).
+    // Keep this claim until request expiry. Never release it after a failed/uncertain write:
+    // accepting another answer could overwrite an outcome whose write actually succeeded.
+    const claimed = await cache.tryAcquireLock(`${OUTCOME_CLAIM_KEY_PREFIX}${requestId}`, {
+      ttlInMilliseconds: Math.ceil(remainingMs),
+      retries: 1
+    })
+    if (!claimed) throw new RequestAlreadyHasResponseError(requestId)
+    const current = await loadActiveRequest({ getRequest, setRequest }, requestId, { rejectIfHasResponse: true })
+    if (authorizationExpiresAt <= Date.now() || current.expiration.getTime() <= Date.now()) throw new RequestExpiredError(requestId)
+    await cache.set(`${OUTCOME_CACHE_KEY_PREFIX}${requestId}`, outcome, secondsUntilExpiration(current.expiration))
+    return { ...current, response: outcome }
   }
 
   const getIdentity = async (identityId: string): Promise<StorageIdentity | null> => {
@@ -130,6 +160,7 @@ export function createStorageComponent({ cache }: Pick<AppComponents, 'cache'>):
   return {
     getRequest,
     setRequest,
+    recordOutcome,
     getRequestIdForSocketId,
     getIdentity,
     setIdentity,
