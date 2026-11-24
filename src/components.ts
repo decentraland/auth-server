@@ -11,6 +11,7 @@ import { createTracerComponent } from '@dcl/tracer-component'
 import { createFeatureFlagsAdapter } from './adapters/feature-flags'
 import { createL1Provider } from './adapters/l1-provider'
 import { createMagicAdapter } from './adapters/magic'
+import { mountBodySizeBound } from './controllers/body-size'
 import { createAccountDeletionComponent } from './logic/account-deletion'
 import { parseCorsOrigins } from './logic/cors'
 import { createIdentityVerifierComponent } from './logic/identity-verifier'
@@ -20,7 +21,7 @@ import { createPgComponent } from './ports/db/component'
 import { createEmailComponent } from './ports/email/component'
 import { createNudgeJobComponent } from './ports/nudge-job/component'
 import { createOnboardingComponent } from './ports/onboarding/component'
-import { MAX_BODY_SIZE_BYTES } from './ports/server/constants'
+import { MAX_REQUEST_MESSAGE_SIZE_BYTES } from './ports/server/constants'
 import { createStorageComponent } from './ports/storage/component'
 import { AppComponents, GlobalContext } from './types'
 
@@ -38,16 +39,21 @@ export async function initComponents(): Promise<AppComponents> {
     methods: (await config.requireString('CORS_METHODS')).split(',')
   }
 
+  const serverCors = {
+    origin: cors.origin,
+    methods: cors.methods
+  }
   const server = await createServerComponent<GlobalContext>(
     { config, logs },
     {
-      cors: {
-        origin: cors.origin,
-        methods: cors.methods
-      },
-      maxBodySize: MAX_BODY_SIZE_BYTES
+      cors: serverCors,
+      // The largest body any route takes. Each route's own bound is held by mountBodySizeBound.
+      maxBodySize: MAX_REQUEST_MESSAGE_SIZE_BYTES
     }
   )
+  // Ahead of every other middleware and router (CORS and metrics included), so no request is handled
+  // with a body past its route's bound.
+  mountBodySizeBound(server, serverCors)
 
   if (!metrics.registry) {
     throw new Error('Metrics registry is not available')

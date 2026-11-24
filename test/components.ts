@@ -11,6 +11,7 @@ import { ISlackComponent } from '@dcl/slack-component'
 import { createRunner } from '@dcl/test-helpers'
 import { createTracerComponent } from '@dcl/tracer-component'
 import { IMagicAdapter } from '../src/adapters/magic'
+import { mountBodySizeBound } from '../src/controllers/body-size'
 import { createAccountDeletionComponent } from '../src/logic/account-deletion'
 import { parseCorsOrigins } from '../src/logic/cors'
 import { createIdentityVerifierComponent } from '../src/logic/identity-verifier'
@@ -19,7 +20,7 @@ import { metricDeclarations } from '../src/metrics'
 import { IEmailComponent } from '../src/ports/email/types'
 import { createNudgeJobComponent } from '../src/ports/nudge-job/component'
 import { createOnboardingComponent } from '../src/ports/onboarding/component'
-import { MAX_BODY_SIZE_BYTES } from '../src/ports/server/constants'
+import { MAX_REQUEST_MESSAGE_SIZE_BYTES } from '../src/ports/server/constants'
 import { createStorageComponent } from '../src/ports/storage/component'
 import { main } from '../src/service'
 import { GlobalContext, TestComponents } from '../src/types'
@@ -158,13 +159,15 @@ async function initComponents(overrides: TestOverrides = {}): Promise<TestCompon
     methods: (await config.requireString('CORS_METHODS')).split(',')
   }
 
+  const serverCors = { origin: cors.origin, methods: cors.methods }
   const server = await createServerComponent<GlobalContext>(
     { config, logs },
     {
-      cors: { origin: cors.origin, methods: cors.methods },
-      maxBodySize: MAX_BODY_SIZE_BYTES
+      cors: serverCors,
+      maxBodySize: MAX_REQUEST_MESSAGE_SIZE_BYTES
     }
   )
+  mountBodySizeBound(server, serverCors)
 
   await instrumentHttpServerWithPromClientRegistry({ metrics, server, config, registry: metrics.registry })
 

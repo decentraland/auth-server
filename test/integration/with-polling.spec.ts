@@ -1,11 +1,13 @@
+import http from 'node:http'
 import { Socket } from 'socket.io-client'
 import { Authenticator, AuthIdentity } from '@dcl/crypto'
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
 import { TestArguments } from '@dcl/test-helpers'
+import { MAX_BODY_SIZE_BYTES, MAX_REQUEST_MESSAGE_SIZE_BYTES } from '../../src/ports/server/constants'
 import { MessageType, OutcomeResponseMessage, RequestResponseMessage, RequestValidationMessage } from '../../src/ports/server/types'
 import { BaseComponents } from '../../src/types'
 import { test, testWithOverrides } from '../components'
-import { createHttpClient, createAuthWsClient, HttpPollingClient } from '../utils'
+import { createHttpClient, createAuthWsClient, HttpPollingClient, metaTransactionTypedData, streamedBodyInit } from '../utils'
 import { createTestIdentity, generateRandomIdentityId } from '../utils/test-identity'
 
 /**
@@ -156,6 +158,32 @@ test('when sending a request message', args => {
       const response = await clients.http.request({
         method: 'personal_sign',
         params: ['Please sign to confirm your order', '0x1234567890123456789012345678901234567890'],
+        authChain: identity.authChain
+      })
+
+      expect(response).toEqual({
+        requestId: expect.any(String),
+        expiration: expect.any(String),
+        code: expect.any(Number)
+      })
+    })
+  })
+
+  describe('and the method signs typed data as large as a NAME claim paid with Credits', () => {
+    const identity = useTestIdentity()
+    let params: string[]
+
+    beforeEach(() => {
+      params = ['0x1234567890123456789012345678901234567890', metaTransactionTypedData(16_000)]
+    })
+
+    it('should respond with the data of the request for a body larger than any other route takes', async () => {
+      // The premise: a body this size is refused on every other route.
+      expect(JSON.stringify(params).length).toBeGreaterThan(MAX_BODY_SIZE_BYTES)
+
+      const response = await clients.http.request({
+        method: 'eth_signTypedData_v4',
+        params,
         authChain: identity.authChain
       })
 
@@ -569,5 +597,173 @@ test('when getting the request validation status of a request that should be val
     expect(response).toEqual({
       requiresValidation: true
     })
+  })
+})
+
+test('when a body is larger than the bound of the route it is sent to', args => {
+  const clients = usePollingClients(args)
+  const identity = useTestIdentity()
+  let url: string
+
+  beforeEach(async () => {
+    url = `http://localhost:${await args.components.config.requireString('HTTP_SERVER_PORT')}`
+  })
+
+  describe('and the route reads its body, which declares its length', () => {
+    it('should respond with a 413 Payload Too Large that a cross-origin client can read', async () => {
+      const response = await fetch(`${url}/v2/requests/${generateRandomIdentityId()}/outcome`, {
+        method: 'POST',
+        body: JSON.stringify({ sender: '0x1234567890123456789012345678901234567890', result: 'x'.repeat(MAX_BODY_SIZE_BYTES) }),
+        headers: [
+          ['Content-Type', 'application/json'],
+          ['Origin', 'http://localhost:3000']
+        ]
+      })
+
+      expect(response.status).toBe(413)
+      expect(response.headers.get('access-control-allow-origin')).toBe('http://localhost:3000')
+    })
+  })
+
+  describe('and the route reads its body, which declares no length', () => {
+    it('should respond with a 413 Payload Too Large', async () => {
+      const response = await fetch(`${url}/v2/requests/${generateRandomIdentityId()}/outcome`, {
+        method: 'POST',
+        headers: [['Content-Type', 'application/json']],
+        ...streamedBodyInit(
+          JSON.stringify({ sender: '0x1234567890123456789012345678901234567890', result: 'x'.repeat(MAX_BODY_SIZE_BYTES) })
+        )
+      })
+
+      expect(response.status).toBe(413)
+    })
+  })
+
+  describe('and the route never reads its body, which declares no length', () => {
+    let requestResponse: RequestResponseMessage
+
+    beforeEach(async () => {
+      requestResponse = (await clients.http.request({
+        method: 'method',
+        params: [],
+        authChain: identity.authChain
+      })) as RequestResponseMessage
+    })
+
+    it('should respond with a 413 Payload Too Large without running the route', async () => {
+      const response = await fetch(`${url}/v2/requests/${requestResponse.requestId}/validation`, {
+        method: 'POST',
+        headers: [['Content-Type', 'application/json']],
+        ...streamedBodyInit('x'.repeat(MAX_BODY_SIZE_BYTES + 1))
+      })
+
+      expect(response.status).toBe(413)
+      // The route would have marked the request as one to validate.
+      expect(await clients.http.getRequestValidationStatus(requestResponse.requestId)).toEqual({ requiresValidation: false })
+    })
+  })
+
+  describe('and the route creates a request, with a body over the bound of a request that declares its length', () => {
+    it('should respond with a 413 Payload Too Large', async () => {
+      const response = await fetch(`${url}/requests`, {
+        method: 'POST',
+        body: JSON.stringify({ method: 'eth_signTypedData_v4', params: ['x'.repeat(MAX_REQUEST_MESSAGE_SIZE_BYTES)] }),
+        headers: [['Content-Type', 'application/json']]
+      })
+
+      expect(response.status).toBe(413)
+    })
+  })
+
+  describe('and the route creates a request, with a body over the bound of a request that declares no length', () => {
+    it('should respond with a 413 Payload Too Large rather than an invalid JSON error', async () => {
+      const response = await fetch(`${url}/requests`, {
+        method: 'POST',
+        headers: [['Content-Type', 'application/json']],
+        ...streamedBodyInit(JSON.stringify({ method: 'eth_signTypedData_v4', params: ['x'.repeat(MAX_REQUEST_MESSAGE_SIZE_BYTES)] }))
+      })
+
+      expect(response.status).toBe(413)
+    })
+  })
+})
+
+test('when creating a request with a body that is not JSON, within the bound of a request', args => {
+  let url: string
+
+  beforeEach(async () => {
+    url = `http://localhost:${await args.components.config.requireString('HTTP_SERVER_PORT')}`
+  })
+
+  it('should respond with a 400 and an invalid JSON error', async () => {
+    const response = await fetch(`${url}/requests`, {
+      method: 'POST',
+      headers: [['Content-Type', 'application/json']],
+      ...streamedBodyInit(`{"method": "eth_signTypedData_v4", "params": ["${'x'.repeat(MAX_BODY_SIZE_BYTES)}"`)
+    })
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: 'Bad request', message: 'Invalid JSON body' })
+  })
+})
+
+test('when a request is a CORS preflight', args => {
+  let url: string
+
+  beforeEach(async () => {
+    url = `http://localhost:${await args.components.config.requireString('HTTP_SERVER_PORT')}`
+  })
+
+  describe('and it carries no body', () => {
+    it('should respond with a 204 and the CORS headers', async () => {
+      const response = await fetch(`${url}/requests`, {
+        method: 'OPTIONS',
+        headers: [
+          ['Origin', 'http://localhost:3000'],
+          ['Access-Control-Request-Method', 'POST']
+        ]
+      })
+
+      expect(response.status).toBe(204)
+      expect(response.headers.get('access-control-allow-origin')).toBe('http://localhost:3000')
+    })
+  })
+
+  describe('and it carries a body larger than the default bound', () => {
+    it('should respond with a 413 Payload Too Large', async () => {
+      const response = await fetch(`${url}/requests`, {
+        method: 'OPTIONS',
+        headers: [
+          ['Origin', 'http://localhost:3000'],
+          ['Access-Control-Request-Method', 'POST']
+        ],
+        body: 'x'.repeat(MAX_BODY_SIZE_BYTES + 1)
+      })
+
+      expect(response.status).toBe(413)
+    })
+  })
+})
+
+test('when a GET request announces a body without declaring its length', args => {
+  let port: number
+
+  beforeEach(async () => {
+    port = Number(await args.components.config.requireString('HTTP_SERVER_PORT'))
+  })
+
+  it('should respond with a 413 Payload Too Large', async () => {
+    // fetch can't send a GET body: a raw chunked request does.
+    const status = await new Promise<number | undefined>((resolve, reject) => {
+      const request = http.request({ port, method: 'GET', path: '/health/live', headers: { 'transfer-encoding': 'chunked' } }, response => {
+        response.resume()
+        resolve(response.statusCode)
+      })
+      request.on('error', reject)
+      request.write('x'.repeat(1024))
+      request.end()
+    })
+
+    expect(status).toBe(413)
   })
 })
