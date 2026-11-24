@@ -1,6 +1,9 @@
 import { Authenticator, AuthIdentity } from '@dcl/crypto'
+import { signedHeaderFactory } from 'decentraland-crypto-fetch'
 import { IMagicAdapter, MagicTokenInvalidError } from '../../src/adapters/magic'
+import { MAX_BODY_SIZE_BYTES } from '../../src/ports/server/constants'
 import { test } from '../components'
+import { streamedBodyInit } from '../utils'
 import { createSignedFetchRequest } from '../utils/signed-request'
 import { createTestIdentity, generateRandomIdentityId } from '../utils/test-identity'
 
@@ -229,6 +232,54 @@ test('when deleting a Magic account', args => {
       })
 
       expect(response.status).toBe(400)
+    })
+  })
+
+  describe('and the request carries a body larger than the route takes', () => {
+    let identity: AuthIdentity
+    let signer: string
+    let didToken: string
+    let magic: jest.Mocked<Pick<IMagicAdapter, 'validateDidToken' | 'requestUserDeletion'>>
+    let headers: Headers
+
+    beforeEach(async () => {
+      identity = await createTestIdentity()
+      signer = Authenticator.ownerAddress(identity.authChain).toLowerCase()
+      const tid = generateRandomIdentityId()
+      didToken = `did-token-${tid}`
+      magic = args.components.magic as jest.Mocked<Pick<IMagicAdapter, 'validateDidToken' | 'requestUserDeletion'>>
+      magic.validateDidToken.mockReturnValue({ address: signer, issuer: `did:ethr:${signer}`, iat: Math.floor(Date.now() / 1000), tid })
+      magic.requestUserDeletion.mockResolvedValue({ processed: [signer], unprocessed: [] })
+      // A valid signed fetch: the signature covers the method, path and metadata, not the body.
+      headers = signedHeaderFactory()(
+        identity,
+        'DELETE',
+        '/accounts',
+        { didToken },
+        { origin: allowedOrigin, 'Content-Type': 'application/json' }
+      )
+    })
+
+    describe('and the body declares its length', () => {
+      it('should respond with a 413 without deleting the account', async () => {
+        const response = await fetch(`${baseUrl}/accounts`, { method: 'DELETE', headers, body: 'x'.repeat(MAX_BODY_SIZE_BYTES + 1) })
+
+        expect(response.status).toBe(413)
+        expect(magic.requestUserDeletion).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('and the body declares no length', () => {
+      it('should respond with a 413 without deleting the account', async () => {
+        const response = await fetch(`${baseUrl}/accounts`, {
+          method: 'DELETE',
+          headers,
+          ...streamedBodyInit('x'.repeat(MAX_BODY_SIZE_BYTES + 1))
+        })
+
+        expect(response.status).toBe(413)
+        expect(magic.requestUserDeletion).not.toHaveBeenCalled()
+      })
     })
   })
 })

@@ -117,3 +117,60 @@ export async function createAuthWsClient(port: number | string): Promise<Socket<
     ioClient.on('connect', handleOnConnect)
   })
 }
+
+/**
+ * The typed data of a CreditsManager meta-transaction whose `functionData` is `calldataHexLength`
+ * hex characters long, as the Explorer sends it in an `eth_signTypedData_v4` request. The typed data
+ * of a NAME claim paid with Credits measured 16,573 characters, nearly all of it the `useCredits`
+ * calldata wrapping the bridge route: about 16,000 hex characters.
+ */
+export function metaTransactionTypedData(calldataHexLength: number): string {
+  return JSON.stringify({
+    // EIP-712 names its types in PascalCase.
+    types: {
+      // eslint-disable-next-line @typescript-eslint/naming-convention
+      EIP712Domain: [
+        { name: 'name', type: 'string' },
+        { name: 'version', type: 'string' },
+        { name: 'verifyingContract', type: 'address' },
+        { name: 'salt', type: 'bytes32' }
+      ],
+      // eslint-disable-next-line @typescript-eslint/naming-convention
+      MetaTransaction: [
+        { name: 'nonce', type: 'uint256' },
+        { name: 'from', type: 'address' },
+        { name: 'functionData', type: 'bytes' }
+      ]
+    },
+    domain: {
+      name: 'Decentraland Credits',
+      version: '1',
+      verifyingContract: '0x1234567890123456789012345678901234567890',
+      salt: '0x0000000000000000000000000000000000000000000000000000000000000089'
+    },
+    primaryType: 'MetaTransaction',
+    message: {
+      nonce: '0',
+      from: '0x1234567890123456789012345678901234567890',
+      functionData: `0x${'ab'.repeat(calldataHexLength / 2)}`
+    }
+  })
+}
+
+/**
+ * The init of a fetch whose body is `text` sent as a stream, in two chunks, so the request declares
+ * no `Content-Length` and the server only learns its size by reading it.
+ */
+export function streamedBodyInit(text: string): RequestInit {
+  const bytes = new TextEncoder().encode(text)
+  const half = Math.floor(bytes.byteLength / 2)
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes.slice(0, half))
+      controller.enqueue(bytes.slice(half))
+      controller.close()
+    }
+  })
+  // `duplex` is required by fetch for a streamed body and missing from the DOM typings.
+  return { body, duplex: 'half' } as RequestInit
+}

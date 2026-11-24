@@ -3,7 +3,13 @@ import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
 import { MAX_AUTH_CHAIN_LENGTH } from '@dcl/crypto-middleware'
 import { AuthChain, AuthLinkType } from '@dcl/schemas'
 import { isEphemeralMessage } from '../../src/logic/auth-chain'
-import { MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from '../../src/ports/server/constants'
+import {
+  MAX_METHOD_LENGTH,
+  MAX_PARAMS_ITEMS,
+  MAX_ERROR_MESSAGE_LENGTH,
+  MAX_REQUEST_ID_LENGTH,
+  MAX_REQUEST_PARAMS_SIZE_BYTES
+} from '../../src/ports/server/constants'
 import {
   RequestMessage,
   RecoverMessage,
@@ -128,6 +134,60 @@ describe('when validating request messages', () => {
 
     it('should return a message with the max number of params', () => {
       expect(validateRequestMessage(messageWithMaxParams).params).toHaveLength(MAX_PARAMS_ITEMS)
+    })
+  })
+
+  // A single string param serializes as `["…"]`: its JSON is the string plus 4 bytes.
+  describe('and the params serialize to exactly the maximum size', () => {
+    let messageAtMaxSize: ValidatedRequestMessage
+
+    beforeEach(() => {
+      messageAtMaxSize = {
+        method: 'eth_signTypedData_v4',
+        params: ['x'.repeat(MAX_REQUEST_PARAMS_SIZE_BYTES - 4)],
+        authChain: createStubAuthChain()
+      }
+    })
+
+    it('should return the validated message', () => {
+      expect(validateRequestMessage(messageAtMaxSize)).toEqual(messageAtMaxSize)
+    })
+  })
+
+  describe('and the params serialize to one byte over the maximum size', () => {
+    let messageOverMaxSize: ValidatedRequestMessage
+
+    beforeEach(() => {
+      messageOverMaxSize = {
+        method: 'eth_signTypedData_v4',
+        params: ['x'.repeat(MAX_REQUEST_PARAMS_SIZE_BYTES - 3)],
+        authChain: createStubAuthChain()
+      }
+    })
+
+    it('should throw an error naming the maximum size', () => {
+      expect(() => validateRequestMessage(messageOverMaxSize)).toThrow(
+        `The request params exceed the maximum size of ${MAX_REQUEST_PARAMS_SIZE_BYTES} bytes`
+      )
+    })
+  })
+
+  describe('and the params are under the maximum size in characters but over it in bytes', () => {
+    let messageWithMultiByteParams: ValidatedRequestMessage
+
+    beforeEach(() => {
+      // Each `é` is one character and two bytes in UTF-8.
+      messageWithMultiByteParams = {
+        method: 'eth_signTypedData_v4',
+        params: ['é'.repeat((MAX_REQUEST_PARAMS_SIZE_BYTES - 4) / 2 + 1)],
+        authChain: createStubAuthChain()
+      }
+    })
+
+    it('should throw an error naming the maximum size', () => {
+      expect(() => validateRequestMessage(messageWithMultiByteParams)).toThrow(
+        `The request params exceed the maximum size of ${MAX_REQUEST_PARAMS_SIZE_BYTES} bytes`
+      )
     })
   })
 

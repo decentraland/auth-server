@@ -2,10 +2,11 @@ import { Socket } from 'socket.io-client'
 import { Authenticator, AuthIdentity } from '@dcl/crypto'
 import { createUnsafeIdentity } from '@dcl/crypto/dist/crypto'
 import { TestArguments } from '@dcl/test-helpers'
+import { MAX_BODY_SIZE_BYTES, MAX_REQUEST_PARAMS_SIZE_BYTES } from '../../src/ports/server/constants'
 import { MessageType, RequestResponseMessage, RequestValidationMessage } from '../../src/ports/server/types'
 import { BaseComponents } from '../../src/types'
 import { test, testWithOverrides } from '../components'
-import { createAuthWsClient } from '../utils'
+import { createAuthWsClient, metaTransactionTypedData } from '../utils'
 import { createTestIdentity, generateRandomIdentityId } from '../utils/test-identity'
 
 /**
@@ -157,6 +158,48 @@ test('when sending a request message', args => {
         requestId: expect.any(String),
         expiration: expect.any(String),
         code: expect.any(Number)
+      })
+    })
+  })
+
+  describe('and the method signs typed data as large as a NAME claim paid with Credits', () => {
+    const identity = useTestIdentity()
+    let params: string[]
+
+    beforeEach(() => {
+      params = ['0x1234567890123456789012345678901234567890', metaTransactionTypedData(16_000)]
+    })
+
+    it('should respond with a request response message for a request larger than any other body', async () => {
+      // The premise: a message this size was dropped by the socket before it had its own bound.
+      expect(JSON.stringify(params).length).toBeGreaterThan(MAX_BODY_SIZE_BYTES)
+
+      const response = await clients.desktop.emitWithAck(MessageType.REQUEST, {
+        method: 'eth_signTypedData_v4',
+        params,
+        authChain: identity.authChain
+      })
+
+      expect(response).toEqual({
+        requestId: expect.any(String),
+        expiration: expect.any(String),
+        code: expect.any(Number)
+      })
+    })
+  })
+
+  describe('and the params are over their maximum size but the message still fits the socket', () => {
+    const identity = useTestIdentity()
+
+    it('should respond with an invalid response message naming the maximum size', async () => {
+      const response = await clients.desktop.emitWithAck(MessageType.REQUEST, {
+        method: 'eth_signTypedData_v4',
+        params: ['0x1234567890123456789012345678901234567890', 'x'.repeat(MAX_REQUEST_PARAMS_SIZE_BYTES)],
+        authChain: identity.authChain
+      })
+
+      expect(response).toEqual({
+        error: `The request params exceed the maximum size of ${MAX_REQUEST_PARAMS_SIZE_BYTES} bytes`
       })
     })
   })
@@ -513,6 +556,38 @@ test('when sending an outcome message but the socket that created the request di
       sender,
       result: 'result'
     })
+
+    expect(outcomeResponse).toEqual({})
+  })
+})
+
+test('when the auth dapp sends an outcome message larger than any message but a signing request', args => {
+  const clients = connectClients(args)
+  const identity = useTestIdentity()
+  let sender: string
+  let requestId: string
+
+  beforeEach(async () => {
+    sender = createUnsafeIdentity().address
+    const requestResponse = await clients.desktop.emitWithAck(MessageType.REQUEST, {
+      method: 'method',
+      params: [],
+      authChain: identity.authChain
+    })
+    requestId = requestResponse.requestId
+  })
+
+  it('should respond with an invalid response message naming the maximum size and store nothing', async () => {
+    const oversizedResponse = await clients.authDapp.emitWithAck(MessageType.OUTCOME, {
+      requestId,
+      sender,
+      result: 'x'.repeat(MAX_BODY_SIZE_BYTES)
+    })
+
+    expect(oversizedResponse).toEqual({ error: `The message exceeds the maximum size of ${MAX_BODY_SIZE_BYTES} bytes` })
+
+    // A request takes one outcome: had the oversized one been stored, this one would be refused.
+    const outcomeResponse = await clients.authDapp.emitWithAck(MessageType.OUTCOME, { requestId, sender, result: 'result' })
 
     expect(outcomeResponse).toEqual({})
   })

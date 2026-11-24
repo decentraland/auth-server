@@ -3,7 +3,14 @@ import addFormats from 'ajv-formats'
 import { MAX_AUTH_CHAIN_LENGTH } from '@dcl/crypto-middleware'
 import { AuthChain } from '@dcl/schemas'
 import { isEphemeralMessage } from '../../logic/auth-chain'
-import { DISALLOWED_METHODS, MAX_METHOD_LENGTH, MAX_PARAMS_ITEMS, MAX_ERROR_MESSAGE_LENGTH, MAX_REQUEST_ID_LENGTH } from './constants'
+import {
+  DISALLOWED_METHODS,
+  MAX_METHOD_LENGTH,
+  MAX_PARAMS_ITEMS,
+  MAX_ERROR_MESSAGE_LENGTH,
+  MAX_REQUEST_ID_LENGTH,
+  MAX_REQUEST_PARAMS_SIZE_BYTES
+} from './constants'
 import {
   HttpOutcomeMessage,
   OutcomeMessage,
@@ -214,6 +221,12 @@ export function isDisallowedMethod(method: string): boolean {
   return DISALLOWED_METHODS.has(method.trim().toLowerCase())
 }
 
+/** The size, in bytes, of `value` serialized to JSON as UTF-8 (0 for what JSON cannot represent). */
+export function serializedSize(value: unknown): number {
+  const json = JSON.stringify(value) as string | undefined
+  return json === undefined ? 0 : Buffer.byteLength(json, 'utf8')
+}
+
 export function validateRequestMessage(msg: unknown): ValidatedRequestMessage {
   if (!requestMessageValidator(msg)) {
     throw new Error(JSON.stringify(requestMessageValidator.errors))
@@ -226,6 +239,12 @@ export function validateRequestMessage(msg: unknown): ValidatedRequestMessage {
   if (isDisallowedMethod(requestMessage.method)) {
     // Normalised so the message is identical whatever casing the caller used.
     throw new Error(`The ${requestMessage.method.trim().toLowerCase()} method is not allowed`)
+  }
+
+  // A request this large still reached the handler, so it can be told why it is refused; one past
+  // the transport's bound never gets here (see MAX_REQUEST_PARAMS_SIZE_BYTES).
+  if (serializedSize(requestMessage.params) > MAX_REQUEST_PARAMS_SIZE_BYTES) {
+    throw new Error(`The request params exceed the maximum size of ${MAX_REQUEST_PARAMS_SIZE_BYTES} bytes`)
   }
 
   // Refuse any method used to sign a Decentraland ephemeral message, which would reproduce the

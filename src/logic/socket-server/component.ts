@@ -3,8 +3,9 @@ import * as Sentry from '@sentry/node'
 import { IBaseComponent } from '@well-known-components/interfaces'
 import { Server, Socket } from 'socket.io'
 import { getUnderlyingServer } from '@dcl/http-server'
-import { MAX_BODY_SIZE_BYTES } from '../../ports/server/constants'
-import { InvalidResponseMessage } from '../../ports/server/types'
+import { MAX_BODY_SIZE_BYTES, MAX_REQUEST_MESSAGE_SIZE_BYTES } from '../../ports/server/constants'
+import { InvalidResponseMessage, MessageType } from '../../ports/server/types'
+import { serializedSize } from '../../ports/server/validations'
 import { AppComponents } from '../../types'
 import { isErrorWithMessage } from '../error-handling'
 import { getSocketRoutes } from './routes'
@@ -97,6 +98,13 @@ export async function createSocketServerComponent(
             .span(
               route.span,
               async () => {
+                // Only a signing request may use the whole buffer (MAX_REQUEST_MESSAGE_SIZE_BYTES). Any
+                // other message (an outcome, which is stored and forwarded, among them) is held to the
+                // HTTP routes' bound before its handler runs.
+                if (route.event !== MessageType.REQUEST && serializedSize(data) > MAX_BODY_SIZE_BYTES) {
+                  ack<InvalidResponseMessage>(cb, { error: `The message exceeds the maximum size of ${MAX_BODY_SIZE_BYTES} bytes` })
+                  return
+                }
                 const response = await route.handle(handlerContext, data)
                 ack(cb, response)
               },
@@ -124,8 +132,9 @@ export async function createSocketServerComponent(
     // http-server keeps handling every other request.
     const httpServer = await getUnderlyingServer<HttpServer>(server)
 
-    // The same bound as the HTTP transport: a socket message is a request like any other.
-    io = new Server(httpServer, { cors, maxHttpBufferSize: MAX_BODY_SIZE_BYTES })
+    // The same bound as `POST /requests`: the socket's largest message is a signing request, and
+    // socket.io drops anything above this buffer without an ack (see MAX_REQUEST_MESSAGE_SIZE_BYTES).
+    io = new Server(httpServer, { cors, maxHttpBufferSize: MAX_REQUEST_MESSAGE_SIZE_BYTES })
     io.on('connection', onConnection)
 
     logger.log('Socket server attached to the HTTP server')
